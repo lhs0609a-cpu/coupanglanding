@@ -7,7 +7,7 @@
  */
 
 import { generate } from './local-llm.mjs';
-import { buildDetailPrompt, pickPersona, categoryKind, leafForms } from './ai-prompts.mjs';
+import { buildDetailPrompt, pickPersona, categoryKind, leafForms, specTokens } from './ai-prompts.mjs';
 
 // 카테고리에 맞지 않는 감각 표현 = 환각(실측: 발아현미에 "과즙 같은 촉촉함"·"베어 물면 아삭",
 //   혼합곡에 "고급 포도"·"꽉 찬 과육"·"한 방울"·"향긋한 캡슐"). 먹는 상품 아닌데 맛·식감을,
@@ -32,6 +32,180 @@ function detectSensoryMismatch(text, kind, categoryPath = '', leaf = '') {
     if (hit.length) out.push(`이 상품은 과일·즙류가 아닌데 생과일 표현(${[...new Set(hit)].slice(0, 3).join(', ')})이 들어갔다. 실제 이 상품의 냄새·씹는 식감·풍미로 바꿔라(없는 과일·과즙을 지어내지 말 것).`);
   }
   return out;
+}
+
+// ── 딴 물건 환각 검출 ────────────────────────────────────────────────────
+//   실측 사고(2026-08-21): "기능성 쌀 혼합곡 18곡 4kg" 상세글이 처음부터 끝까지
+//   **물통 후기**로 나갔다 — "냉수통 1L", "냉수통을 손질하려면 물로 한번 헹구는 것만으로도".
+//   카테고리 판정(food)도, 금지어도, 과일어휘 검사도 전부 통과했다. 잡을 규칙이 없었던 것이다.
+//   원인은 둘: ① 핵심 특징이 비어 있어 모델이 근거 없이 자유연상했고 ② 문체 예시(home)의
+//   "올려놓고 써보니 / 물로 헹구면 끝" 장면이 통째로 옮겨오면서 주어까지 갈아치웠다.
+//
+//   → 일반 규칙으로 잡는다: **본문에서 가장 자주 불리는 물건이 이 상품이 아니면 환각이다.**
+//     상품 어휘(상품명·특징·판매자 사실·카테고리)에 없는 한글 명사가, 상품 이름보다 더 자주
+//     주어·목적어로 등장하면 그건 다른 상품 이야기다.
+
+/** 조사 — 어절 끝에서 떼어내 명사 원형을 얻는다. 긴 것부터 떼야 '보다는'이 '보'로 안 남는다. */
+const JOSA = [
+  '에서는', '에게는', '으로는', '이라는', '이라도', '까지는', '부터는', '에서도', '으로도',
+  '에서', '에게', '으로', '이라', '라는', '까지', '부터', '보다', '처럼', '조차', '마저',
+  '밖에', '이나', '이란', '한테', '든지',
+  '을', '를', '이', '가', '은', '는', '의', '에', '도', '와', '과', '만', '나', '랑', '로',
+];
+/** 주어·목적어 표지 — 이게 붙어야 "이야기의 대상"이다(부사구는 제외). */
+const SUBJ_OBJ = new Set(['을', '를', '이', '가', '은', '는']);
+
+/**
+ * 후기 글에 자연스럽게 나오는 배경어 — 상품으로 오인하면 안 된다.
+ * 넉넉하게 잡는다: 헛돈 재생성 한 번보다 환각 한 건 놓치는 편이 낫다는 뜻이 아니라,
+ * 진짜 환각(냉수통)은 이 목록에 없기 때문에 넉넉해도 검출력이 안 떨어진다.
+ */
+const AMBIENT_NOUNS = new Set([
+  // 거래·배송
+  '상품', '제품', '물건', '가격', '배송', '택배', '상자', '박스', '포장', '봉지', '비닐', '지퍼백',
+  '구매', '재구매', '주문', '선물', '판매자', '업체', '브랜드', '회사', '고객', '서비스', '문의', '답변',
+  // 사람·시간
+  '우리', '아이', '애들', '엄마', '아빠', '가족', '친구', '남편', '아내', '사람', '손님', '어른',
+  '아침', '점심', '저녁', '하루', '시간', '요즘', '예전', '나중', '지금', '매일', '며칠', '한번', '처음',
+  // 장소·가구
+  '집안', '주방', '부엌', '냉장고', '냉동실', '식탁', '테이블', '선반', '서랍', '거실', '베란다', '싱크대',
+  // 추상·평가
+  '생각', '느낌', '정도', '부분', '경우', '때문', '다음', '이번', '마음', '만족', '후기', '리뷰',
+  '문제', '방법', '필요', '이유', '자리', '공간', '크기', '무게', '색상', '모양', '냄새', '향기',
+  '식감', '종류', '가지', '하나', '여러', '얼마', '그것', '이것', '저것', '기분', '걱정', '고민',
+  '실패', '성공', '차이', '장점', '단점', '효과', '결과', '상태', '품질', '가성비', '온도', '습도',
+  '소리', '소음', '촉감', '질감', '두께', '길이', '높이', '너비', '디자인', '스타일', '사진', '화면',
+  // 행위
+  '사용', '요리', '반찬', '식사', '간식', '손질', '세척', '보관', '청소', '관리', '준비', '정리',
+  '마무리', '확인', '설명', '기대', '추천', '가족들', '물기', '한컵', '한줌',
+]);
+
+/** 어절에서 조사를 떼어 명사 원형을 얻는다. @returns {[stem, josa]|null} */
+function stripJosa(word) {
+  let w = String(word || '').replace(/[^가-힣]/g, '');
+  if (!w) return null;
+  for (const j of JOSA) {
+    if (w.length > j.length + 1 && w.endsWith(j)) return [w.slice(0, -j.length), j];
+  }
+  return [w, ''];
+}
+
+/**
+ * 본문의 "주인공"이 이 상품이 아니면 환각으로 본다.
+ * @param {string} text
+ * @param {{leafCount:number, vocab:string, leafVariants:string[]}} o
+ *   leafCount  상품 이름이 본문에 나온 횟수(countLeaf 결과)
+ *   vocab      이 상품이 아는 말 전부(상품명·원본명·특징·판매자 사실·카테고리)
+ * @returns {string[]} 하드 이슈(0개 또는 1개 — 가장 심한 것 하나만 지적해 교정지시를 흐리지 않는다)
+ */
+function detectForeignSubject(text, { leafCount = 0, vocab = '', leafVariants = [] } = {}) {
+  const t = String(text || '');
+  const flatVocab = String(vocab || '').replace(/\s+/g, '');
+  const counts = new Map();   // stem → {n, so}  (so = 주어/목적어로 쓰인 횟수)
+
+  for (const word of t.split(/[\s,.!?~…"'()\[\]-]+/)) {
+    const r = stripJosa(word);
+    if (!r) continue;
+    const [stem, josa] = r;
+    if (stem.length < 2 || stem.length > 7) continue;
+    if (AMBIENT_NOUNS.has(stem)) continue;
+    // 이 상품이 아는 말이면 환각이 아니다(부분 포함 양방향 — '혼합곡'/'곡물' 처럼 걸쳐 있어도 통과)
+    if (flatVocab.includes(stem)) continue;
+    if (leafVariants.some((v) => v && (stem.includes(v) || v.includes(stem)))) continue;
+    const c = counts.get(stem) || { n: 0, so: 0 };
+    c.n += 1;
+    if (SUBJ_OBJ.has(josa)) c.so += 1;
+    counts.set(stem, c);
+  }
+
+  // 판정: 상품 이름보다 자주 불리고(> leafCount), 세 번 이상 나오고, 주어·목적어로 두 번 이상 쓰인 말.
+  //   셋을 다 넘겨야 "글의 주인공"이다 — 스쳐 지나가는 소품은 여기까지 오지 않는다.
+  //
+  // ⭐ + "상품이 제대로 불린 글은 봐준다" (실측 2026-08-25, 코퍼스 24건).
+  //    바디로션 글의 "피부", 차량 거치대 글의 "스마트폰"이 딴 물건으로 찍혀 3회 재생성을
+  //    유발했다. 둘 다 딴 물건이 아니라 **그 상품이 작용하는 대상**이다 — 로션 후기가 피부
+  //    얘기를, 거치대 후기가 스마트폰 얘기를 안 할 수는 없다. 어휘 목록으로 막으면 카테고리마다
+  //    끝없이 늘어나므로, 원래의 사고(냉수통)와 구분되는 **구조적 차이**로 가른다:
+  //      · 진짜 환각(냉수통) = 상품 이름이 본문에 거의 안 나온다(글이 통째로 남의 물건 후기).
+  //      · 대상 명사(피부·스마트폰) = 상품 이름이 4~7회 멀쩡히 나온다.
+  //    그래서 상품 이름이 3회 이상 제대로 불린 글은 이 검사에서 빼 준다.
+  //    ⚠️ "몇 배 이상 압도하면 그래도 잡는다" 식의 배수 안전망은 두지 않았다 — 로션 글에서
+  //       피부가 상품명보다 네 배 나오는 건 정상이라 배수로는 정상글과 환각을 못 가른다.
+  //       내용이 딴 데로 새는 경우는 스펙 조작·과일 어휘·카테고리 어휘 검사가 따로 잡는다.
+  let worst = null;
+  for (const [stem, c] of counts) {
+    if (c.n < 3 || c.so < 2 || c.n <= leafCount) continue;
+    if (leafCount >= 3) continue;
+    if (!worst || c.n > worst.c.n) worst = { stem, c };
+  }
+  if (!worst) return [];
+  return [`이 상품이 아닌 다른 물건("${worst.stem}")을 상품인 것처럼 ${worst.c.n}번 썼다. `
+    + `이 글의 주인공은 오직 이 상품 하나다 — "${worst.stem}"를 전부 지우고, 이 상품 자체를 쓴 경험만 다시 써라.`];
+}
+
+/**
+ * 스펙 단위 — ai-prompts.specTokens 의 목록과 같아야 한다(같은 문자열을 양쪽에서 판정한다).
+ * ⚠️ 이 상수가 **없어서** detectFabricatedSpecs 가 호출되는 순간 ReferenceError 로 죽었다.
+ *    validateDetail → generatePerfectDetail → generateAllFields 사이에 try 가 없어, 상품명에
+ *    숫자+단위가 있는 상품(식품 대부분)은 **생성이 통째로 실패**했고 3건 연속이면 배치가
+ *    중단됐다(ai-batch ABORT_AFTER_CONSECUTIVE). 긴 단위를 앞에 둬야 '개입'이 '개'로 잘리지 않는다.
+ */
+const UNITS = 'kg|g|ml|l|리터|개입|개|입|팩|곡|매|정|포|구|병|캔|봉|세트|장|인용|단|겹|칸|권|족|미';
+
+/**
+ * 지어낸 스펙 검출 — 상품명에 있는 단위와 **같은 단위인데 값이 다른** 수치를 잡는다.
+ * ---------------------------------------------------------------------------
+ * 실측 사고: 4kg 상품 상세글에 "15kg를 시켜도 무르지 않아서"가 실렸다. 프롬프트에 예로 들어둔
+ *   숫자를 모델이 그대로 베낀 것이다(문체 예시를 베껴 냉수통을 지어낸 것과 같은 사고).
+ *   중량·용량은 틀리면 허위표시라 그냥 넘길 수 없다.
+ *
+ * 왜 "같은 단위, 다른 값"만 잡나:
+ *   "4kg을 500g씩 소분했어요" 처럼 단위가 다른 수치는 실제 후기에서 자연스럽게 나온다.
+ *   반면 같은 단위로 다른 값을 말하면 그건 이 상품의 스펙을 잘못 말한 것이다 — 오탐이 거의 없다.
+ *
+ * @param {string} text
+ * @param {string[]} specs   상품명에서 뽑은 스펙 토큰(specTokens 결과: ["18곡","4kg"])
+ * @param {string} vocab     판매자가 밝힌 사실까지 포함한 이 상품의 말(여기 있는 수치는 근거가 있다)
+ * @returns {string[]} 하드 이슈(최대 1개)
+ */
+function detectFabricatedSpecs(text, specs = [], vocab = '') {
+  const parse = (s) => {
+    const m = String(s).match(/^(\d+(?:\.\d+)?)\s*(.+)$/);
+    return m ? { v: m[1], u: m[2].toLowerCase() } : null;
+  };
+  // 상품명 스펙을 단위별로 모은다: kg → {"4"}
+  const allowed = new Map();
+  for (const sp of specs) {
+    const p = parse(sp);
+    if (!p) continue;
+    if (!allowed.has(p.u)) allowed.set(p.u, new Set());
+    allowed.get(p.u).add(p.v);
+  }
+  if (allowed.size === 0) return [];
+
+  const flatVocab = String(vocab || '').replace(/\s+/g, '').toLowerCase();
+  // ⚠️ 단위 뒤에 조사가 붙는다("15kg를"). 단위를 명시하지 않으면 'kg를'까지 단위로 먹어
+  // ⚠️ 뒤따르는 한글 조사("15kg를")를 lookahead 로 막으면 **아무것도 안 잡힌다** — 한국어는
+  //    수치 뒤에 늘 조사가 붙기 때문이다. 영문자만 막아 kg 가 kgf 로 이어지는 것만 걸러낸다.
+  //   ⚠️ 정규식은 **문자열 리터럴**로 만든다 — '\d' 는 작은따옴표 안에서 그냥 'd' 라서
+  //      \\d 로 써야 한다(예전 코드는 'd+' 를 찾고 있었다).
+  const found = String(text || '').match(new RegExp('\\d+(?:\\.\\d+)?\\s*(?:' + UNITS + ')(?![a-zA-Z])', 'gi')) || [];
+  for (const raw of found) {
+    const p = parse(raw.replace(/\s+/g, ''));
+    if (!p || !allowed.has(p.u)) continue;              // 상품명에 없는 단위는 보지 않는다
+    if (allowed.get(p.u).has(p.v)) continue;            // 상품명에 그대로 있는 값 → 정상
+    if (flatVocab.includes(`${p.v}${p.u}`)) continue;   // 판매자가 밝힌 사실에 있으면 정상
+    // ⭐ **상품 스펙보다 큰 값만** 잡는다. 같은 단위의 더 작은 수치는 실제 후기에서 자연스럽다
+    //    ("4kg을 1kg씩 소분했어요"). 반면 더 큰 값은 이 상품에 없는 용량을 말한 것이다
+    //    (실측 사고: 4kg 상품 상세글의 "15kg를 시켜도"). 이 구분이 없으면 소분 문장마다
+    //    헛돈 재생성이 걸린다 — 재생성 1회는 상세글 1개 값(800토큰)이다.
+    const maxAllowed = Math.max(...[...allowed.get(p.u)].map(Number).filter(Number.isFinite));
+    if (Number.isFinite(maxAllowed) && Number(p.v) < maxAllowed) continue;
+    const right = [...allowed.get(p.u)].map((v) => `${v}${p.u}`).join(', ');
+    return [`이 상품에 없는 수치("${p.v}${p.u}")를 썼다. 이 상품은 ${right}다 — 상품명에 적힌 수치만 쓰고, `
+      + `예시에 있던 숫자를 베끼지 마라(중량·용량을 다르게 쓰면 허위표시가 된다).`];
+  }
+  return [];
 }
 
 const BLOCK_TYPE_ORDER = [
@@ -66,6 +240,17 @@ const HARD_BANNED_RE = [
 ];
 
 // 광고체 최상급 — 재시도 대신 자동 순화(쿠팡 표시광고 안전 + 카피 에너지 유지).
+// 광고 상투구 중 **명사구 자리만 바꾸면 문법이 그대로인 것**만 치환한다.
+//   문장 구조를 건드리는 상투구("활력을 불어넣", "그 이상의 가치")는 여기서 손대면 비문이 되므로
+//   soft 경고로만 남긴다 — 기계가 확실히 고칠 수 있는 것만 기계가 고친다는 원칙.
+function softenAdCliches(text) {
+  return String(text || '')
+    .replace(/풍성한 식탁/g, '든든한 밥상')
+    .replace(/(완벽한|탁월한|소중한|현명한) 선택/g, '괜찮은 선택')
+    .replace(/후회하지 않으실/g, '만족하실')
+    .replace(/후회 없으실/g, '만족하실');
+}
+
 function softenSuperlatives(text) {
   return String(text || '')
     .replace(/최상의/g, '뛰어난').replace(/최고의/g, '뛰어난').replace(/최강의/g, '강력한')
@@ -103,6 +288,27 @@ function countLeaf(leaf, text) {
   }
   let c = 0, i = 0;
   while ((i = text.indexOf(leaf, i)) >= 0) { c++; i += leaf.length; }
+  // ⚠️ 붙여 쓴 합성 분류어(무알콜맥주·바디로션·차량용거치대)는 **사람이 그렇게 안 쓴다**.
+  //    실측(2026-08-25): "하이네켄 논알콜릭 330ml 24캔" 상세글이 무알콜·논알콜릭·맥주를
+  //    일곱 번 말하고도 "무알콜맥주" 라는 글자뭉치가 1회뿐이라 매번 SEO 미달로 재생성됐다.
+  //    더 나쁜 건 재생성이 모델을 몰아붙여 『"무알콜맥주" 고민하시는 분들』처럼 키워드를
+  //    따옴표째 박아 넣게 만든 것이다 — 규칙이 글을 망치고 있었다.
+  //    → 합성어는 **머리명사(맥주·로션·거치대)** 노출도 상품 노출로 인정한다.
+  //      머리명사가 곧 사람이 부르는 이름이라, 통과시켜도 "상품을 안 부른 글"은 통과 못 한다.
+  //    ⚠️ 띄어 쓴 분류어("비알콜 맥주", "남성 스포츠 맨투맨")도 같은 병이다 — 이때 머리명사는
+  //       **마지막 어절**이다. 붙여쓴 것만 봐주면 절반은 그대로 재생성을 유발한다(실측).
+  if (c < 2 && /[가-힣]/.test(leaf)) {
+    const words = leaf.trim().split(/\s+/);
+    const heads = words.length > 1
+      ? [words[words.length - 1]]                       // 띄어쓴 분류어 → 마지막 어절
+      : (leaf.length >= 4 ? [leaf.slice(-3), leaf.slice(-2)] : []); // 붙여쓴 합성어 → 꼬리 2~3글자
+    for (const head of heads) {
+      if (!head || head.length < 2) continue;
+      let hc = 0, j = 0;
+      while ((j = text.indexOf(head, j)) >= 0) { hc++; j += head.length; }
+      if (hc > c) c = hc;
+    }
+  }
   return c;
 }
 
@@ -122,6 +328,8 @@ export function cleanDetailOutput(raw) {
   // ⚠️ 마크다운 헤더(###)를 **먼저** 벗긴다 — 나중에 벗기면 "### 마무리" 가 라벨 필터를
   //    빠져나간 뒤 "마무리" 로 남는다(실측).
   t = t.replace(/^\s*#{1,6}\s*/gm, '');
+  // 모델이 첫 줄에 다는 제목 접두("후기 글: …", "리뷰: …") — 상세페이지 본문에 제목은 없다.
+  t = t.replace(new RegExp(`^\\s*(?:후기|리뷰|사용기)\\s*(?:글|내용)?\\s*[:：]\\s*`, 'i'), '');
   // ⚠️ 프롬프트의 "뼈대 단계 이름"을 모델이 그대로 소제목으로 출력하는 일이 잦다
   //    ("후킹 한 문장:", "문제 증폭:", "망설임 해소:", "추천 대상:", "마무리:").
   //    글의 설계도가 본문에 새는 것이므로 라인 통째/앞머리 라벨을 모두 걷어낸다.
@@ -129,6 +337,8 @@ export function cleanDetailOutput(raw) {
   const SCAFFOLD = '헤드라인|불릿|추천\\s*대상|핵심\\s*장점|핵심\\s*특징\\s*\\d?|상세\\s*페이지(\\s*(본문|카피|글|문구))?|카피\\s*라이터|후킹(\\s*한\\s*문장)?|문제\\s*증폭|해결(\\s*:.*)?|망설임(\\s*해소)?|마무리|도입부|결론|본문|감각\\s*묘사|구매\\s*권유|cta';
   t = t.split('\n')
     .filter((line) => !new RegExp(`^\\s*\\[?(${SCAFFOLD})\\]?\\s*[:：]?\\s*$`, 'i').test(line))
+    // "핵심 장점- 노이즈캔슬링 기능: …" 처럼 라벨 뒤에 불릿이 곧바로 붙는 형태(실측 누출)
+    .map((line) => line.replace(new RegExp(`^(\\s*)(?:${SCAFFOLD})\\s*[-*•]\\s+`, 'i'), '$1- '))
     .map((line) => line.replace(new RegExp(`^(\\s*(?:[-*•]\\s*)?)\\[?(?:${SCAFFOLD})\\]?\\s*[:：]\\s*`, 'i'), '$1'))
     .join('\n');
   // 말미에 붙는 부록(구분선 + "SEO 키워드:" 목록 등) 잘라내기 — 본문이 아니다.
@@ -145,6 +355,21 @@ export function cleanDetailOutput(raw) {
     if (/(요|다|죠|까|네|답|함)[.!?~…]*$/.test(s)) return true; // 어미로 끝나면 본문
     return !PROMPT_ECHO_LINE.test(s);
   }).join('\n');
+  // ⚠️ 설계도(뼈대) 줄이 **뒷말을 달고** 새어 나온다 — 실측 코퍼스: "문제 증폭 한두 문장",
+  //    "해결 — 비타민을 만나고 뭐가 달라졌는지", "어떤 사람에게 좋은지", "마무리 한 문장"이
+  //    소제목처럼 본문에 실렸다. 위 SCAFFOLD 필터는 "라벨만 있는 줄"($ 앵커)만 잡아 이런 줄을
+  //    전부 통과시켰다. 프롬프트에 "단계 이름을 쓰지 마라"고 적어 둬도 모델은 계속 베낀다
+  //    → 기계로 지울 수 있는 결함에 재생성을 태우지 않는다(generatePerfectDetail 주석).
+  //    판정: **짧고 + 어미로 끝나지 않고 + 단계 이름으로 시작하는** 줄만 버린다.
+  //    본문 문장은 어미(~요/~다/~죠…)로 끝나므로 걸리지 않는다.
+  const SCAFFOLD_HEAD = new RegExp(
+    `^\\s*(?:\\d[).]|[-*•])?\\s*\\[?(?:${SCAFFOLD}|어떤\\s*사람|누구\\s*에게|어떤\\s*순간|위험\\s*제거)`, 'i');
+  t = t.split('\n').filter((line) => {
+    const s = line.trim();
+    if (!s || s.length > 45) return true;                        // 긴 줄 = 본문 문장
+    if (/(요|다|죠|까|네|답|함)[.!?~…]*$/.test(s)) return true;   // 어미로 끝나면 본문
+    return !SCAFFOLD_HEAD.test(s);
+  }).join('\n');
   t = t.replace(/\*\*\s*-\s*/g, '- ');          // "**- " 깨진 불릿 마커 정리
   // ⭐ 마크다운 볼드/밑줄/별표 전면 제거 — 상세글에 '**' 리터럴이 그대로 보인다는 실사용 지적.
   //    렌더러(detail-page-builder)가 <strong> 으로 바꿔주긴 하지만, 편집 화면·미리보기·
@@ -156,9 +381,44 @@ export function cleanDetailOutput(raw) {
   // 문장 종결 직후 같은 줄에 붙은 불릿("…했어요.- **☀️")을 새 단락의 불릿 줄로 분리.
   // [ \t]만 허용 → 줄바꿈은 넘지 않으므로 이미 분리된/연속된 불릿은 건드리지 않는다.
   t = t.replace(/([^\n\t ])[ \t]*-[ \t]+(\*\*)/g, '$1\n\n- $2');
+  // ⚠️ 위 규칙은 뒤에 '**' 가 붙은 형태만 잡는다 — 별표를 안 쓰면 그대로 붙어 버린다.
+  //    실측: "핵심 장점들을 몇 가지 꼽아보면요:- 긴 기간 사용 가능: …" 처럼 **첫 불릿이
+  //    도입 문장에 들러붙어** 불릿으로 세어지지도, 목록으로 렌더되지도 않았다(그래서
+  //    "불릿이 없다"로 재생성까지 갔다). 콜론·문장부호 뒤의 "- " 는 불릿 시작으로 본다.
+  //    앞을 문장부호로 한정해 "5 - 10분" 같은 범위 표기는 건드리지 않는다.
+  t = t.replace(/([:：.!?])[ \t]*-[ \t]+(?=\S)/g, '$1\n- ');
   t = softenSuperlatives(t);
+  t = softenAdCliches(t);
   t = fixAdjCopula(t);                          // "달콤함이 우수입니다" 류 비문 교정
-  return t.replace(/\n{3,}/g, '\n\n').trim();
+  return normalizeParagraphs(t.replace(/\n{3,}/g, '\n\n').trim());
+}
+
+/**
+ * 빈 줄 없이 한 줄씩 쓴 글을 **문단으로 승격**한다.
+ *
+ * 왜: 모델은 후킹·증폭·해결·불릿·마무리를 제대로 나눠 쓰면서도 그 사이를 **홑 줄바꿈**으로만
+ * 띄운다. 그런데 검증(validateDetail)은 문단을 `\n{2,}` 로 세기 때문에, 구조가 멀쩡한 14줄짜리
+ * 글이 "문단 1개"로 집계돼 "문단 구성이 부족하다"로 재생성됐다. 실측(코퍼스 24건, 2026-08-25):
+ * 재생성 사유 1위가 이것이었다(7건 = 전체의 29%). 글이 아니라 **집계가 틀린 것**이라 다시
+ * 쓰게 할 이유가 없다 — 상세글 한 편(≈800토큰, 25초)을 통째로 버리는 값이 붙는다.
+ *
+ * 규칙: 이미 문단이 3개 이상이면 손대지 않는다. 아니면 홑 줄바꿈을 문단 경계로 올리되,
+ * **연달아 붙은 불릿은 한 덩어리로 유지**한다(목록이 문단마다 쪼개지면 렌더가 깨진다).
+ */
+function normalizeParagraphs(text) {
+  const t = String(text || '');
+  const already = t.split(/\n{2,}/).filter((s) => s.trim().length >= 10).length;
+  if (already >= 3) return t;
+  const lines = t.split('\n').map((s) => s.trim()).filter(Boolean);
+  if (lines.length < 3) return t;
+  const isBullet = (l) => /^[-*•]\s*\S/.test(l);
+  const blocks = [];
+  for (const line of lines) {
+    const prev = blocks[blocks.length - 1];
+    if (prev && isBullet(line) && isBullet(prev.split('\n')[0])) blocks[blocks.length - 1] = `${prev}\n${line}`;
+    else blocks.push(line);
+  }
+  return blocks.join('\n\n');
 }
 
 // 도서/외국도서 — "치료·장애" 등이 책 주제어일 수 있고, 외국도서는 영어가 정상.
@@ -245,6 +505,48 @@ export function repairDetail(text, { leaf, categoryPath = '', seoKeywords = [] }
       }
     }
   }
+  // ⑤ 제목줄 제거 — 모델이 첫 줄에 "상품명 + 후기" 같은 제목을 단다(실측: "기능성 쌀 혼합곡
+  //    18곡 4kg 후기"). 상세페이지 본문에 제목은 필요 없고, 상품명이 통째로 박히면 비문이다.
+  {
+    const lines = t.split('\n');
+    const first = (lines[0] || '').trim();
+    const isTitle = first.length > 0 && first.length <= 45
+      && !/[.!?~…]$/.test(first)
+      && /(후기|리뷰|사용기|추천|솔직)\s*$/.test(first);
+    if (isTitle) { lines.shift(); t = lines.join('\n').replace(/^\s+/, ''); fixed.push('제목줄 제거'); }
+  }
+
+  // ⑥ 불릿 마커 중복 정리 — "- - 조용한 환경" 처럼 마커가 두 번 붙어 나온다(실측).
+  if (/^\s*[-*•]\s+[-*•]\s+/m.test(t)) {
+    t = t.replace(/^(\s*)[-*•]\s+[-*•]\s+/gm, '$1- ');
+    fixed.push('불릿 마커 중복 정리');
+  }
+
+  // ⑦ 라벨식 불릿 → 문장 불릿. "- 다양한 요리 활용 가능: 샐러드나 볶음밥에도 훌륭했어요."
+  //    는 후기가 아니라 카탈로그다. 라벨만 떼면 뒤가 완결된 문장이라 그대로 읽힌다.
+  //    ⚠️ 라벨이 어미로 끝나면(= 이미 문장이면) 건드리지 않는다.
+  {
+    const before = t;
+    t = t.replace(/^(\s*[-*•]\s*)([가-힣A-Za-z0-9 ]{2,18}?)\s*:\s*(?=\S)/gm,
+      (m, mark, label) => (/(요|다|죠|까|네|음|함)$/.test(label.trim()) ? m : mark));
+    if (t !== before) fixed.push('라벨식 불릿 → 문장');
+  }
+
+  // ⑧ 광고 CTA 마무리 제거 — 프롬프트가 금지하는데도 "지금 바로 ~하세요", "놓치지 마세요"로
+  //    끝맺는다. 후기 글에 판매 멘트가 붙는 순간 신뢰가 깨지므로 그 문장만 들어낸다.
+  {
+    //   ⚠️ "드셔 보세요"·"한번 써보세요" 같은 자연스러운 권유는 남긴다 — 마케팅 명령형만 잡는다.
+    const CTA = /[^.!?~…\n]*(?:지금\s*바로|놓치지\s*마|서둘러|주문하세요|구매하세요|만나\s*보세요|만들어\s*보세요|시작해\s*보세요|경험해\s*보세요)[^.!?~…\n]*[.!?~…]*/g;
+    const before = t;
+    t = t.split('\n').map((line) => {
+      if (!CTA.test(line)) { CTA.lastIndex = 0; return line; }
+      CTA.lastIndex = 0;
+      const cut = line.replace(CTA, '').replace(/\s{2,}/g, ' ').trim();
+      // 문장을 들어내고 남은 게 없으면 줄째로 버린다(빈 줄은 아래 공백 정규화가 정리한다).
+      return cut.length >= 6 ? cut : '';
+    }).join('\n');
+    if (t !== before) { t = t.replace(/\n{3,}/g, '\n\n').trim(); fixed.push('광고 CTA 문장 제거'); }
+  }
   return { text: t, fixed };
 }
 
@@ -256,8 +558,14 @@ export function repairDetail(text, { leaf, categoryPath = '', seoKeywords = [] }
  *   잡으면 영원히 못 고치는 결함이 된다(실측: bebeone 기저귀커버 4/56, 자기 브랜드명).
  * @returns {{ok:boolean, issues:string[]}}
  */
-export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = [], allowLatin = [] } = {}) {
+export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = [], allowLatin = [], vocab = '', specs = [] } = {}) {
   const issues = [];
+  // ── soft = "재생성 지시로는 쓰되 최종 판정(검수필요)에는 넣지 않는 것" ────────────
+  //   ⚠️ 예전엔 이 선언이 함수 중간(불릿 검사 아래)에 있었는데 **위쪽 불릿 검사가 이미
+  //      soft.push 를 호출**하고 있었다 → 불릿이 정확히 2개인 글마다
+  //      "Cannot access 'soft' before initialization" 로 검증기가 죽었고, 그 상품은
+  //      생성 자체가 실패했다(호출 경로에 try 가 없다). 선언을 맨 위로 올린다.
+  const soft = [];
   const t = String(text || '');
   const book = isBookCategory(categoryPath);
   const foreignBook = isForeignBook(categoryPath);
@@ -342,13 +650,18 @@ export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = []
   const lines = t.split('\n').map((s) => s.trim()).filter(Boolean);
   const bullets = lines.filter((l) => /^[-*•]\s*\S/.test(l)).length;
   const paras = t.split(/\n{2,}/).filter((s) => s.trim().length >= 10).length;
-  if (bullets < 2 && paras < 3) issues.push('구조가 부족하다. 헤드라인 + 핵심 장점 불릿 3~5개 + 마무리로 구성하라.');
+  // ⚠️ 예전 조건(bullets < 2 && paras < 3)은 **문단만 많으면 통과**라, 불릿 0개짜리 벽글이
+  //    그대로 나갔다(실측 사고 글이 정확히 그랬다 — 6문단 0불릿). 쿠팡 상세는 모바일에서
+  //    훑어 읽히므로 스캔 가능한 불릿이 없으면 전환이 안 된다.
+  if (bullets < 2) issues.push(`핵심 장점 불릿이 없다. 스펙 나열이 아니라 "그래서 생활이 어떻게 편해졌는지"를 담은 불릿(- 로 시작하는 줄)을 3~5개 넣어라.`);
+  else if (bullets < 3) soft.push('불릿이 부족하다. 핵심 장점 불릿을 3~5개로 늘려라.');
+  if (paras < 3) issues.push('문단 구성이 부족하다. 고민 → 장면·감각 → 핵심 장점 → 마무리로 나눠 써라.');
 
   // ── 후기 글다움 4종(soft) ──────────────────────────────────────────────
   //   ⚠️ soft = "재생성은 시키되, 끝까지 못 고쳐도 검수필요로는 안 찍는다".
   //      문체는 취향의 영역이라 hard 로 걸면 전 상품이 검수필요로 도배되고, 매번 3회
   //      재생성해서 느려진다. 재생성 지시로는 쓰되 최종 판정은 내용 결함(hard)으로만 한다.
-  const soft = [];
+  //   (soft 배열 선언은 이 함수 맨 위로 옮겼다 — 위쪽 불릿 검사가 먼저 쓴다.)
   const cliches = AD_CLICHES.filter((c) => t.includes(c));
   if (cliches.length >= 2) {
     soft.push(`광고 상투구(${cliches.slice(0, 3).join(', ')})를 빼고, 실제 겪은 장면과 구체적인 이득으로 바꿔라.`);
@@ -393,6 +706,37 @@ export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = []
   // 카테고리 불일치 감각어(먹는 것 아닌데 과즙·아삭, 곡물인데 포도·과육·캡슐) = 환각 → 하드 재생성
   for (const msg of detectSensoryMismatch(t, categoryKind(categoryPath, leaf), categoryPath, leaf)) issues.push(msg);
 
+  // ⭐ 딴 물건 환각 — 상세글 사고 중 가장 치명적이다(곡물 상세글이 통째로 물통 후기가 된 실측 사고).
+  //    "본문의 주인공이 이 상품이 아니다"는 카테고리·금지어·감각어 검사로는 안 잡힌다.
+  const leafCnt = lf.display ? Math.max(0, ...lf.variants.map((v) => countLeaf(v, t))) : 0;
+  for (const msg of detectForeignSubject(t, { leafCount: leafCnt, vocab, leafVariants: lf.variants })) {
+    issues.push(msg);
+  }
+
+  // ⭐ 지어낸 수치 — 중량·용량을 다르게 쓰면 허위표시다(실측: 4kg 상품에 "15kg").
+  for (const msg of detectFabricatedSpecs(t, specs, vocab)) issues.push(msg);
+
+  // ⭐ 상품명에 적힌 스펙 숫자("4kg","18곡")가 본문에 하나도 없으면 팔리지 않는다.
+  //    구매자는 "얼마나 되는지"로 결심하고, 그 숫자 자체가 쿠팡 검색어이기도 하다.
+  //    ⚠️ soft 다 — 기계로 자연스럽게 끼워 넣을 수 없고, 이것 때문에 전 상품을 검수필요로
+  //       도배하면 검수 화면이 무의미해진다. 재생성 지시로만 쓴다.
+  const specList = (specs || []).filter((x) => typeof x === 'string' && x.trim());
+  if (specList.length) {
+    const flatT = t.replace(/\s/g, '').toLowerCase();
+    if (!specList.some((sp) => flatT.includes(sp.replace(/\s/g, '').toLowerCase()))) {
+      soft.push(`상품명에 적힌 스펙(${specList.join(', ')}) 중 최소 하나를 본문에 그대로 써라 — 구매자는 양·크기를 알아야 결심한다.`);
+    }
+  }
+  // 첫 문단에 상품 이름 — 쿠팡도 구매자도 맨 위부터 읽는다(soft).
+  if (lf.display && !foreignBook) {
+    // 첫 두 문단까지 본다 — 뼈대상 1문단은 고민 후킹이라 상품 이름이 안 나오는 게 정상이다
+    //   (1문단만 강제하면 "칭찬으로 시작하지 마라" 지시와 정면으로 부딪힌다).
+    const head = t.split(new RegExp(`\\n{2,}`)).slice(0, 2).join(" ");
+    if (!lf.variants.some((v) => countLeaf(v, head) > 0)) {
+      soft.push(`글 첫머리(1~2문단)에 상품 이름("${lf.display}")이 한 번은 나와야 한다.`);
+    }
+  }
+
   return { ok: issues.length === 0, issues, soft };
 }
 
@@ -425,7 +769,10 @@ function fixAdjCopula(t) {
   return String(t || '')
     .replace(/(우수|뛰어난|훌륭|탁월|충분|간편|편리|풍부|깔끔|신선|저렴|넉넉|든든|튼튼)입니다/g,
       (m, w) => `${w === '뛰어난' ? '뛰어납' : `${w}합`}니다`)
-    .replace(/(뛰어난)합니다/g, '뛰어납니다');
+    .replace(/(뛰어난)합니다/g, '뛰어납니다')
+    // '…하기에 우수였어요' 류 — '입니다' 형만 고치고 있어서 해요체 후기에서 그대로 새어나갔다(실측).
+    .replace(/(우수|훌륭|탁월|충분|간편|편리|풍부|깔끔|신선|저렴|넉넉|든든|튼튼)(?:였|이었)(어요|습니다|다)/g,
+      (m, w, e) => w + '했' + e);
 }
 
 /** 단락 → 블록 시퀀스(쿠팡 렌더러용). */
@@ -455,14 +802,17 @@ export async function generatePerfectDetail({
   model, originalName, categoryPath, leaf, features = [], seoKeywords = [], sourceFacts = [],
   // ⭐ 기본 2회 — 재생성은 결함을 못 줄인다(실측). 결정론적 교정으로 못 고치는 것
   //    (길이 미달·한자 혼입·지시문 잔존·감각 환각)에만 1회 더 기회를 준다.
-  seed, maxTokens = 1300, maxAttempts = 2, onAttempt = () => {},
+  seed, maxTokens = 1300, maxAttempts = 3, onAttempt = () => {},
 }) {
   const realLeaf = (leaf || (categoryPath || '').split('>').pop() || originalName || '').trim();
   const persona = pickPersona(seed || originalName || categoryPath || 'seed');
   const p = { originalName, categoryPath, features, leaf: realLeaf, seoKeywords, sourceFacts };
   // 상품 자신의 영문 브랜드/모델명 — "영어 누출"로 잡히면 재생성해도 영원히 안 고쳐진다.
   const allowLatin = (String(originalName || '').match(/[A-Za-z]{2,}/g) || []);
-  const vctx = { leaf: realLeaf, categoryPath, seoKeywords, allowLatin };
+  // 이 상품이 "아는 말" 전부 — 여기에 없는 명사가 본문의 주인공이면 딴 물건 환각이다.
+  const vocab = [originalName, categoryPath, realLeaf, ...features, ...sourceFacts, ...seoKeywords]
+    .filter(Boolean).join(' ');
+  const vctx = { leaf: realLeaf, categoryPath, seoKeywords, allowLatin, vocab, specs: specTokens(originalName) };
 
   let best = null;
   let fixNote = '';
@@ -487,7 +837,9 @@ export async function generatePerfectDetail({
     // 더 나은 후보 선정: hard 결함이 우선, 같으면 soft 가 적은 쪽.
     const rank = (h, s) => h.length * 10 + s.length;
     if (!best || rank(issues, soft) < rank(best.issues, best.soft)) best = { text, issues, soft };
-    fixNote = [...issues, ...soft].join(' ');
+    // 교정지시는 **내용 결함(hard) 먼저, 문체(soft)는 두 개까지**. 예전엔 전부 이어 붙여서
+    //   지시가 길어지고 초점이 흐려졌다(재생성이 난수 재추첨이 된 이유 중 하나다).
+    fixNote = [...issues, ...soft.slice(0, 2)].join(' ');
   }
 
   // 통과 못 함 — 가장 결함 적은 결과 반환.

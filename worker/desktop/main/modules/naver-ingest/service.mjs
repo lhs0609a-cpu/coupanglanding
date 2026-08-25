@@ -103,8 +103,16 @@ export function initService({ store, send, userDataDir, getAccount, getToken, we
   // 네이버를 한 번씩 방문해 NID_SES 를 갱신한다(요청 1회, 로그인 화면을 거치지 않는다).
   startKeepAlive({ onLog: pushLog });
   // 지난번에 켜 뒀으면 그대로 이어서 돈다 — 셀러 요청이 앱 재시작으로 방치되면 안 된다.
-  const qw = store?.get('naverIngestQueueWorker', null);
-  if (qw?.on) {
+  //
+  // ★ 기본값이 **켜짐 + 미리채움**이다(예전엔 꺼짐이라 아무도 안 켜면 영영 안 돌았다).
+  //   근거: 상세 준비는 네이버 게이트가 분당 12건으로 묶는다 — 셀러가 100개를 고른 **뒤에**
+  //   뽑기 시작하면 아무리 잘 만들어도 최소 8.3분이 그 자리에서 사라진다(설계도 §7-2).
+  //   20분 예산의 절반을 거기서 태울 수는 없으므로, **고르기 전에 이미 뽑혀 있어야 한다.**
+  //   미리채움(idle)은 요청이 없을 때만 남는 예산을 쓰고, 품절 감시(monitor)는 게이트에서
+  //   우선순위 0 이라 굶지 않는다. 셀러 요청도 서버 정렬(요청수 desc)에서 항상 앞선다.
+  //   관리자가 아니면 서버가 잡을 주지 않으므로(claimJobs 가 빈 배열) 도는 것 자체가 무해하다.
+  const qw = store?.get('naverIngestQueueWorker', null) || { on: true, idle: true };
+  if (qw.on) {
     queueOpts = { idle: !!qw.idle };
     queueTimer = setInterval(() => { queueTick().catch(() => {}); }, QUEUE_POLL_MS);
     if (queueTimer.unref) queueTimer.unref();
@@ -852,8 +860,21 @@ export async function importProducts({ products = [], rootDir = '', autoAllinone
   pushLog(`카탈로그에서 ${list.length}개를 가져옵니다 — 이미지만 받으므로 네이버 페이지는 열지 않습니다.`);
   pushStatus();
 
+  /**
+   * 상품을 **동시에** 굽는다.
+   * ---------------------------------------------------------------------------
+   * 예전엔 `for (const p of list)` 한 건씩이었다. 상품 1건은 이미지 25장을 받는 게 거의
+   * 전부인데, 그 25장이 다 끝나야 다음 상품이 시작됐다 —— 100개면 3~8분이 이 배리어에서
+   * 나왔다. 상품끼리는 서로를 참조하지 않는다(각자 제 폴더를 쓴다).
+   *
+   * ★ 네트워크로 나가는 양은 **1도 늘지 않는다.** 총량은 detail-extract 의 전역 예산
+   *   (CDN_LANES)이 정하고, 여기서 늘어나는 것은 그 예산을 놀리지 않고 채우는 것뿐이다.
+   *   상세 추출(네이버 페이지)과 달리 여기는 CDN 뿐이라 게이트·로그인·캡차가 없다.
+   */
+  const IMPORT_LANES = Math.max(1, Math.min(6, list.length));
   (async () => {
-    for (const p of list) {
+    let cursor = 0;
+    const one = async (p) => {
       importTask.current = p.title || p.productNo;
       try {
         // writeProductFolder 가 기대하는 모양으로 맞춘다(상세 추출 결과와 동일한 계약).
@@ -875,13 +896,18 @@ export async function importProducts({ products = [], rootDir = '', autoAllinone
           reviewImages: p.images?.review || [],
         }, { onLog: pushLog });
         importTask.ok += 1;
-        pushLog(`✅ ${importTask.done + 1}/${importTask.total} ${String(p.title || '').slice(0, 34)} — 대표 ${saved.mainImages}장 · 상세 ${saved.detailImages}장 · 리뷰 ${saved.reviewImages}장`);
+        // 진행 번호는 인덱스가 아니라 **완료 개수**다 — 동시 처리에선 순서대로 끝나지 않아
+        //   인덱스를 쓰면 웹 진행바가 뒤로 튄다(ai-batch·run-folder 와 같은 이유).
+        importTask.done += 1;
+        pushLog(`✅ ${importTask.done}/${importTask.total} ${String(p.title || '').slice(0, 34)} — 대표 ${saved.mainImages}장 · 상세 ${saved.detailImages}장 · 리뷰 ${saved.reviewImages}장`);
       } catch (e) {
         importTask.failed += 1;
-        pushLog(`❌ ${importTask.done + 1}/${importTask.total} 실패 — ${e?.message || e}`);
+        importTask.done += 1;
+        pushLog(`❌ ${importTask.done}/${importTask.total} 실패 — ${e?.message || e}`);
       }
-      importTask.done += 1;
-    }
+    };
+    const lane = async () => { while (cursor < list.length) await one(list[cursor++]); };
+    await Promise.all(Array.from({ length: IMPORT_LANES }, lane));
     importTask.running = false;
     importTask.current = '';
     importTask.stopped = '완료';
@@ -932,7 +958,19 @@ let queueBusy = false;
 let queueOpts = { idle: false };
 
 const QUEUE_POLL_MS = 60_000;
+/**
+ * 한 판이 붙잡고 있을 수 있는 최대 시간. 큐가 마를 때까지 도는 구조라 상한이 없으면
+ * idle 모드(미수집분 채우기)에서 한 판이 영영 끝나지 않는다 — 그러면 `kickQueue` 도,
+ * 설정 변경도 계속 'busy' 로 튕긴다. 끊어도 손해가 없다: 다음 주기가 이어서 집는다.
+ * 셀러 요청 100건은 8~12분이라 이 상한에 닿지 않는다.
+ */
+const DRAIN_MAX_MS = 20 * 60_000;
 
+/**
+ * 서버에서 다음 작업 묶음을 집어 온다.
+ * limit 은 곧 "창 수" 다 — 창보다 많이 쥐어 봐야 앞에서 줄만 서고, 앱이 꺼지면 그만큼
+ * 'running' 으로 묶인 채 30분을 남긴다(서버가 그때 회수한다).
+ */
 async function claimJobs(limit = 3) {
   const token = await deps.getToken?.();
   const origin = deps.webOrigin;
@@ -948,34 +986,93 @@ async function claimJobs(limit = 3) {
   } catch { return []; }
 }
 
+/** 상세 1건 — 뽑아서 서버에 올리고 결과를 로그로 남긴다. 예외를 밖으로 던지지 않는다. */
+async function runQueueJob(p, job, root) {
+  const r = await extractOne(p, job.url, root, { onLog: pushLog })
+    .catch((e) => ({ ok: false, url: job.url, error: String(e?.message || e) }));
+  // productNo 는 서버가 준 값을 쓴다 — 실패하면 data 가 없어 어디에 기록할지 모른다.
+  const up = await uploadDetail(r, { ...(r.data || {}), channelProductNo: job.product_no });
+  if (!up.ok && up.reason !== 'no-session') {
+    pushLog(`⚠️ 요청 상세 저장 실패(${up.reason}) — ${job.title || job.product_no}`);
+  }
+  delete r.data;
+  pushLog(r.ok
+    ? `✅ 요청 처리 — ${String(job.title || '').slice(0, 34)}`
+    : `❌ 요청 처리 실패 — ${String(job.title || '').slice(0, 34)}: ${r.error}`);
+  return !!r.ok;
+}
+
+/**
+ * 큐가 마를 때까지 **창 수만큼 동시에** 처리한다.
+ * ---------------------------------------------------------------------------
+ * 예전엔 3건을 `for...await` 로 한 건씩 처리하고 60초를 잤다. 창은 3개인데 1개만 일했고,
+ * 100건이면 34번 잠들어 50~150분이 걸렸다 —— 웹의 대기 한도(8분)를 구조적으로 넘겼다.
+ *
+ * ★ 네이버에 가는 부하는 1도 늘지 않는다. 총량은 `naverGate`(평균 5초 간격, capacity 1)가
+ *   강제하고 이 루프는 그 밖에 있다. 늘어나는 것은 **노는 창을 채우는 것뿐**이다.
+ *
+ * 사람이 직접 시킨 수집/추출이 끼어들면 **새로 집는 것만** 멈춘다. 이미 쥔 것(최대 창 수)은
+ * 끝까지 처리한다 — 서버에 반납하는 길이 없어서, 버리면 30분간 'running' 으로 남는다.
+ */
+async function drainQueue(p, root, want, seed = []) {
+  const buf = [...seed];
+  const until = Date.now() + DRAIN_MAX_MS;
+  let dry = false;
+  let cut = false;
+  let claiming = null;
+
+  const take = async () => {
+    for (;;) {
+      if (buf.length) return buf.shift();
+      if (dry) return null;
+      if (detail.running || collection.running) { dry = true; return null; }
+      if (Date.now() > until) { dry = true; cut = true; return null; }
+      // 서버에 손을 뻗는 건 한 번에 하나만 — 동시에 부르면 창 수보다 많이 쥔다.
+      if (!claiming) {
+        claiming = claimJobs(want)
+          .then((jobs) => { if (jobs.length) buf.push(...jobs); else dry = true; })
+          .catch(() => { dry = true; })
+          .finally(() => { claiming = null; });
+      }
+      await claiming;
+    }
+  };
+
+  let done = 0;
+  let ok = 0;
+  const worker = async () => {
+    for (;;) {
+      const job = await take();
+      if (!job) return;
+      if (await runQueueJob(p, job, root)) ok += 1;
+      done += 1;
+    }
+  };
+
+  await Promise.all(Array.from({ length: want }, () => worker()));
+  return { done, ok, cut };
+}
+
 async function queueTick() {
   if (queueBusy || detail.running || collection.running) return;   // 사람이 시킨 일이 우선이다
   queueBusy = true;
   try {
-    const jobs = await claimJobs(3);
-    if (!jobs.length) return;
+    const p = ensurePool();
+    // 차단이 감지되면 게이트가 권하는 창 수가 줄어든다 — 그 값을 그대로 따른다.
+    const want = Math.max(1, p.effectiveCount);
+    // 빈손인지 먼저 본다 — 큐가 비었는데 로그인·창을 깨우면 매분 헛되이 네이버를 두드린다.
+    const seed = await claimJobs(want);
+    if (!seed.length) return;
 
     // 로그인이 끊겨 있으면 되살린다(창을 잡기 전에 — 안 그러면 창 1개 설정에서 교착).
     await ensureNaverLogin().catch(() => null);
-
-    const p = ensurePool();
     if (!p.running) await p.start();
     const root = ensureRoot(join(deps.userDataDir || '.', 'naver-sourcing'));
-    pushLog(`셀러 요청 상세 ${jobs.length}건을 처리합니다.`);
+    pushLog(`셀러 요청 상세를 처리합니다 — 창 ${want}개 동시, 큐가 빌 때까지.`);
 
-    for (const job of jobs) {
-      const r = await extractOne(p, job.url, root, { onLog: pushLog })
-        .catch((e) => ({ ok: false, url: job.url, error: String(e?.message || e) }));
-      // productNo 는 서버가 준 값을 쓴다 — 실패하면 data 가 없어 어디에 기록할지 모른다.
-      const up = await uploadDetail(r, { ...(r.data || {}), channelProductNo: job.product_no });
-      if (!up.ok && up.reason !== 'no-session') {
-        pushLog(`⚠️ 요청 상세 저장 실패(${up.reason}) — ${job.title || job.product_no}`);
-      }
-      delete r.data;
-      pushLog(r.ok
-        ? `✅ 요청 처리 — ${String(job.title || '').slice(0, 34)}`
-        : `❌ 요청 처리 실패 — ${String(job.title || '').slice(0, 34)}: ${r.error}`);
-    }
+    const run = await drainQueue(p, root, want, seed);
+    pushLog(`요청 큐 정리 — 처리 ${run.done}건 · 성공 ${run.ok}건.`
+      + (run.cut ? ' 남은 것은 다음 주기에 이어서 처리합니다.' : ''));
   } catch (e) {
     pushLog(`요청 큐 처리 오류 — ${e?.message || e}`);
   } finally {
@@ -1014,7 +1111,8 @@ export function setQueueWorker({ on = true, idle = false } = {}) {
 }
 
 export function getQueueState() {
-  const saved = deps.store?.get('naverIngestQueueWorker', { on: false, idle: false }) || { on: false, idle: false };
+  // 기본값은 initService 와 같아야 한다 — 다르면 화면이 "꺼짐"이라 말하는데 실제로는 돌고 있다.
+  const saved = deps.store?.get('naverIngestQueueWorker', null) || { on: true, idle: true };
   return { ...saved, running: !!queueTimer, busy: queueBusy };
 }
 

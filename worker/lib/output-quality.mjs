@@ -77,6 +77,45 @@ export function checkDisplayName(name) {
   return { ok: issues.length === 0, issues };
 }
 
+/**
+ * 노출상품명이 **이 상품의 말**로 되어 있는가 — "다른 상품이 되어 버리는" 사고를 막는다.
+ * ---------------------------------------------------------------------------
+ * ⚠️ 실측(2026-08-21, 무인양품 냉수통 product_9284256050): 원본명·원본카테고리·사진이 전부
+ *    냉수통인데 노출명이 "기능성 쌀 혼합곡 18곡 4kg 기능성쌀 대용량 요리용 반찬용 혼합잡곡"
+ *    으로 나왔다. keywords 8개까지 ai-prompts 의 **예시(few-shot)와 글자 하나 안 틀리고 동일**
+ *    — 작은 로컬 모델이 상품 대신 프롬프트 예시를 베낀 것이다. 같은 배치의 복숭아도 두 번째
+ *    예시(깐마늘)를 그대로 베꼈다(11건 중 2건 = 18%).
+ *    checkDisplayName 은 문법·금지어만 봐서 "완벽한 명사구인 남의 상품"을 전부 통과시켰다.
+ * → 이름의 **머리 4토큰(=제품 정체)** 중 하나라도 상품 자신의 어휘(원본명·원본카테고리·특징·
+ *   브랜드)와 닿아 있어야 한다. 하나도 안 닿으면 그건 다른 상품이다.
+ *
+ * 왜 머리 4토큰만 보나: 뒤쪽은 검색 속성어(대용량·선물용…)라 원본에 없는 게 정상이다.
+ * 왜 부분일치를 허용하나: 한국어 상품명은 붙여쓰기 합성어다("레몬20과"⊃"레몬", "추희자두"⊃"추희").
+ */
+const GROUND_GENERIC = new Set([
+  '대용량', '소용량', '선물용', '요리용', '업소용', '가정용', '세트', '정품', '무료배송',
+  '신상품', '인기', '추천', '특가', '실중량', '개입', '단품', '묶음',
+]);
+const groundTokens = (s) => (String(s || '').toLowerCase().match(/[가-힣a-z0-9]+/g) || [])
+  .filter((t) => t.length >= 2 && !GROUND_GENERIC.has(t));
+
+export function checkNameGrounded(name, product = {}) {
+  const vocab = groundTokens([
+    product.originalName || '',
+    product.categoryPath || '',
+    product.brand || '',
+    ...(Array.isArray(product.features) ? product.features : []),
+  ].join(' '));
+  // 상품 쪽 어휘가 아예 없으면 판정할 근거가 없다 → 통과(다른 검사에 맡긴다).
+  if (vocab.length === 0) return { ok: true, issues: [] };
+  const head = groundTokens(name).slice(0, 4);
+  if (head.length === 0) return { ok: true, issues: [] };
+  const touches = head.some((t) => vocab.some((v) => v === t || v.includes(t) || t.includes(v)));
+  return touches
+    ? { ok: true, issues: [] }
+    : { ok: false, issues: ['노출명이 원본 상품과 무관(다른 상품 생성 의심)'] };
+}
+
 /** 같은 토큰이 3회 이상 반복되면 도배로 본다(재생성/정리 트리거). */
 function hasExcessiveRepeat(name) {
   const counts = new Map();

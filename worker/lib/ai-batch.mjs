@@ -8,7 +8,7 @@
  */
 import { generateAllFields } from './ai-generator.mjs';
 import { topCandidates } from './category-candidates-mini.mjs';
-import { topCandidatesEmbed, isBuilt as embedBuilt } from './category-embed-matcher.mjs';
+import { topCandidatesEmbed, topCandidatesFromVec, embedQueries, isBuilt as embedBuilt } from './category-embed-matcher.mjs';
 import { calculateSellingPrice } from './margin-mini.mjs';
 
 /**
@@ -23,9 +23,17 @@ function catMatchQuery(p) {
   const src = String(p.categoryPath || '').trim();
   const parts = src.split(/[>/｜|›»]/).map((s) => s.trim()).filter(Boolean);
   const srcLeaf = parts[parts.length - 1] || '';
+  // ⚠️ 원본 **대분류는 쿼리에서 뺀다**. 네이버 대분류 '생활/건강' 이 '생활'·'건강' 두 낱말로
+  //    쪼개지는데, 이 낱말들은 쿠팡 도서 카테고리명에 널려 있다(국내도서>가정 살림>육아/교육>
+  //    건강/식생활, 어린이>교양>자기계발>생활, 건강 취미>성생활 …).
+  //    실측(2026-08-21): 냉수통·도자기 밥용기의 후보 15개 중 6개가 도서로 채워졌고, 결국
+  //    **비식품 2건이 2건 다 도서로 등록 직전까지 갔다**. 대분류를 빼면 같은 상품의 후보가
+  //    '밀폐용기/세트 → 물통 → 기타보관용기' 로 정리된다.
+  //    대분류는 버려도 손해가 없다 — 가장 덜 구체적인 신호인 데다, 도메인 정합은
+  //    preferSourceDomain 이 따로 본다.
   return [
     srcLeaf, srcLeaf,                 // 원본 leaf 2회(가장 강한 신호 가중)
-    parts.join(' '),                  // 원본 경로 전체
+    parts.slice(1).join(' '),         // 원본 경로(대분류 제외 — 위 주석)
     p.originalName || '',
     p.brand || '',
     ...(Array.isArray(p.features) ? p.features : []),
@@ -38,14 +46,16 @@ function catMatchQuery(p) {
  * @param {Object} p  상품 { originalName, categoryPath(원본), brand, features }
  * @returns {Promise<{cands:Array, source:'embedding'|'token'|'token(embed-unavailable)'}>}
  */
-async function candidatesFor(p, k) {
+async function candidatesFor(p, k, qvec) {
   const q = catMatchQuery(p);
   const tok = topCandidates(q, k);
   const decisive = decisiveToken(tok);          // 토큰 매처가 "이건 딱 이거다" 라고 말하는가
 
   if (embedBuilt()) {
     try {
-      const emb = await topCandidatesEmbed(q, k);
+      // 미리 받아 둔 질의 벡터가 있으면 네트워크를 타지 않는다(순수 계산).
+      //   없을 때만 예전처럼 그 자리에서 부른다 — 그 경로는 생성 슬롯과 경쟁하므로 느리다.
+      const emb = qvec ? topCandidatesFromVec(qvec, k) : await topCandidatesEmbed(q, k);
       if (emb.length) {
         // ⭐ 임베딩 ∪ 토큰 — 둘은 서로 다른 실수를 한다. 임베딩은 의미는 잘 잡지만
         //    "나주배"처럼 품목명이 합성어 꼬리에 숨으면 '과일선물세트' 같은 인접 카테고리를
@@ -83,8 +93,39 @@ async function candidatesFor(p, k) {
  * 매핑 테이블을 박지 않는다 — 원본 대분류 글자와 후보 경로 앞부분의 겹침으로 판정한다
  *   ('자동차용품'↔'자동차용품', '패션의류'↔'패션의류잡화', '디지털/가전'↔'가전 디지털').
  */
+/**
+ * 원본 분류와 **절대 양립할 수 없는** 후보를 목록에서 아예 뺀다 — 고르기 전에 차단.
+ * ---------------------------------------------------------------------------
+ * 지금까지 이 규칙은 카테고리 프롬프트의 문장으로만 있었다("원본이 '맥주/음료'면 절대
+ * '도서/가구/완구'를 고르지 않는다"). 문장은 지켜지지 않았고, 지켜지지 않아도 아무도 안 막았다.
+ *
+ * 왜 하필 도서인가 — 쿠팡 도서 leaf 는 상품명이 아니라 **주제어**다("생활", "건강/식생활",
+ *   "가정 살림", "요리", "육아/교육"). 그래서 상품과 아무 상관 없는 일반어에도 잘 달라붙는다.
+ *   실측(2026-08-21): 네이버 대분류 '생활/건강' 의 낱말 '생활'·'건강' 만으로 후보 15개 중
+ *   6개가 도서로 찼고(34453 '건강/식생활' 은 leaf 의 80% 가 그 두 낱말로 설명된다 → 4.59점 5위),
+ *   비식품 2건이 2건 다 도서로 확정됐다.
+ *   게다가 최종 확정(snapToCandidate)은 토큰 겹침 **동점을 배열 순서로** 가른다 — 실측에서
+ *   80584·82008·80203·36018(도서)이 모두 3점 동점이었다. 즉 도서가 목록에 남아 있는 한
+ *   "우연히 앞자리면 도서" 가 된다.
+ * → 원본이 도서·음반류가 아니면 도서 후보는 애초에 보여 주지 않는다. 전부 걸러져 빈 목록이
+ *   되면(=진짜 도서일 수 있다) 원본을 그대로 둔다.
+ */
+// ⚠️ \b(단어경계)는 ASCII 기준이라 한글엔 안 먹는다 — /^도서\b/ 는 "도서 국내도서…" 를
+//    영원히 못 맞춘다(실측: 가드가 통째로 무효였다). 공백/문자열끝으로 직접 끊는다.
+const COUPANG_BOOK_TOP = /^(도서|음반|dvd|블루레이)(\s|$)/i;
+const SOURCE_IS_BOOKISH = /도서|서적|음반|dvd|블루레이|전자책|만화책|잡지|(^|[^가-힣])책([^가-힣]|$)/i;
+function dropImpossibleDomains(cands, p) {
+  if (SOURCE_IS_BOOKISH.test(String(p.categoryPath || ''))) return cands;
+  const kept = cands.filter((c) => !COUPANG_BOOK_TOP.test(String(c.path || '').trim()));
+  return kept.length > 0 ? kept : cands;
+}
+
 function preferSourceDomain(cands, p) {
-  const srcTop = String(p.categoryPath || '').split(/[>/｜|›»]/)[0] || '';
+  cands = dropImpossibleDomains(cands, p);
+  // ⚠️ 대분류는 '>' 로만 자른다. '/' 까지 자르면 '생활/건강' 이 '생활' 로 잘려 쿠팡 대분류와
+  //    아무것도 안 맞고, 그러면 이 앵커가 통째로 무력화된다(실측: 냉수통·밥용기가 도서로 갔을 때
+  //    일치 0건 → 원래 순서 유지 → 도서 후보가 그대로 위에 남았다).
+  const srcTop = String(p.categoryPath || '').split('>')[0] || '';
   const srcWords = (srcTop.toLowerCase().match(/[가-힣a-z0-9]+/g) || []).filter((w) => w.length >= 2);
   if (srcWords.length === 0) return cands;
   const agrees = (c) => {
@@ -135,13 +176,23 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
   // ⚡ 상품 단위 동시 실행 — 단일 GPU 라도 ollama 가 여러 요청을 하나의 배치로 디코딩해
   //    처리량이 크게 오른다(순차 1개는 GPU 를 다 못 쓴다). 동시수는 호출부가 남은 VRAM 을
   //    보고 정한다(부족하면 1 = 예전과 동일 동작). 결과는 인덱스로 넣어 순서를 보존한다.
+  // ── 카테고리 질의 벡터를 **생성 전에 한 번에** 받아 둔다 ────────────────────
+  //   임베딩은 텍스트 생성과 같은 ollama 슬롯을 쓴다. 생성 도중에 부르면 동시 6개가 도는
+  //   줄 뒤에 서서 수십 초를 기다린다(실측: 60초를 넘겨도 응답 없음 → 상한이 없던 옛 코드는
+  //   거기서 생성 전체가 멈췄다). 지금은 아무도 슬롯을 안 쓰는 이 시점에 전부 받는다.
+  //   실패하면 빈 배열이고, 그러면 상품마다 토큰 매칭으로 간다(설계된 폴백, 품질 하락은 있으나
+  //   멈추지는 않는다).
+  const qvecs = embedBuilt()
+    ? await embedQueries(products.map((p) => catMatchQuery(p)), { onLog: (m) => console.log(m) })
+    : [];
+
   const genOne = async (i) => {
     const p = products[i];
     const seed = `${sellerId}:${p.id || p.originalName}`;
     // 후보 15개 — LLM 이 의미로 고르는 단계라 리콜을 넉넉히 준다(프롬프트 비용은 미미).
     //   토큰 매칭 1위가 늘 정답은 아니지만(흔한 단어에 끌린 후보가 위로 올 수 있다),
     //   정답은 상위권에 들어오므로 LLM 이 원본 카테고리 앵커와 함께 고른다.
-    const { cands, source, decisive } = await candidatesFor(p, 15);
+    const { cands, source, decisive } = await candidatesFor(p, 15, qvecs[i]);
     sourceCounts[source] = (sourceCounts[source] || 0) + 1;
     const r = await generateAllFields(p, {
       model, personaSeed: seed, categoryCandidates: cands, maxDetailTokens, categoryDecisive: decisive,
@@ -170,6 +221,9 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
       options: r.options,
       detail: r.detail,
       persona: r.persona,
+      // 상세글 재생성 횟수·사유 — 속도 진단(bench-allinone-speed)과 검수 화면 참고용.
+      detailAttempts: r.detailAttempts ?? 1,
+      detailIssueLog: r.detailIssueLog || [],
       needsReview: r.needsReview,
       qualityIssues: r.qualityIssues || [],
       displaySalvaged: !!r.displaySalvaged,

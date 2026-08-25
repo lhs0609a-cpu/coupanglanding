@@ -6,10 +6,11 @@
  * 이미지(대표이미지)는 별도(ComfyUI) 단계 — 여기선 텍스트만.
  */
 import { generate, parseJsonLoose } from './local-llm.mjs';
-import { pickPersona, buildTitlePrompt, buildCategoryPrompt, buildOptionsPrompt } from './ai-prompts.mjs';
+import { pickPersona, buildTitlePrompt, buildCategoryPrompt } from './ai-prompts.mjs';
+import { deriveOptions } from './option-mini.mjs';
 import { generatePerfectDetail } from './detail-content-gen.mjs';
 import { checkMini } from './compliance-mini.mjs';
-import { checkDisplayName, sanitizeOptions, salvageDisplayName, stripNameFiller, hasForeignCJK } from './output-quality.mjs';
+import { checkDisplayName, checkNameGrounded, sanitizeOptions, salvageDisplayName, stripNameFiller, hasForeignCJK } from './output-quality.mjs';
 
 /** 파싱 실패/빈 키워드 대비 — 원본명·특징에서 검색 키워드 폴백 도출 */
 function deriveKeywords(product) {
@@ -181,13 +182,17 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   //   CPU 환경에서도 안전(정확도·검증 로직은 아래에서 각 결과에 그대로 적용).
   const candObjs = (categoryCandidates || []).map((c) => (typeof c === 'string' ? { code: null, path: c } : c));
   const tp = buildTitlePrompt(product, persona);
-  const op = buildOptionsPrompt(product);
+  // ⚡ 옵션은 **LLM 을 부르지 않는다**(상품당 4콜 → 2~3콜).
+  //    이유는 option-mini 주석에 자세히 적었다: 워커가 만든 옵션은 쿠팡 등록에 쓰이지 않는다.
+  //    웹이 서버 option-preview 로 원본명에서 다시 뽑아 통째로 덮고, 등록 페이로드도
+  //    preflight-builder 가 다시 추출한다. 자리표 하나에 출력 200토큰을 태울 이유가 없다.
+  const derivedOptions = deriveOptions(product);
   // ⚡ 카테고리 후보가 "압도적 1위" 면 LLM 을 아예 부르지 않는다(호출 4회 → 3회).
   //    후보 매칭이 이미 확정적인데(예: '나주배' → 배 단 하나) 다시 물어보는 건 시간낭비이자
   //    오답 유입 경로다. 확정적이지 않을 때만 LLM 이 의미로 고른다.
   const skipCatLlm = categoryDecisive && candObjs.length > 0;
   const emptyGen = { text: '', ms: 0, tokPerSec: null, ok: true, violations: [], retried: false };
-  const [titleRaw, catRaw, optRaw] = await Promise.all([
+  const [titleRaw, catRaw] = await Promise.all([
     genText({ model, ...tp, ctx }),
     skipCatLlm
       ? Promise.resolve({ ...emptyGen, text: JSON.stringify({ categoryPath: candObjs[0].path, confidence: 1 }) })
@@ -196,7 +201,6 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
       //    정작 이게 무슨 카테고리인지(=거치대) 파묻힌다. 실측으로 LLM 이 차량용 거치대를
       //    이어폰 액세서리 거치대로 골랐다 → 이름을 앞세우면 오선택이 준다.
       : genText({ model, ...buildCategoryPrompt(product, candObjs.map((c) => (c.leaf ? `${c.leaf} — ${c.path}` : c.path))), ctx }),
-    genText({ model, ...op, ctx }),
   ]);
 
   // 1) 노출상품명/제목 — 파싱 실패 시 원문을 그대로 저장하지 않고 복구(원문 누출 방지)
@@ -209,17 +213,26 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
     ? titleJson.keywords.filter((k) => typeof k === 'string' && k.trim() && !hasForeignCJK(k)).map((k) => k.trim())
     : [];
 
-  // ⚠️ 문장체("…재배한 기능성 쌀 입니다")·단어도배·품질미달이면 1회 재생성(엄격 지시).
+  // 이름 검사 = 형식(checkDisplayName) + **정체성**(checkNameGrounded).
+  //   정체성 검사가 없던 동안, 모델이 프롬프트 예시를 베껴 만든 "남의 상품 이름"이
+  //   형식만 멀쩡하다는 이유로 전부 통과했다(실측 18%). output-quality 주석 참조.
+  const nameIssues = (n) => (n
+    ? [...checkDisplayName(n).issues, ...checkNameGrounded(n, product).issues]
+    : ['빈 값']);
+
+  // ⚠️ 문장체("…재배한 기능성 쌀 입니다")·단어도배·정체성 불일치·품질미달이면 1회 재생성(엄격 지시).
   //    예전엔 곧장 salvage→원본명 폴백이라, 원본이 설명 문장이면 문장이 그대로 노출명이 됐다.
-  if (!displayName || !checkDisplayName(displayName).ok) {
-    const bad = displayName ? checkDisplayName(displayName).issues : ['빈 값'];
+  if (nameIssues(displayName).length > 0) {
+    const bad = nameIssues(displayName);
     const fixNote = `직전 결과 문제: ${bad.join(', ')}. 반드시 명사구로만(서술어·부사·조사·문장 금지), `
-      + `같은 단어 반복 금지, 50자 이상 길게, 검색되는 제품명+스펙+속성어를 나열.`;
+      + `같은 단어 반복 금지, 50자 이상 길게, 검색되는 제품명+스펙+속성어를 나열. `
+      + `core 는 반드시 "${String(product.originalName || '').slice(0, 60)}" 에 실제로 있는 명사로 시작할 것 `
+      + `— 예시(와인·마늘·쌀/잡곡)나 다른 상품의 말을 쓰면 실패다.`;
     try {
       const reRaw = await genText({ model, ...buildTitlePrompt(product, persona, { fixNote }), ctx });
       const reJson = parseJsonLoose(reRaw.text) || {};
       const reName = stripNameFiller(composeDisplayName(reJson, personaSeed || product.originalName));
-      if (reName && checkDisplayName(reName).ok) {
+      if (reName && nameIssues(reName).length === 0) {
         displayName = reName;
         const reKw = Array.isArray(reJson.keywords)
           ? reJson.keywords.filter((k) => typeof k === 'string' && k.trim() && !hasForeignCJK(k)).map((k) => k.trim()) : [];
@@ -229,9 +242,18 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   }
 
   let displaySalvaged = false;
-  if (!displayName || !checkDisplayName(displayName).ok) {
-    displayName = salvageDisplayName(titleJson.displayName || titleRaw.text, product.originalName);
+  let displayUngrounded = false;
+  if (nameIssues(displayName).length > 0) {
+    // ⚠️ 정체성이 깨진 경우(= 다른 상품)에는 LLM 출력에서 건져 봐야 소용없다 — 건질수록
+    //    그 "다른 상품"이 그대로 남는다. 원본 상품명으로 되돌리는 게 유일하게 안전한 값이다.
+    //    (원본명이 설명 문장이면 salvage 안의 stripNameFiller 가 명사구로 정리한다.)
+    displayUngrounded = !checkNameGrounded(displayName, product).ok;
+    displayName = displayUngrounded
+      ? salvageDisplayName(product.originalName, product.originalName)
+      : salvageDisplayName(titleJson.displayName || titleRaw.text, product.originalName);
     displaySalvaged = true;
+    // 베낀 이름에서 뽑힌 키워드도 남의 상품 것이다 — 버리고 아래에서 다시 도출한다.
+    if (displayUngrounded) keywords = [];
   }
   const dnCheck = checkDisplayName(displayName);
   if (keywords.length === 0) keywords = deriveKeywords(product);
@@ -256,9 +278,8 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   const catJson = parseJsonLoose(catRaw.text) || {};
   const snapped = snapToCandidate(catJson.categoryPath || catRaw.text, candObjs);
 
-  // 3) 옵션 — 외국어 필드/중복명 제거(쿠팡 옵션 정합성)
-  const optJson = parseJsonLoose(optRaw.text) || {};
-  const optSan = sanitizeOptions(optJson.options);
+  // 3) 옵션 — 상품명에서 규칙으로 뽑은 값(LLM 아님). 살균은 그대로 통과시켜 형식을 맞춘다.
+  const optSan = sanitizeOptions(derivedOptions);
   const options = optSan.options;
 
   // 4) 상세페이지 — robust 생성기(생성→검증→통과까지 재생성)로 품질 보장.
@@ -268,6 +289,9 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   //       통과했다(길이·후킹 미보장). 이제 길이 미달/잘림/반복을 잡아 재생성한다.
   //    카테고리는 원본이 아니라 매핑된 쿠팡 카테고리(snapped) 기준으로 정합성 검증.
   const dt0 = Date.now();
+  // 재생성이 왜 걸렸는지를 남긴다 — 상세글 재생성 1회 = 상세글 1개 값(≈800토큰)이라
+  //   "무엇 때문에 다시 썼는가"가 곧 속도 개선 지점이다(bench-allinone-speed 가 집계한다).
+  const detailIssueLog = [];
   const detailGen = await generatePerfectDetail({
     model,
     originalName: product.originalName,
@@ -285,7 +309,11 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
     //     상한 400 → 평균 436자 · 재생성 4/4 · 통과 0/4 (평균 시간도 800 보다 길었다)
     //     상한 800 → 평균 616자 · 재생성 3/4 · 통과 2/4
     maxTokens: Math.max(maxDetailTokens || 0, 800),
-    maxAttempts: 2,   // 재생성은 결함을 못 줄인다(실측) — 교정으로 못 고치는 것만 1회 더
+    // 3회 — 문체(soft)로는 재생성하지 않으므로 늘려도 평상시 비용은 그대로다. 늘린 이유는
+    //   "딴 물건 환각" 처럼 지시가 구체적인("냉수통을 전부 지워라") 하드 결함이 생겼기 때문이다.
+    //   막연한 문체 피드백과 달리 이런 지시는 재생성으로 실제로 고쳐진다.
+    maxAttempts: 3,
+    onAttempt: ({ ok, issues }) => { if (!ok) for (const s of issues) if (detailIssueLog.length < 6) detailIssueLog.push(s); },
   });
   const detailChk = checkMini(detailGen.text, ctx); // 법적 금지어 최종 확인(compliance byField 리포트)
   const detailRaw = {
@@ -306,7 +334,8 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   // 품질 사유 집계 — compliance(법적 금지어) + 품질(외국어·누출·약매칭)
   const qualityIssues = [
     ...dnCheck.issues,
-    ...(displaySalvaged ? ['노출명 원문복구'] : []),
+    ...(displaySalvaged && !displayUngrounded ? ['노출명 원문복구'] : []),
+    ...(displayUngrounded ? ['⚠️ 생성된 노출명이 원본과 다른 상품이었음 — 원본명으로 되돌림(반드시 확인)'] : []),
     ...(bareOriginal ? ['원본 상품명에 상품 정보 없음(분류어뿐) — 상품명·옵션 직접 확인'] : []),
     ...detailCheck.issues,
     ...optSan.issues,
@@ -319,6 +348,7 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
     persona: persona.key,
     displayName,
     displaySalvaged,
+    displayUngrounded,
     keywords,
     categoryCode: snapped.code,
     categoryPath: snapped.path,
@@ -327,6 +357,9 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
     categoryWeak: !!snapped.weak,
     categoryConfidence: catJson.confidence ?? null,
     detail: detailRaw.text,
+    // 상세글을 몇 번 만에 통과시켰나 + 무엇에 걸렸나(속도 진단용, 하네스가 집계).
+    detailAttempts: detailGen.attempts,
+    detailIssueLog,
     options,
     qualityIssues,
     compliance: { ok: complianceOk, byField: {

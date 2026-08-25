@@ -10,6 +10,7 @@ import { rpc, patchRow } from './supabase-rest.mjs';
 import { generate, listModels, isUp } from './local-llm.mjs';
 import { buildTitlePrompt, buildOptionsPrompt, pickPersona } from './ai-prompts.mjs';
 import { generatePerfectDetail } from './detail-content-gen.mjs';
+import { buildSourceFacts } from './source-facts.mjs';
 import { topCandidatesEmbed, isBuilt as embedBuilt } from './category-embed-matcher.mjs';
 import { withGpu } from './gpu-lease.mjs';
 
@@ -85,6 +86,10 @@ async function runContent(model, input) {
     categoryPath: input.categoryPath,
     leaf: input.leaf,
     features: input.features || [],
+    // ⚠️ 판매자가 밝힌 사실(원산지·중량·보관법 등). 예전엔 이걸 안 넘겨서 재생성 경로에서만
+    //    근거가 통째로 사라졌다 — 근거가 비면 모델이 자유연상으로 딴 물건 이야기를 쓴다
+    //    (실측 사고: 곡물 상세글이 냉수통 후기가 됐다).
+    sourceFacts: input.sourceFacts || buildSourceFacts(input.productJson || {}),
     seoKeywords: input.seoKeywords || input.keywords || [],
     seed: input.seed || input.originalName,
     maxTokens: 1300,

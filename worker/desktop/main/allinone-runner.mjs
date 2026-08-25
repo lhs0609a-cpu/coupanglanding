@@ -104,13 +104,19 @@ export async function pickGenProfile() {
 export function isGenerating() { return !!child; }
 
 // ── 예상 소요시간 ────────────────────────────────────────────────────────────
-//   실측 기준(RTX 4060 Ti):
-//     · GPU 적재 정상 : 상품당 약 60초 (인식 22초 + 텍스트/이미지)
-//     · VRAM 부족     : 상품당 약 6분  (실측 인식만 2분14초/7분39초/4분38초 — 비전 7B 가
-//                                      GPU 에 못 올라가 CPU 로 돈다)
-//   여유 VRAM 이 비전 모델(약 5.7GB)을 못 담으면 "느린 모드"로 본다.
-const SEC_PER_PRODUCT_GPU = 60;
-const SEC_PER_PRODUCT_CPU = 360;
+//   ⚠️ 예전엔 "GPU 면 상품당 60초" 한 값이었다. 그 60초는 **동시 1개 · 인식 순차 · 격자 300px**
+//      시절의 값이라, 지금 구조(동시 6개 · 인식 겹치기 · 격자 176px)에서는 실제보다 훨씬 크다.
+//      100개면 "약 100분"이라고 말하게 되는데 실제로는 그 1/5 이다 — 시작 전에 사람을 돌려세우는
+//      숫자였다. 예상치는 **지금 이 PC 가 실제로 쓸 설정**에서 나와야 한다.
+//
+//   구성요소(실측 근거는 레포 루트 올인원_속도_설계도.md):
+const TEXT_SEC_SEQ = 25;      // 동시 1개일 때 상품당 텍스트(≈1,160토큰 ÷ 46.7 tok/s). §1-1
+//   동시 처리 배수 — 같은 GPU 로 총 처리량이 몇 배가 되는가(§1-1 실측). 6에서 포화한다.
+const TEXT_SPEEDUP = { 1: 1.00, 2: 1.88, 3: 2.60, 4: 3.39, 5: 3.85, 6: 4.15 };
+const VISION_SEC = 3;         // 176px 격자 · 상품당 2콜(대표+리뷰). §14. 겹치면(P3) 0 이다.
+const THUMB_SEC = 2;          // 누끼 — 대부분 '이미 누끼됨/과일'로 생략되고, 남는 것도 동시 3건
+const FIXED_OVERHEAD_SEC = 60; // 모델 콜드 적재·스캔·저장 등 상품 수와 무관한 몫
+const SEC_PER_PRODUCT_CPU = 360;  // VRAM 부족 = 모델이 CPU 로 내려간 상태(실측 인식만 2~7분)
 const VISION_VRAM_MB = 5700;
 
 /** 폴더의 product_* 개수 — 예상 시간 계산용(스캔 실패해도 생성은 진행). */
@@ -139,9 +145,18 @@ export function estimateGeneration(folder, profile) {
   const products = countProducts(folder);
   const freeMb = profile?.gpu?.vramFreeMb ?? 0;
   const degraded = !profile?.gpu?.ok || freeMb < VISION_VRAM_MB;
-  const per = degraded ? SEC_PER_PRODUCT_CPU : SEC_PER_PRODUCT_GPU;
-  const etaSec = Math.max(1, products) * per;
-  return { products, degraded, etaSec, etaText: humanMin(etaSec), freeMb };
+  let per;
+  if (degraded) {
+    per = SEC_PER_PRODUCT_CPU;
+  } else {
+    const c = Math.max(1, Math.min(6, profile?.concurrency || 1));
+    const text = TEXT_SEC_SEQ / (TEXT_SPEEDUP[c] || 1);
+    // 겹치면 인식은 텍스트 뒤로 통째로 숨는다(P3) — 시간에 더하지 않는다.
+    const vision = profile?.visionOverlap ? 0 : VISION_SEC / Math.max(1, profile?.recogConcurrency || 1);
+    per = text + vision + THUMB_SEC;
+  }
+  const etaSec = Math.round(Math.max(1, products) * per) + (degraded ? 0 : FIXED_OVERHEAD_SEC);
+  return { products, degraded, etaSec, etaText: humanMin(etaSec), freeMb, perProductSec: Math.round(per * 10) / 10 };
 }
 
 /**
@@ -225,14 +240,39 @@ export async function startGeneration({
       `⚠️ 지금 쓸 수 있는 시스템 RAM 이 ${gb(ramNow.freeMb)}GB 로 빠듯합니다 — `
       + `생성이 느리거나 중간에 실패할 수 있습니다. 여유가 되면 무거운 프로그램을 닫아주세요.`);
   }
+  // ── 같은 엔진을 쓰는 다른 프로그램이 있는가 ────────────────────────────────
+  //   ollama 는 한 대에 하나뿐이다. 다른 프로그램이 제 모델을 계속 올리면 우리 모델이 그때마다
+  //   **밀려났다가 다시 올라온다.** 실측(2026-08-25, RTX 4060 Ti): 이 재적재가 호출당
+  //   3.5~10.2초였고, 정작 판정 자체는 1~3.7초였다 — 즉 시간의 대부분이 "짐 옮기기"였다.
+  //   VRAM 도 RAM 도 넉넉해 보이므로 기존 경고에는 전혀 걸리지 않는다. 그래서 따로 본다.
+  //   막지는 않는다(남의 프로그램이다) — 다만 왜 느린지는 정직하게 말한다.
+  try {
+    const r = await fetch('http://127.0.0.1:11434/api/ps', { signal: AbortSignal.timeout(3000) });
+    const loaded = (await r.json())?.models || [];
+    const ourBase = (n) => String(n || '').split(':')[0];
+    const ours = new Set([ourBase(profile.model), 'qwen2.5vl', 'bge-m3']);
+    const foreign = loaded.filter((m) => !ours.has(ourBase(m.name)));
+    if (foreign.length) {
+      send('allinone:log',
+        `⚠️ 다른 프로그램이 같은 AI 엔진(ollama)에 모델을 올려 두고 있습니다 — `
+        + `${foreign.map((m) => `${m.name}(${gb((m.size || 0) / 1048576)}GB)`).join(', ')}. `
+        + `그 프로그램이 계속 사용 중이면 우리 모델이 호출마다 밀려났다 다시 올라와 `
+        + `상품 1개마다 수 초씩(실측 3.5~10초) 더 걸립니다. 끝내 놓고 시작하면 그만큼 빨라집니다.`);
+    }
+  } catch { /* 엔진이 아직 안 떴거나 응답이 없으면 판단하지 않는다 — 경고는 확실할 때만 */ }
+
   // ── 예상 소요시간 안내 ─────────────────────────────────────────────────────
   //   "얼마나 걸릴지"를 안 알려주면 느린 실행이 고장으로 보인다(실측 문의: VRAM 0.6GB 상태에서
   //   인식 1건에 2~8분 걸리자 "생성이 안 된다"고 판단). 시작 전에 숫자로 말한다.
   const est = estimateGeneration(folder, profile);
-  const fast = humanMin(Math.max(1, est.products) * SEC_PER_PRODUCT_GPU);
+  // "정상이면 얼마"는 이 PC 가 **정상 동작할 때의 설정**으로 다시 계산한다(고정값 금지).
+  const fast = humanMin(estimateGeneration(folder, {
+    ...profile, gpu: { ...profile.gpu, ok: true, vramFreeMb: 14000 },
+    concurrency: 6, recogConcurrency: 2, visionOverlap: true,
+  }).etaSec);
   send('allinone:log',
     `[예상] 상품 ${est.products}개 · ${est.etaText} 소요 예상`
-    + (est.degraded ? ` (VRAM 부족으로 CPU 처리 — 정상이면 ${fast})` : ''));
+    + (est.degraded ? ` (VRAM 부족으로 CPU 처리 — 정상이면 ${fast})` : ` (상품당 약 ${est.perProductSec}초)`));
   if (est.degraded) {
     send('allinone:log',
       `⚠️ 지금 쓸 수 있는 VRAM 이 ${gb(est.freeMb)}GB 뿐이라 AI 모델이 그래픽카드에 못 올라갑니다. `

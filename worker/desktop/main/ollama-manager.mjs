@@ -38,14 +38,48 @@ const BASE = `http://${HOST}`;
  *       않으므로, 이 변경으로 느려지는 경우는 구조적으로 없다.
  * @returns {Promise<number>} 슬롯 수(1~6)
  */
-export async function pickNumParallel() {
+/**
+ * 모델 하나가 VRAM 에서 차지하는 대략의 크기(MB) — 이름의 파라미터 수로 본다.
+ * (설치 파일 크기 실측: exaone3.5:7.8b 4.77GB · qwen2.5:7b 4.68GB · qwen2.5:3b 1.93GB)
+ */
+export function estimateModelMb(model) {
+  const s = String(model || '').toLowerCase();
+  const m = s.match(/(\d+(?:\.\d+)?)\s*b(?![a-z])/);
+  const b = m ? Number(m[1]) : 7.8;
+  if (!Number.isFinite(b)) return 5000;
+  // q4 기준 ≈ 0.62GB/1B + 오버헤드. 7.8B→5.0GB, 3B→2.2GB, 14B→9.3GB 로 실측과 맞는다.
+  return Math.round(b * 620 + 200);
+}
+
+/** 슬롯 1개가 더 쓰는 KV 캐시(MB). 아래 KV 양자화(q8_0)까지 켜므로 넉넉히 잡아도 남는다. */
+const KV_PER_SLOT_MB = 300;
+/** 컴퓨트 버퍼·단편화 몫 — 여기까지 쓰면 OOM 이 난다. */
+const VRAM_RESERVE_MB = 1200;
+
+/**
+ * 지금 남은 VRAM 에서 **이 모델을 올리고 남는 만큼** 슬롯을 연다.
+ * ---------------------------------------------------------------------------
+ * ⚠️ 예전엔 남은 VRAM 절대값으로 끊었다(11GB→6, 9GB→4, 8GB→2, 그 외 1). 그 숫자는
+ *    **7.8B 모델을 전제로 한 것**이라, 저사양 PC 에서 정반대로 작동했다:
+ *    남은 VRAM 이 4.5GB 인 PC 는 어차피 작은 모델(3B≈2.2GB)을 고르는데도 "8GB 미만"이라는
+ *    이유로 슬롯 1개를 받았다. 실제로는 2.3GB 가 남아 3~4개를 돌릴 수 있었다 —
+ *    저사양일수록 병렬이 더 중요한데(단일 처리량이 낮으니) 거기서만 병렬을 껐던 셈이다.
+ * → 모델 크기를 빼고 계산한다. 어떤 구간도 예전보다 줄어들지 않는다(전 구간 순증).
+ * @param {number} freeMb  지금 남은 VRAM
+ * @param {string} model   실제로 올릴 모델
+ * @returns {number} 1~6
+ */
+export function slotsForVram(freeMb, model) {
+  const head = (freeMb || 0) - estimateModelMb(model) - VRAM_RESERVE_MB;
+  if (head <= 0) return 1;
+  // 상한 6 — 실측에서 6 동시가 2.43배로 최고였고 8 부터는 슬롯 초과로 오히려 떨어졌다.
+  return Math.max(1, Math.min(6, Math.floor(head / KV_PER_SLOT_MB)));
+}
+
+export async function pickNumParallel({ model } = {}) {
   const gpu = await checkGpu().catch(() => ({ ok: false, vramFreeMb: 0 }));
   if (!gpu.ok) return 1;                       // CPU 추론은 병렬이 이득이 없다(코어 경합)
-  const free = gpu.vramFreeMb || 0;
-  if (free >= 11000) return 6;                 // 예전 3 → 실측상 +20%
-  if (free >= 9000) return 4;
-  if (free >= 8000) return 2;
-  return 1;                                     // 빠듯하면 예전과 동일(안전)
+  return slotsForVram(gpu.vramFreeMb || 0, model);
 }
 
 /**
@@ -92,7 +126,9 @@ export class OllamaManager {
       //   1 을 일부러 고른 사람은 사실상 없다(옛 설치·옛 안내 문구의 흔적이다). 반면 2 이상은
       //   의도가 분명하므로 그대로 따른다. 배려하려던 규칙이 정반대로 작동하고 있었다.
       const userSet = Number(process.env.OLLAMA_NUM_PARALLEL);
-      const np = Number.isFinite(userSet) && userSet >= 2 ? userSet : await pickNumParallel();
+      // ⭐ 어떤 모델을 올릴지 알고 나서 슬롯을 정한다 — 호출부(allinone-runner)가 start() 전에
+      //   this.model 을 확정해 둔다. 작은 모델이면 같은 VRAM 으로 슬롯을 더 열 수 있다.
+      const np = Number.isFinite(userSet) && userSet >= 2 ? userSet : await pickNumParallel({ model: this.model });
       if (Number.isFinite(userSet) && userSet === 1 && np > 1) {
         this.onLog(`[속도] OLLAMA_NUM_PARALLEL=1 이 설정돼 있어 생성이 순차로 묶여 있었습니다 — `
           + `VRAM 여유를 보고 ${np}개 동시로 올려 띄웁니다.`);
@@ -103,6 +139,24 @@ export class OllamaManager {
         OLLAMA_HOST: HOST,
         OLLAMA_MODELS: join(ollamaDir(this.installDir), 'models'),
         OLLAMA_NUM_PARALLEL: String(np),
+        // ── 저사양 PC 를 위한 KV 캐시 절약 ────────────────────────────────────
+        //   실측(RTX 4060 Ti, 올인원_속도_설계도 §1-1): 최대 처리량은 194 → 193 tok/s 로
+        //   **변화 없다**. 대신 동시 8 에서 무너지던 것이 무너지지 않았다(151 → 193).
+        //   즉 이건 속도 옵션이 아니라 **슬롯 안정성·KV 메모리 절감** 옵션이고,
+        //   슬롯 하나가 아쉬운 8GB 급 GPU 에서 정확히 그만큼 이득이 된다.
+        //   q8_0 은 KV 를 절반으로 줄이면서 품질 손실이 사실상 없는 구간이다.
+        //   ⚠️ 사용자가 직접 설정해 뒀으면 그 값을 존중한다(아래 ...직접설정 우선).
+        OLLAMA_FLASH_ATTENTION: process.env.OLLAMA_FLASH_ATTENTION || '1',
+        OLLAMA_KV_CACHE_TYPE: process.env.OLLAMA_KV_CACHE_TYPE || 'q8_0',
+        // ── 텍스트·비전 두 모델이 서로를 밀어내지 않게 ──────────────────────────
+        //   올인원은 텍스트(exaone3.5)와 비전(qwen2.5vl)을 **동시에** 쓴다(--vision-overlap).
+        //   한 자리만 허용되면 호출마다 상대를 내리고 자기를 올린다 — 실측(2026-08-25,
+        //   RTX 4060 Ti)에서 이 재적재가 호출당 3.5~10.2초였다. 판정 자체(prefill 1~3.7초 +
+        //   decode 0.3초)보다 크다. 상품 100개면 이것만으로 10분이 넘게 사라진다.
+        //   VRAM 이 모자라면 ollama 가 알아서 하나만 올린다 — 이 값은 "허용"이지 강제가 아니다.
+        //   ⚠️ 우리가 ollama 를 **직접 띄울 때만** 적용된다. 이미 떠 있는 서버(트레이 앱·다른
+        //      프로그램이 띄운 것)에는 못 미친다 — 그 경우는 allinone-runner 가 경고한다.
+        OLLAMA_MAX_LOADED_MODELS: process.env.OLLAMA_MAX_LOADED_MODELS || '2',
       };
       this.onLog(`[ollama] serve 시작 (동시 처리 ${np}개${np > 1 ? '' : ' — VRAM 여유가 없어 순차'})`);
       this.proc = spawn(exe, ['serve'], { env, windowsHide: true });

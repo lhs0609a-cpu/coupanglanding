@@ -21,6 +21,8 @@
  *   --workflow <경로>  API-format 워크플로 JSON
  *   --no-thumb         대표이미지 가공 건너뜀(텍스트만)
  *   --thumb-force      가공본이 있어도 다시 생성(기본: resume)
+ *   --thumb-concurrency N  누끼를 동시에 몇 건 던질지 (기본 3. ComfyUI 가 실행은 직렬로 하므로
+ *                      GPU 부하는 그대로고, 건 사이의 업로드·다운로드 빈틈만 사라진다)
  *   --detail-tokens N  상세 최대 토큰 (기본 800 = 품질 하한. 800 미만은 무시된다 —
  *                      상한을 낮춰도 빨라지지 않고 글만 잘려 재생성을 부른다. ai-generator 주석의 실측)
  *   --concurrency N    동시에 생성할 상품 수 (기본 1. 남은 VRAM 넉넉하면 2~3 이 크게 빠름)
@@ -612,9 +614,19 @@ async function main() {
     const thumb = await makeThumbnailProcessor({ comfyUrl: cli.comfy, workflowPath: cli.workflow });
     console.log(`[${ts()}] 대표이미지: ${thumb.ready ? '✅ ' + thumb.info : '⚠️ ' + thumb.info}`);
     if (thumb.ready) {
-      for (const i of needCutout) {
+      // ── 누끼를 여러 건 동시에 던진다 ────────────────────────────────────────
+      //   한 건은 [업로드 → 큐 등록 → 실행 대기 → 결과 내려받기] 인데, **GPU 를 쓰는 건
+      //   '실행' 뿐**이다. 한 건씩 돌리면 업로드·다운로드·품질측정(sharp, CPU) 동안 GPU 가
+      //   통째로 논다. ComfyUI 는 받은 프롬프트를 제 큐에서 하나씩 실행하므로, 미리 넣어 두면
+      //   앞 건이 끝나는 즉시 다음 건이 시작된다 —— **GPU 에 동시에 두 장을 올리지 않는다.**
+      //   그래서 VRAM 은 그대로고, 사라지는 건 건과 건 사이의 빈틈뿐이다.
+      //   ⚠️ 레인을 더 늘려도 실행은 어차피 직렬이라 이득이 없고, 큐만 길어져 중단이 어려워진다.
+      const THUMB_LANES = Math.max(1, Math.min(
+        Number(cli['thumb-concurrency']) || 3, needCutout.length,
+      ));
+      const one = async (i) => {
         const p = products[i], rec = records[i];
-        if (!p.mainImage) { rec.thumbProcessed = null; continue; }
+        if (!p.mainImage) { rec.thumbProcessed = null; return; }
         const res = await thumb.process(p.mainImage, p.folderPath, { force: !!cli['thumb-force'] });
         // 가공본 품질 게이트 — 원본보다 나쁘면 대표로 쓰지 않는다(웹도 이 신호로 기본선택 이동).
         let gate = { rejected: false };
@@ -626,14 +638,28 @@ async function main() {
           rec.thumbProcessed = res.processed;   // 가공본 자체는 존재(후보로는 남는다)
           if (res.processed) thumbsProcessed++;
           console.log(`[${ts()}][이미지 ${++imgDone}/${needCutout.length}] ⚠️ 누끼 반려 → 원본 대표 (${gate.reason})`);
-          continue;
+          return;
         }
         rec.mainImage = res.path || rec.mainImage;
         rec.thumbProcessed = res.processed;
         if (res.processed) thumbsProcessed++;
         const ico = res.processed ? '🖼️' : '·';
+        // 진행 번호는 **완료 개수**다 — 동시 처리에선 인덱스 순으로 끝나지 않는다.
         console.log(`[${ts()}][이미지 ${++imgDone}/${needCutout.length}] ${ico} ${path.basename(rec.mainImage)}${res.reason ? ' (' + res.reason + ')' : ''}`);
-      }
+      };
+      let tCursor = 0;
+      const tLane = async () => {
+        while (tCursor < needCutout.length) {
+          const i = needCutout[tCursor++];
+          // 한 건이 터져도 나머지는 계속 — process 는 이미 실패를 삼키지만 게이트는 던질 수 있다.
+          await one(i).catch((e) => {
+            const rec = records[i];
+            if (rec) rec.thumbProcessed = false;
+            console.log(`[${ts()}][이미지 ${++imgDone}/${needCutout.length}] · 누끼 실패 → 원본(${e?.message || e})`);
+          });
+        }
+      };
+      await Promise.all(Array.from({ length: THUMB_LANES }, tLane));
     } else {
       // ComfyUI 미가동(GPU 없음 등) → BiRefNet CPU 누끼 폴백. 어떤 PC 에서도 배경제거·흰배경 자동.
       console.log(`[${ts()}] ComfyUI 미가동 → BiRefNet CPU 누끼 폴백 시도(GPU 불필요, 배경제거·흰배경 1:1)`);

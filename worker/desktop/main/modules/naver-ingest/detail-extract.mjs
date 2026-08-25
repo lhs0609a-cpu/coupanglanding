@@ -328,6 +328,35 @@ async function shrink(buf, prefix) {
   }
 }
 
+/**
+ * CDN 내려받기 전역 예산 — **앱 전체에서 동시에 나가는 이미지 요청 수**의 상한.
+ * ---------------------------------------------------------------------------
+ * 예전엔 `saveImages` 가 호출될 때마다 제 레인 6개를 새로 열었다. 그래서 실제 동시성이
+ * "지금 몇 군데서 부르고 있나"에 따라 6이 되기도, 60이 되기도 했다 — 한 상품 안에서는
+ * 대표(8장)·상세(10장)·리뷰(7장)를 차례로 받느라 레인 6개 중 절반이 늘 놀았고, 반대로
+ * 상품을 여럿 동시에 가져가면 CDN 에 한꺼번에 쏟아졌다.
+ *
+ * → 예산을 **한 곳에 모은다.** 누가 몇 군데서 부르든 총량은 CDN_LANES 로 고정되고,
+ *   일이 있는 한 그 자리는 항상 차 있다. 상품 병렬화(importProducts)가 안전해지는 근거가
+ *   이것이다 — 상품을 6개 동시에 가져가도 네트워크로 나가는 양은 지금과 똑같다.
+ *
+ * ⚠️ 네이버 **페이지** 예산(naver-gate)과는 무관하다. 여기는 pstatic CDN 이라 로그인도
+ *    안티봇도 없다(saveImage 주석 참조). 두 예산을 섞지 말 것.
+ */
+const CDN_LANES = Math.max(2, Number(process.env.MEGALOAD_CDN_LANES) || 12);
+let cdnActive = 0;
+const cdnWaiting = [];
+async function cdnAcquire() {
+  if (cdnActive < CDN_LANES) { cdnActive += 1; return; }
+  await new Promise((resolve) => cdnWaiting.push(resolve));
+  cdnActive += 1;
+}
+function cdnRelease() {
+  cdnActive -= 1;
+  const next = cdnWaiting.shift();
+  if (next) next();
+}
+
 /** 이미지 1장 저장. CDN(pstatic)이라 로그인이 필요 없다 — 네이버 페이지 예산과 무관. */
 async function saveImage(url, dir, index, prefix) {
   const res = await fetch(url);
@@ -369,27 +398,27 @@ async function saveImages(urls, dir, prefix, onLog) {
   // ★ 한 장씩 받으면 여기가 상세 추출의 숨은 병목이다(실측 2026-08-19).
   //   장당 339ms · 상품 1개가 대표+상세+리뷰 67장 → **23초를 다운로드에만** 쓰고 있었다.
   //   같은 6장을 동시에 받으니 0.42초(4.8배, 전부 성공) — 67장 환산 23초 → 5초.
-  //   다만 무제한 동시는 CDN 이 막을 수 있어 6개로 묶는다(위 실측이 6 동시였다).
+  //   다만 무제한 동시는 CDN 이 막을 수 있어 총량을 묶는다.
   //   실패는 그 장만 건너뛰고 계속한다 — 사진 한 장 때문에 상품을 통째로 버리지 않는다.
-  const LANES = 6;
-  let next = 0;
-  const lane = async () => {
-    for (;;) {
-      const i = next++;
-      if (i >= urls.length) return;
-      try {
-        const r = await saveImage(urls[i], dir, i, prefix);
-        ok += 1;
-        bytes += r.bytes;
-        saved += r.savedBytes;
-      } catch (e) {
-        skipped += 1;
-        // 용량 초과는 개별 로그를 남기지 않는다 — 아래 요약에 몇 장인지 나온다.
-        if (!e?.skipped) onLog?.(`이미지 ${i + 1} 건너뜀 — ${e?.message || e}`);
-      }
+  //
+  // ★ 레인을 여기서 세지 않는다 — 전역 예산(cdnAcquire)이 총량을 정한다. 그래야 "대표 3장짜리
+  //   묶음이 끝날 때까지 나머지 레인이 노는" 배리어가 사라진다. 이 함수는 전부 던져 두고,
+  //   실제로 몇 개가 동시에 나갈지는 CDN_LANES 가 결정한다.
+  await Promise.all(urls.map(async (url, i) => {
+    await cdnAcquire();
+    try {
+      const r = await saveImage(url, dir, i, prefix);
+      ok += 1;
+      bytes += r.bytes;
+      saved += r.savedBytes;
+    } catch (e) {
+      skipped += 1;
+      // 용량 초과는 개별 로그를 남기지 않는다 — 아래 요약에 몇 장인지 나온다.
+      if (!e?.skipped) onLog?.(`이미지 ${i + 1} 건너뜀 — ${e?.message || e}`);
+    } finally {
+      cdnRelease();
     }
-  };
-  await Promise.all(Array.from({ length: Math.min(LANES, urls.length) }, lane));
+  }));
   if (ok || skipped) {
     const mb = (n) => (n / 1048576).toFixed(1);
     onLog?.(`${prefix.replace('_', '')} ${ok}장 — ${mb(bytes)}MB`
@@ -408,10 +437,15 @@ export async function writeProductFolder(rootDir, data, { onLog } = {}) {
   const folder = join(rootDir, `product_${code}`);
   mkdirSync(folder, { recursive: true });
 
-  const mainCount = await saveImages(data.mainImages || [], join(folder, 'main_images'), 'main_', onLog);
-  const detailCount = await saveImages(data.detailImages || [], join(folder, 'detail_images'), 'detail_', onLog);
-  // review_images/ 는 folder-scanner 가 읽는 이름이다(REVIEW_DIRS 의 첫 항목).
-  const reviewCount = await saveImages(data.reviewImages || [], join(folder, 'review_images'), 'review_', onLog);
+  // 대표·상세·리뷰를 **한꺼번에** 던진다. 예전엔 세 묶음을 차례로 기다렸는데, 그 사이엔
+  //   전역 예산(CDN_LANES)이 남아돌아도 쓸 수가 없었다 — 대표 8장을 받는 동안 4자리가 놀고,
+  //   그게 끝나야 상세가 시작됐다. 세 묶음은 서로를 참조하지 않으므로 순서는 의미가 없다.
+  //   review_images/ 는 folder-scanner 가 읽는 이름이다(REVIEW_DIRS 의 첫 항목).
+  const [mainCount, detailCount, reviewCount] = await Promise.all([
+    saveImages(data.mainImages || [], join(folder, 'main_images'), 'main_', onLog),
+    saveImages(data.detailImages || [], join(folder, 'detail_images'), 'detail_', onLog),
+    saveImages(data.reviewImages || [], join(folder, 'review_images'), 'review_', onLog),
+  ]);
 
   // 올인원 스캐너가 읽는 필드 이름에 정확히 맞춘다(folder-scanner.mjs).
   //   name/title 중 긴 쪽이 원본 상품명이 되고, options[].optionName 이 특징 힌트가 된다.

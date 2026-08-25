@@ -267,13 +267,25 @@ export async function freeVram() {
 
 /**
  * 임베딩 (ollama /api/embed). input: string | string[].
+ *
+ * ⚠️ **상한이 반드시 있어야 한다**(실측 2026-08-25). 예전엔 `fetch` 에 signal 이 없었다.
+ *    카테고리 후보를 뽑는 이 호출은 상품마다 1회 걸리는데, 한 번이라도 응답이 안 오면
+ *    `candidatesFor` 가 거기서 영원히 서고 **생성 전체가 멈춘다** — 오류도 로그도 없이.
+ *    재현: 이 PC 에서 벤치가 첫 상품에서 CPU 1초만 쓴 채 몇 분을 매달렸다(다른 프로그램이
+ *    같은 ollama 를 쓰고 있어 임베딩 모델이 자리를 못 잡은 상태였다).
+ *    상한을 넘기면 던지고, 호출부는 **토큰 매칭으로 폴백한다**(원래 설계된 길이다).
  * @returns {Promise<number[][]>} 벡터 배열
  */
-export async function embed(model, input) {
+//    상한값은 **넉넉해야 한다** — 이건 성능 손잡이가 아니라 "영원히 멈추지 않게" 하는 안전장치다.
+//    실측: 임베딩 모델(bge-m3) 첫 호출은 적재만 16.6초다. 15초로 잡았더니 정상 PC 의 첫 상품이
+//    곧바로 상한에 걸려 **멀쩡한 임베딩 매칭을 버리고** 토큰 폴백으로 갔다(카테고리 정확도 손해).
+const EMBED_TIMEOUT_MS = Math.max(3000, Number(process.env.MEGALOAD_EMBED_TIMEOUT_MS) || 60_000);
+export async function embed(model, input, { timeoutMs } = {}) {
   const r = await fetch(`${OLLAMA}/api/embed`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, input }),
+    signal: AbortSignal.timeout(timeoutMs || EMBED_TIMEOUT_MS),
   });
   if (!r.ok) throw new Error(`[local-llm] embed HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
   const j = await r.json();
