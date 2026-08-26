@@ -109,13 +109,55 @@ export async function GET(request: NextRequest) {
   const { data, count, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // 관리자 여부를 함께 준다 — 화면이 삭제 버튼을 보일지 판단하는 데 쓴다.
+  // (표시용일 뿐이고 실제 차단은 아래 DELETE 가 서버에서 한다)
+  const { data: prof } = await service.from('profiles').select('role').eq('id', user.id).maybeSingle();
+
   return NextResponse.json({
     products: data ?? [],
     total: count ?? 0,
     page,
     pageSize: PAGE_SIZE,
     hasMore: (count ?? 0) > from + (data?.length ?? 0),
+    isAdmin: prof?.role === 'admin',
   });
+}
+
+/**
+ * DELETE — 카탈로그에서 줄을 지운다(관리자 전용).
+ * ---------------------------------------------------------------------------
+ * 왜 필요한가: 수집은 완벽하지 않다. 실제로 '딸기' 를 골랐는데 형제 분류로 넘어가는 기능 탓에
+ * 감귤·오렌지가 섞여 들어왔다(2026-08-26). 그 기능은 껐지만 **이미 들어간 줄은 남는다.**
+ * 지울 길이 없으면 셀러 목록이 계속 오염된 채로 간다.
+ *
+ * 상세를 이미 받아 둔 줄도 지운다 — 잘못 들어온 상품은 상세가 있어도 쓰레기다.
+ * 폴더는 관리자 PC 에 남지만 그건 디스크일 뿐이고, 카탈로그에서 사라지면 셀러는 못 고른다.
+ */
+export async function DELETE(request: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+
+  const service = await createServiceClient();
+  const { data: prof } = await service.from('profiles').select('role').eq('id', user.id).maybeSingle();
+  if (prof?.role !== 'admin') {
+    return NextResponse.json({ error: '관리자만 삭제할 수 있습니다.' }, { status: 403 });
+  }
+
+  const body = (await request.json().catch(() => ({}))) as { ids?: unknown };
+  const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === 'string' && !!x) : [];
+  if (!ids.length) return NextResponse.json({ error: '지울 상품을 고르세요.' }, { status: 400 });
+  // 실수로 목록 전체가 날아가는 일이 없도록 한 번에 지울 수 있는 양을 묶는다.
+  if (ids.length > 500) return NextResponse.json({ error: '한 번에 500개까지만 지웁니다.' }, { status: 400 });
+
+  const { data, error } = await service
+    .from('sh_naver_sourcing_products')
+    .delete()
+    .in('id', ids)
+    .select('id');
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true, deleted: data?.length ?? 0 });
 }
 
 /**

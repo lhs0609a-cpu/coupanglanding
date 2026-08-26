@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Loader2, ExternalLink, PackageSearch, ChevronLeft, ChevronRight, Download, AlertTriangle } from 'lucide-react';
+import { Search, Loader2, ExternalLink, PackageSearch, ChevronLeft, ChevronRight, Download, AlertTriangle, Trash2 } from 'lucide-react';
 import { findHelper, fetchCollection, startImport, fetchImportState, fetchStatus, kickQueue, type ImportState, type GenState } from '@/lib/megaload/naver-ingest-local';
 import { isDetailExtractable, naverStoreType, STORE_TYPE_LABEL } from '@/lib/megaload/naver-store-type';
 import NaverCategoryTree, { type CategoryCount } from '@/components/megaload/NaverCategoryTree';
@@ -62,8 +62,23 @@ function fmtDur(ms: number): string {
   return r ? `${m}분 ${r}초` : `${m}분`;
 }
 
-/** 상세 준비를 기다려 주는 한도. 넘으면 손을 떼고 **그만뒀다고 말한다**. */
-const WAIT_LIMIT_MS = 8 * 60_000;
+/**
+ * 상세 준비의 **물리 상한** — 네이버 게이트(worker/desktop/main/naver-gate.mjs)가 평균 5초에
+ * 1건만 통과시킨다. 도우미 창을 몇 개로 늘려도 이 숫자는 안 변한다.
+ */
+const DETAIL_RATE_PER_MIN = 12;
+
+/**
+ * 기다려 주는 한도. 넘으면 손을 떼고 **그만뒀다고 말한다**.
+ * ---------------------------------------------------------------------------
+ * 예전엔 건수와 무관한 고정 8분이었다. 그런데 100개를 고르면 도우미가 완벽히 정상이어도
+ * 최소 8.3분이 걸린다(위 상한) —— **정상 동작이 반드시 실패로 보였다.** 사람은 있지도 않은
+ * 고장을 찾으러 갔다. 건수에 비례시키고 여유 1.5배를 준다.
+ */
+function waitLimitMs(count: number): number {
+  const need = (Math.max(1, count) / DETAIL_RATE_PER_MIN) * 60_000 * 1.5;
+  return Math.min(45 * 60_000, Math.max(8 * 60_000, need));
+}
 /** 처리 주체(관리자 도우미) 점검 주기 — 5초 폴링 중 3번에 한 번. */
 const BLOCK_CHECK_EVERY = 3;
 
@@ -87,6 +102,13 @@ export default function NaverSourcingCatalogPage() {
   const [err, setErr] = useState<string | null>(null);
   // 올인원으로 가져오기 — 고른 것만 내 PC 로 내려받아 폴더를 만든다.
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
+  /**
+   * 관리자만 카탈로그에서 줄을 지울 수 있다.
+   * 수집이 완벽하지 않아 잘못 들어온 상품이 생긴다(딸기에 감귤이 섞였다 — 2026-08-26).
+   * 지울 길이 없으면 셀러 목록이 계속 오염된 채로 간다. 실제 차단은 서버가 한다.
+   */
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [imp, setImp] = useState<ImportState | null>(null);
   const [impNote, setImpNote] = useState<string | null>(null);
@@ -120,6 +142,8 @@ export default function NaverSourcingCatalogPage() {
   // 그 기다림에도 시계를 붙인다 — 실측 1~1분 반이 걸리는데 아무 표시가 없으면 멈춘 걸로 보인다.
   const [waitStartedAt, setWaitStartedAt] = useState(0);
   const [waitCount, setWaitCount] = useState(0);
+  // 그중 몇 개가 준비됐나 — 100개를 기다릴 땐 "진행 중"만으로는 멈춘 것과 구별되지 않는다.
+  const [waitReady, setWaitReady] = useState(0);
   /**
    * **기다려도 소용없는 이유**(모르면 null). 상세는 로그인된 관리자 도우미만 가져간다 —
    * 그 도우미가 없거나 로그아웃돼 있으면 요청은 큐에 그대로 앉아 있는다.
@@ -175,6 +199,7 @@ export default function NaverSourcingCatalogPage() {
       if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
       setProducts(j.products ?? []);
       setTotal(j.total ?? 0);
+      setIsAdmin(!!j.isAdmin);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setProducts([]);
@@ -184,6 +209,34 @@ export default function NaverSourcingCatalogPage() {
   }, [page, q, sort, onlyDetail, catPath]);
 
   useEffect(() => { load(); }, [load]);
+
+  /** 고른 줄을 카탈로그에서 지운다(관리자). 되돌릴 수 없으므로 개수를 보여 주고 한 번 묻는다. */
+  const removePicked = useCallback(async () => {
+    const ids = [...picked];
+    if (!ids.length) return;
+    const ok = window.confirm(
+      `카탈로그에서 ${ids.length.toLocaleString()}개를 지웁니다. 되돌릴 수 없습니다 — `
+      + '다시 필요하면 그 카테고리를 다시 수집해야 합니다. 계속할까요?',
+    );
+    if (!ok) return;
+    setDeleting(true);
+    setErr(null);
+    try {
+      const res = await fetch('/api/megaload/naver-sourcing/products', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      setPicked(new Set());
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleting(false);
+    }
+  }, [picked, load]);
 
   /**
    * 카테고리 트리 + 가지별 개수.
@@ -446,53 +499,80 @@ export default function NaverSourcingCatalogPage() {
   useEffect(() => {
     if (!pendingIds.length) return;
     let alive = true;
+    const all = pendingIds;
     // 시작 시각을 여기서 못박는다 — 타이머가 몇 번 돌았는지와 무관하게 실제 흐른 시간으로 잰다.
-    const deadline = Date.now() + WAIT_LIMIT_MS;
+    const limitMs = waitLimitMs(all.length);
+    const deadline = Date.now() + limitMs;
     let checks = 0;
-    const t = setInterval(async () => {
-      // 8분. 조용히 손을 떼면 "기다렸는데 아무 일도 안 났다"가 된다 — 그만뒀다고 말한다.
-      if (Date.now() > deadline) {
-        clearInterval(t);
-        setPendingIds([]);
-        setWaitStartedAt(0);
-        setImpNote(waitBlockRef.current
-          ? `상세 준비가 8분을 넘겨 기다리기를 멈췄습니다 — ${waitBlockRef.current}`
-          : '상세 준비가 8분을 넘겨 기다리기를 멈췄습니다 — 관리자 도우미가 켜져 있는지 확인한 뒤 다시 시도해 주세요.');
-        setWaitBlock(null);
-        load(); loadCategories();
-        return;
+
+    /** 준비된 것을 들고 1단계(가져오기)로 넘어간다. dropped>0 이면 못 채운 만큼을 말한다. */
+    const proceed = async (products: Parameters<typeof startImport>[1], dropped: number) => {
+      setPendingIds([]);
+      setWaitStartedAt(0);
+      setWaitReady(0);
+      noteBlock(null);
+      const helper = await findHelper();
+      if (!helper) { setImpNote('상세가 준비됐는데 도우미를 찾지 못했습니다 — 도우미를 실행한 뒤 다시 눌러 주세요.'); return; }
+      setImpNote(dropped > 0
+        ? `${dropped}개는 아직 준비되지 않아 빼고 ${products.length}개로 진행합니다 — 나머지는 준비된 뒤 다시 가져와 주세요.`
+        : null);
+      setImporting(true);
+      // 0단계(상세 준비)가 여기서 끝났다 — 그 길이를 확정하고 1단계 시계를 켠다.
+      if (runMarks.current.startedAt) {
+        runMarks.current.detailWaitMs = Date.now() - runMarks.current.startedAt;
+        runMarks.current.importStartedAt = Date.now();
       }
+      startedHereRef.current = true;   // 이어서 시작한 것도 이 화면의 작업이다
+      navigatedRef.current = false;
+      etaBaseRef.current = null;
+      setEtaMs(null);
+      const r = await startImport(helper.ep, products, undefined, true);
+      setImp({ running: true, total: r.total ?? products.length, done: 0, ok: 0, failed: 0, current: '', rootDir: r.rootDir ?? '', stopped: null, at: Date.now(), gen: null });
+      load(); loadCategories();   // 상세가 확보됐으니 '상세 확보' 개수가 바뀐다
+    };
+
+    const t = setInterval(async () => {
       // 처리할 도우미가 준비돼 있나 — 15초에 한 번. 막혀 있으면 그 사실을 화면에 띄운다.
       if (checks++ % BLOCK_CHECK_EVERY === 0) void checkQueueWorker();
+
+      // 준비 상황을 **먼저** 본다 — 시간이 다 됐을 때 "그때까지 준비된 것"을 들고 갈 수 있어야 한다.
+      let ready: Parameters<typeof startImport>[1] | null = null;
       try {
         const res = await fetch('/api/megaload/naver-sourcing/products/export', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: pendingIds }),
+          body: JSON.stringify({ ids: all }),
         });
         const j = await res.json();
-        if (!alive || !res.ok || !j.products?.length) return;
+        if (res.ok) ready = j.products ?? [];
+      } catch { /* 다음 주기에 다시 */ }
+      if (!alive) return;
+      if (ready) setWaitReady(ready.length);
+
+      // ★ 예전엔 **한 개만 준비돼도** 그것만 들고 떠났다(`!j.products?.length` 로만 판단했다).
+      //   100개를 골랐는데 1개로 생성이 시작되고 99개는 조용히 사라졌다. 전부 기다린다.
+      if (ready && ready.length >= all.length) {
         clearInterval(t);
+        await proceed(ready, 0);
+        return;
+      }
+
+      // 한도를 넘겼다. 조용히 손을 떼면 "기다렸는데 아무 일도 안 났다"가 된다 — 그만뒀다고 말한다.
+      // 단, 그때까지 준비된 게 있으면 **버리지 않고** 그것만이라도 들고 간다.
+      if (Date.now() > deadline) {
+        clearInterval(t);
+        if (ready && ready.length > 0) { await proceed(ready, all.length - ready.length); return; }
         setPendingIds([]);
         setWaitStartedAt(0);
+        setWaitReady(0);
+        setImpNote(waitBlockRef.current
+          ? `상세 준비가 ${fmtDur(limitMs)}을 넘겨 기다리기를 멈췄습니다 — ${waitBlockRef.current}`
+          : `상세 준비가 ${fmtDur(limitMs)}을 넘겨 기다리기를 멈췄습니다 — ${all.length}개 중 준비된 것이 없습니다.`
+            + ` 상세는 분당 약 ${DETAIL_RATE_PER_MIN}개까지만 준비할 수 있고(네이버 보호 한도),`
+            + ' 그마저도 관리자 도우미가 켜져 있을 때만 진행됩니다.');
         noteBlock(null);
-        const helper = await findHelper();
-        if (!helper) { setImpNote('상세가 준비됐는데 도우미를 찾지 못했습니다 — 도우미를 실행한 뒤 다시 눌러 주세요.'); return; }
-        setImpNote(null);
-        setImporting(true);
-        // 0단계(상세 준비)가 여기서 끝났다 — 그 길이를 확정하고 1단계 시계를 켠다.
-        if (runMarks.current.startedAt) {
-          runMarks.current.detailWaitMs = Date.now() - runMarks.current.startedAt;
-          runMarks.current.importStartedAt = Date.now();
-        }
-        startedHereRef.current = true;   // 이어서 시작한 것도 이 화면의 작업이다
-        navigatedRef.current = false;
-        etaBaseRef.current = null;
-        setEtaMs(null);
-        const r = await startImport(helper.ep, j.products, undefined, true);
-        setImp({ running: true, total: r.total ?? j.products.length, done: 0, ok: 0, failed: 0, current: '', rootDir: r.rootDir ?? '', stopped: null, at: Date.now(), gen: null });
-        load(); loadCategories();   // 상세가 확보됐으니 '상세 확보' 개수가 바뀐다
-      } catch { /* 다음 주기에 다시 */ }
+        load(); loadCategories();
+      }
     }, 5000);
     return () => { alive = false; clearInterval(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -503,6 +583,18 @@ export default function NaverSourcingCatalogPage() {
   // 이 페이지에서 실제로 등록까지 갈 수 있는 것 / 막힌 것 — 숫자를 먼저 보여 준다.
   const pickableCount = products.filter(isPickable).length;
   const blockedCount = products.length - pickableCount;
+
+  /**
+   * 고른 것 중 **상세가 아직 없는 것**이 몇 개인가 — 누르기 **전에** 알려주려고 센다.
+   * ---------------------------------------------------------------------------
+   * 상세 준비는 네이버 보호 한도(분당 약 12개)에 걸려 있어, 100개를 고르면 도우미가 완벽히
+   * 정상이어도 최소 8.3분이 그 자리에서 사라진다. 그런데 예전 화면은 **누른 뒤에야** 그
+   * 사실을 알려줬다 — 20분 안에 끝내려는 사람에게 예산의 절반을 몰래 태우게 한 셈이다.
+   * 지금 이 목록에 있는 것만 셀 수 있으므로(다른 페이지에서 고른 것은 모른다) 하한으로 말한다.
+   */
+  const pickedHere = products.filter((p) => picked.has(p.id));
+  const notReadyHere = pickedHere.filter((p) => p.detail_status !== 'done');
+  const readyHere = pickedHere.length - notReadyHere.length;
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -657,6 +749,17 @@ export default function NaverSourcingCatalogPage() {
               ? '상세페이지 만드는 중…'
               : `선택한 ${picked.size.toLocaleString()}개 올인원으로 등록하기`}
         </button>
+        {isAdmin && !!picked.size && !importing && (
+          <button
+            onClick={removePicked}
+            disabled={deleting}
+            title="카탈로그에서 지웁니다 — 잘못 수집된 상품을 치울 때 씁니다"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-200 bg-white text-red-700 text-sm font-medium hover:bg-red-50 disabled:opacity-40"
+          >
+            {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            선택 {picked.size.toLocaleString()}개 삭제
+          </button>
+        )}
         {!!picked.size && !importing && (
           <button onClick={() => setPicked(new Set())} className="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-500 hover:bg-gray-50">
             선택 해제
@@ -681,6 +784,39 @@ export default function NaverSourcingCatalogPage() {
             ? <>고르면 <b>가져오기 → 생성 → 등록</b>까지 사람 손 없이 갑니다 — <b className="text-[#E31837]">검수 화면을 거치지 않습니다.</b> 등록 직전 10초 동안은 취소할 수 있습니다.</>
             : <>누르면 <b>가져오기 → 상세페이지 생성 → 검수</b>까지 저절로 이어집니다(진행률·남은시간이 아래에 뜹니다). 네이버 로그인은 필요 없습니다.</>}
         </span>
+        {/* ── 누르기 전에 말한다 — "이만큼은 기다려야 한다" ────────────────────
+            상세가 없는 것을 고르면 그 수만큼 대기가 붙는다. 사람은 그걸 모른 채 눌렀다가
+            0단계에서 몇 분을 흘려보냈다. 숫자와 함께, 한 번에 고칠 수 있는 길을 같이 준다. */}
+        {notReadyHere.length > 0 && !importing && !imp?.running && !pendingIds.length && (
+          <div className="w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 flex items-center gap-2 flex-wrap">
+            <AlertTriangle className="w-4 h-4 flex-none" />
+            <span>
+              고른 것 중 <b>{notReadyHere.length}개</b>는 상세를 아직 안 받아 둔 상품입니다 —
+              먼저 준비하는 데 <b>약 {fmtDur((notReadyHere.length / DETAIL_RATE_PER_MIN) * 60_000)}</b>이
+              더 걸립니다(네이버 보호 한도 분당 {DETAIL_RATE_PER_MIN}개).
+              {readyHere > 0 && <> 지금 바로 시작할 수 있는 건 <b>{readyHere}개</b>입니다.</>}
+            </span>
+            <span className="flex-1" />
+            {readyHere > 0 && (
+              <button
+                onClick={() => setPicked((prev) => {
+                  const next = new Set(prev);
+                  for (const p of notReadyHere) next.delete(p.id);
+                  return next;
+                })}
+                className="px-2.5 py-1 rounded-md border border-amber-300 bg-white text-amber-900 font-medium hover:bg-amber-100"
+              >
+                상세 확보된 {readyHere}개만 남기기
+              </button>
+            )}
+            <button
+              onClick={() => { setPage(1); setOnlyDetail(true); }}
+              className="px-2.5 py-1 rounded-md border border-amber-300 bg-white text-amber-900 font-medium hover:bg-amber-100"
+            >
+              확보된 것만 보기
+            </button>
+          </div>
+        )}
         {blockedCount > 0 && (
           <span className="w-full text-xs text-gray-600 border-t border-gray-100 pt-2 mt-1">
             이 페이지의 <b>{blockedCount}개</b>는 네이버 마켓·쇼핑윈도 상품이라 아직 상세를 가져올 수
@@ -701,15 +837,20 @@ export default function NaverSourcingCatalogPage() {
           "눌렀는데 아무 일도 안 난다"로 보였다 — 시계와 예상치를 붙인다. */}
       {!!waitStartedAt && !!pendingIds.length && (() => {
         const elapsed = Math.max(0, nowTick - waitStartedAt);
-        const typicalMs = 90_000;                       // 실측 중앙값 76초 + 여유
-        const pct = Math.min(95, Math.round((elapsed / typicalMs) * 100));   // 100%는 끝났을 때만
+        // 예상치는 **건수에 비례**한다. 1개 기준 90초를 100개에도 쓰면 30초 만에 "예상 초과"가
+        // 떠서, 정상 진행 중인 100개짜리 작업이 매번 고장처럼 보인다.
+        const typicalMs = Math.max(90_000, (waitCount / DETAIL_RATE_PER_MIN) * 60_000);
+        // 진행률은 시계가 아니라 **실제로 준비된 개수**로 잰다 — 그게 사람이 알고 싶은 것이다.
+        const pct = waitCount > 0 && waitReady > 0
+          ? Math.min(95, Math.round((waitReady / waitCount) * 100))
+          : Math.min(95, Math.round((elapsed / typicalMs) * 100));
         const late = elapsed > typicalMs * 2;
         return (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 mb-4">
             <div className="flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin text-amber-700 flex-none" />
               <span className="text-sm font-semibold text-amber-900">
-                0단계 · 상세 준비 중 ({waitCount}개)
+                0단계 · 상세 준비 중 ({waitReady}/{waitCount}개)
               </span>
               <span className="flex-1" />
               {/* 예상을 넘긴 뒤에도 95%를 띄우면 "거의 다 됐다"는 거짓말이 된다 —
@@ -726,7 +867,9 @@ export default function NaverSourcingCatalogPage() {
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-amber-900">
               <span>경과 <b className="tabular-nums">{fmtDur(elapsed)}</b></span>
-              <span>보통 <b>1~1분 반</b></span>
+              {/* 남은시간은 게이트 상한(분당 12건)에서 나온다 — 감이 아니라 계산이다. */}
+              <span>예상 <b className="tabular-nums">{fmtDur(typicalMs)}</b></span>
+              <span className="text-amber-700">상세 준비는 분당 약 {DETAIL_RATE_PER_MIN}개까지입니다(네이버 보호 한도)</span>
               {!waitBlock && <span className="text-amber-700">준비되는 즉시 가져오기·생성으로 이어집니다</span>}
             </div>
 
