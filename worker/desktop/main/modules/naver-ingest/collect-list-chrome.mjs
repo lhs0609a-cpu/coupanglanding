@@ -26,8 +26,12 @@ import naverGate from '../../naver-gate.mjs';
 const sleep = (ms) => new Promise((r) => { const t = setTimeout(r, ms); t.unref?.(); });
 const rand = (min, max) => min + Math.random() * (max - min);
 
-/** 신규 0건이 이만큼 연속되면 그 카테고리는 끝난 것으로 본다. */
-const NO_NEW_STOP = 8;
+/**
+ * 신규 0건이 이만큼 연속되면 그 카테고리는 끝난 것으로 본다.
+ * ⚠️ 회차가 잘아져서(380px) 이득은 **약 12회에 한 번** 들어온다 — 8 로 두면 아직 더 나올
+ *    목록을 "끝" 으로 오판한다(실측: 4→8→20→32 회차에서 +47씩 들어왔다).
+ */
+const NO_NEW_STOP = 30;
 
 /** 목록 페이지 왼쪽에 형제 소분류가 통째로 있다 — 거기서 다음 칸을 **눌러서** 옮긴다. */
 const SIBLING_LINKS_JS = `(() => {
@@ -46,17 +50,12 @@ const SIBLING_LINKS_JS = `(() => {
  * @returns {Promise<{gained:number, stopped:string}>}
  */
 /**
- * 스크롤 회차 사이 간격.
- * ---------------------------------------------------------------------------
- * 회차 1번 = 목록 더받기(`paged-composite-cards`) 1번이다. 실측 2026-08-26:
- * 2~4초 간격으로 3번 당기니 4번째에 418 이 왔다(193개에서 정지).
- * 그리고 **418 은 한 번 맞으면 그 페이지의 로더가 죽는다** — 30초 쉬고 다시 굴려도
- * 요청이 아예 안 나간다. 그래서 맞고 회복하는 설계가 아니라 **안 맞는 설계**여야 한다.
- * 사람이 목록을 훑는 속도이기도 하다.
+ * 한 번에 내리는 픽셀 폭 — 사람은 휠 한 칸에 100~120px 를 서너 칸씩 굴린다.
+ * 크게 확 내리면 더받기 요청이 한꺼번에 몰려 418 을 부른다.
  */
-const PACE_MS = [7000, 12000];
+const STEP_PX = [300, 480];
 
-async function scrollHarvest(page, items, { target, onLog, onProgress, signal, pace = PACE_MS, skippedSoldOut = new Set() }) {
+async function scrollHarvest(page, items, { target, onLog, onProgress, signal, pace = STEP_PX, skippedSoldOut = new Set() }) {
   const before = items.size;
   let noNew = 0;
   // 카테고리를 옮기면 풀리는 설정이 있다 — 훑기 시작할 때마다 다시 못을 박는다.
@@ -68,6 +67,7 @@ async function scrollHarvest(page, items, { target, onLog, onProgress, signal, p
   // 그래서 겉으로는 "그냥 안 늘어남" 으로 보인다 — 듣고 있지 않으면 영영 모른다.
   let saw418 = 0;
   let pagedOk = 0;
+  let gated = 0;      // 게이트를 소비한 더받기 횟수
   const unwatch = page.watchResponses(({ status, url }) => {
     if (!/paged-composite-cards/.test(url)) return;
     if (status === 418 || status === 429) saw418 += 1;
@@ -75,19 +75,43 @@ async function scrollHarvest(page, items, { target, onLog, onProgress, signal, p
   });
 
   try {
-  for (let i = 1; i <= 200; i++) {
+  for (let i = 1; i <= 800; i++) {
     if (signal?.aborted) return { gained: items.size - before, stopped: '중단됨' };
     if (items.size >= target) return { gained: items.size - before, stopped: '목표 도달' };
 
-    await naverGate.acquire('ingest', { signal });
-    await naverGate.waitCooldown(signal);
+    // ★ 게이트는 **실제로 요청이 나갔을 때만** 소비한다.
+    //   회차마다 소비하면 분당 12건에 걸려 5초씩 끊기는데, 그 리듬이 사람과 달라서
+    //   봇 판별에 걸린다. 스크롤 회차 대부분은 네트워크로 나가지 않는다(약 12회에 1번).
+    if (pagedOk > gated) {
+      gated = pagedOk;
+      await naverGate.acquire('ingest', { signal });
+      await naverGate.waitCooldown(signal);
+    }
 
     const had = items.size;
     const hit = saw418;
-    // ★ 진짜 휠로 내린다. window.scrollBy 는 브라우저 입력 파이프라인을 타지 않아
-    //   지연 렌더가 반응하지 않는다(실측: scrollBy 는 1회차 뒤 요청 0건, 휠은 계속 나갔다).
-    await page.wheel({ steps: 7, deltaY: 520 });
-    await sleep(rand(pace[0], pace[1]));
+
+    // ★ 사람처럼 굴린다 — 이게 그대로 성적이 된다(실측 2026-08-26, 같은 방식·다른 카테고리).
+    //     크게 7연발 + 10초 정지, 마우스 안 움직임 → 더받기 1회 뒤 418 (91개)
+    //     작게 1회 + 굴리기 직전 미세 이동      → 더받기 4회 뒤 418 (243개)
+    //     + 멈춰서 구경 + 가끔 위로 되돌아가기  → **더받기 12회, 차단 0회 (641개)**
+    //   목록이 안 늘어나는 건 스크롤이 안 돼서가 아니라 서버가 더받기를 거부해서였다.
+    const up = Math.random() < 0.12;                       // 가끔 위로 되돌아본다
+    await page.wheel({
+      steps: 1,
+      deltaY: up ? -Math.round(rand(120, 300)) : Math.round(rand(pace[0], pace[1])),
+      pauseMs: [40, 90],
+    });
+    await sleep(rand(350, 900));
+
+    // 7회마다 멈춰서 구경한다 — 그동안에도 손은 움직인다(가만히 있는 게 봇 신호다).
+    if (i % 7 === 0) {
+      const until = Date.now() + rand(1500, 3500);
+      while (Date.now() < until) {
+        await page.jiggle().catch(() => {});
+        await sleep(rand(120, 320));
+      }
+    }
 
     // ★ 418 은 재시도로 못 푼다. 맞는 순간 그 페이지의 로더가 죽어서, 아무리 굴려도
     //   요청이 다시 안 나간다(실측 2026-08-26: 30초 쉬고 6·9회차 모두 +0).
@@ -151,7 +175,7 @@ export async function collectCategoryViaChrome(page, catId, opts = {}) {
     onProgress = () => {},
     signal,
     /** 스크롤 회차 사이 간격 [min,max]ms — 이게 418 을 맞느냐 마느냐를 가른다. */
-    pace = PACE_MS,
+    pace = STEP_PX,
   } = opts;
 
   const items = new Map();

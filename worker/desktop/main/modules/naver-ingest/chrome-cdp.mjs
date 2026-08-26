@@ -229,8 +229,10 @@ export class ChromePage {
       const q = ${JSON.stringify(selectorOrText)};
       if (q.startsWith('text=')) {
         const want = q.slice(5).trim();
-        return [...document.querySelectorAll('a[href]')]
-          .find(a => (a.innerText || a.textContent || '').replace(/\\s+/g,' ').trim() === want);
+        // ⚠️ 예전엔 a[href] 만 뒤졌다. 그런데 쇼핑 홈의 '카테고리' 는 **button** 이라
+        //   영영 못 찾았다(실측 2026-08-26: 메뉴가 안 열려 진입 자체가 실패).
+        return [...document.querySelectorAll('a[href], button, [role="button"], [role="menuitem"]')]
+          .find(el => (el.innerText || el.textContent || '').replace(/\\s+/g,' ').trim() === want);
       }
       return document.querySelector(q);
     })()`;
@@ -334,6 +336,18 @@ export class ChromePage {
     }
     for (let i = 0; i < steps; i++) {
       const dist = Math.round(deltaY * (0.85 + Math.random() * 0.3));
+
+      // 사람은 휠을 굴리는 동안 손이 미세하게 흔들린다. 우리는 mousemove 가 **0건**이었다 —
+      // 네이버의 봇 판별(ncpt)이 보는 신호 중 하나가 그것이다. 굴리기 전에 몇 픽셀 움직인다.
+      for (let k = 0; k < 2; k++) {
+        await this.send('Input.dispatchMouseEvent', {
+          type: 'mouseMoved',
+          x: x + Math.round(rand(-14, 14)),
+          y: y + Math.round(rand(-10, 10)),
+          buttons: 0, pointerType: 'mouse',
+        }).catch(() => {});
+        await sleep(rand(25, 70));
+      }
       // ★ `Input.dispatchMouseEvent({type:'mouseWheel'})` 는 **실제로 스크롤되지 않는다**
       //   (실측 2026-08-26: 6회차까지 +0 이다가, 사람이 손으로 굴린 7회차에 +99 가 들어왔다).
       //   렌더러에 이벤트만 꽂힐 뿐 컴포지터를 안 거쳐서 그렇다.
@@ -372,6 +386,25 @@ export class ChromePage {
       if (!/naver\.com/.test(url)) return;
       fn({ status: p.response.status, url, type: p.type || '' });
     }, this.sessionId);
+  }
+
+  /**
+   * 마우스를 조금 움직인다 — 멈춰서 구경하는 동안에도 사람 손은 가만히 있지 않는다.
+   * 네이버 봇 판별(ncpt)이 이 신호를 본다. 실측 2026-08-26으로 확인된 차이다:
+   *   마우스 안 움직임 → 목록 더받기 1회 뒤 418
+   *   굴리기 직전에만 움직임 → 4회 뒤 418
+   */
+  async jiggle({ x = null, y = null } = {}) {
+    if (x == null || y == null) {
+      const p = await this.evaluateJson(
+        '({ x: Math.round(window.innerWidth * (0.45 + Math.random() * 0.35)),'
+        + '   y: Math.round(window.innerHeight * (0.25 + Math.random() * 0.5)) })',
+      ).catch(() => null);
+      x = p?.x ?? 900; y = p?.y ?? 400;
+    }
+    await this.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved', x, y, buttons: 0, pointerType: 'mouse',
+    }).catch(() => {});
   }
 
   /** 요소가 나타날 때까지 기다린다(SPA 렌더 지연 대비). */
