@@ -31,6 +31,10 @@ import {
   ROOT_CATEGORIES,
 } from './categories.mjs';
 import { collectCategory } from './collect-list.mjs';
+import { collectCategoryViaChrome } from './collect-list-chrome.mjs';
+import {
+  initChromeSession, ensureChrome, ensureChromeLogin, isChromeAvailable, closeChrome,
+} from './chrome-session.mjs';
 import { extractOne, ensureRoot, extractDetailJs, writeProductFolder } from './detail-extract.mjs';
 import { isDetailExtractable } from './store-type.mjs';
 
@@ -94,6 +98,8 @@ export function initService({ store, send, userDataDir, getAccount, getToken, we
   naverGate.init(userDataDir);
   initCategories(store);
   initCredentials(store);
+  // 목록 수집은 **진짜 크롬**으로 한다 — Electron 창은 합성 이벤트라 50개에서 멈춘다(실측).
+  initChromeSession({ userDataDir, onLog: pushLog });
   const st = naverGate.state();
   if (st.cooling) {
     pushLog(`이전 실행에서 걸린 네이버 쿨다운이 ${Math.ceil(st.cooldownMsLeft / 1000)}초 남아 있습니다 — 그만큼 쉬고 시작합니다`);
@@ -236,6 +242,7 @@ export async function start() {
 }
 
 export async function stop() {
+  await closeChrome();
   if (!pool) return true;
   await pool.stop();
   pushLog('수집을 멈추고 창을 정리했습니다.');
@@ -517,23 +524,58 @@ export async function startCollect({ catId, catName = '', target = 300, autoDeta
    * 수집 도중 세션이 만료되면 창을 놓고 나온다(collect-list 는 그 자리에서 로그인을 못 한다 —
    * 창을 쥔 채로 창을 또 달라고 하면 창 1개짜리 설정에서 멈춘다). 되살리는 건 여기, 창 밖이다.
    */
-  const runWithRelogin = async () => {
-    const opts = {
-      target,
-      onLog: pushLog,
-      onProgress: (pr) => { collection.progress = pr; },
-      onNeedLogin: ensureNaverLogin,
-      signal: collectAbort.signal,
-    };
-    const first = await collectCategory(p, catId, opts);
+  const opts = {
+    target,
+    onLog: pushLog,
+    onProgress: (pr) => { collection.progress = pr; },
+    signal: collectAbort.signal,
+  };
+
+  /**
+   * 크롬으로 수집한다 — **이게 기본 경로다.**
+   * ---------------------------------------------------------------------------
+   * Electron 창은 클릭도 스크롤도 자바스크립트로 만든 합성 이벤트라(isTrusted=false)
+   * 목록이 첫 화면 50개에서 멈춘다. 크롬을 CDP 로 조종하면 진짜 마우스·휠 입력이 들어가고,
+   * 같은 카테고리에서 244개까지 나왔다(실측 2026-08-25~26). 자세한 근거는
+   * collect-list-chrome.mjs 머리말.
+   */
+  const runViaChrome = async () => {
+    const { page } = await ensureChrome();
+    const li = await page.naverLogin();
+    if (!li.loggedIn) {
+      pushLog('크롬에 네이버 로그인이 필요합니다 — 열린 크롬 창에서 로그인해 주세요(한 번만, 프로필에 남습니다).');
+      const r = await ensureChromeLogin({ waitMs: 300_000 });
+      if (!r.ok) return { items: [], stopped: '네이버 로그인 필요(크롬)' };
+    }
+    return collectCategoryViaChrome(page, catId, opts);
+  };
+
+  /** 크롬이 없거나 실패했을 때만 — 옛 Electron 경로(50개에서 멈춘다). */
+  const runViaElectron = async () => {
+    const eopts = { ...opts, onNeedLogin: ensureNaverLogin };
+    const first = await collectCategory(p, catId, eopts);
     if (first.stopped !== '네이버 로그인 필요' || collectAbort.signal.aborted) return first;
     const re = await ensureNaverLogin();
     if (!re?.ok) return first;
-    const second = await collectCategory(p, catId, opts);
+    const second = await collectCategory(p, catId, eopts);
     // 만료 전에 모은 것도 결과다 — 버리지 않고 합친다.
     const merged = new Map(first.items.map((x) => [x.productNo, x]));
     for (const x of second.items) merged.set(x.productNo, x);
     return { items: [...merged.values()], stopped: second.stopped };
+  };
+
+  const runWithRelogin = async () => {
+    if (!isChromeAvailable()) {
+      pushLog('⚠️ 구글 크롬이 없어 옛 방식으로 수집합니다 — 카테고리당 50개 안팎에서 멈춥니다. 크롬을 설치하면 훨씬 많이 가져옵니다.');
+      return runViaElectron();
+    }
+    try {
+      return await runViaChrome();
+    } catch (e) {
+      // 크롬이 안 뜨는 PC 도 있다 — 아무것도 못 가져가는 것보다는 옛 방식이 낫다.
+      pushLog(`⚠️ 크롬 수집 실패(${e?.message || e}) — 옛 방식으로 이어서 시도합니다.`);
+      return runViaElectron();
+    }
   };
 
   runWithRelogin().then(async ({ items: raw, stopped }) => {
@@ -705,6 +747,9 @@ export async function startDetailExtract({ urls = [], rootDir = '', autoGenerate
       if (!deps.runAllinone) {
         pushLog('상세페이지 자동 생성을 건너뜁니다 — 이 실행 경로에는 올인원이 연결돼 있지 않습니다.');
       } else {
+        // 크롬도 같이 접는다 — 생성은 GPU·RAM 을 크게 쓰는데 크롬이 몇 백 MB 를 물고 있으면
+        // 모델이 못 올라가 생성이 통째로 실패한다(수집 창을 접는 것과 같은 이유).
+        try { await closeChrome(); } catch { /* ignore */ }
         try { await pool?.stop(); } catch { /* 창 정리 실패는 생성을 막지 않는다 */ }
         pushLog(`상세페이지 자동 생성을 시작합니다 — 상품 ${detail.ok}개. 끝나면 검수 화면이 열립니다.`);
         startAllinone(detail.rootDir, detail.ok);
