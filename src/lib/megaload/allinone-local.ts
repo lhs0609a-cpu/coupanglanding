@@ -154,7 +154,17 @@ async function scanLocalPorts(): Promise<LocalEndpoint | null> {
  *    게다가 포트가 랜덤이라 앱이 재시작하면 DB 값이 낡는다. ①은 그 두 가지를 동시에 없앤다.
  *    결과는 15초 캐시(폴러가 여럿).
  */
-export async function discoverLocalEndpointEx(): Promise<EndpointLookup> {
+/**
+ * 캐시를 버린다 — 도우미를 재시작하면 **포트와 nonce 가 새로 발급**된다.
+ * 그때 캐시에 남은 실패/옛 주소를 15초 동안 붙들고 있으면 화면이 "못 찾았습니다" 로 굳는다.
+ * 자동 재탐색은 이걸 먼저 부른다.
+ */
+export function clearEndpointCache(): void {
+  cached = null;
+}
+
+export async function discoverLocalEndpointEx(force = false): Promise<EndpointLookup> {
+  if (force) cached = null;
   if (cached && Date.now() - cached.at < CACHE_MS) return cached.value;
   const finish = (value: EndpointLookup) => { cached = { at: Date.now(), value }; return value; };
 
@@ -181,8 +191,8 @@ export async function discoverLocalEndpointEx(): Promise<EndpointLookup> {
 }
 
 /** 기존 호출부 호환 — 검증에 성공한 "이 PC" 엔드포인트만 돌려준다. */
-export async function discoverLocalEndpoint(): Promise<LocalEndpoint | null> {
-  return (await discoverLocalEndpointEx()).ep;
+export async function discoverLocalEndpoint(force = false): Promise<LocalEndpoint | null> {
+  return (await discoverLocalEndpointEx(force)).ep;
 }
 
 /**

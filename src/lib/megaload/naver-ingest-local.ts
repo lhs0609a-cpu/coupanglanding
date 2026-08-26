@@ -199,8 +199,8 @@ export interface HelperInfo {
  * 발견은 /health 로 하는데 그 엔드포인트는 **모든 버전에 있다**. 즉 "찾았다"와 "네이버 소싱을
  * 지원한다"는 별개이므로, 여기서 버전을 함께 읽어 두고 화면이 정확히 구분해 안내하게 한다.
  */
-export async function findHelper(): Promise<HelperInfo | null> {
-  const ep = await discoverLocalEndpoint();
+export async function findHelper(force = false): Promise<HelperInfo | null> {
+  const ep = await discoverLocalEndpoint(force);
   if (!ep) return null;
   let version: string | null = null;
   try {

@@ -155,22 +155,43 @@ export default function NaverSourcingPage() {
   // ── 도우미 발견 ──
   // /health 는 모든 버전에 있으므로 "찾았다"가 곧 "지원한다"는 아니다. 지원 여부는 아래
   // status 폴링이 404/501 로 판정한다. 여기선 버전만 확보해 안내 문구에 쓴다.
-  const locate = useCallback(async () => {
-    setLink('checking');
-    const found = await findHelper();
+  const locate = useCallback(async (force = false) => {
+    setLink((cur) => (cur === 'online' ? cur : 'checking'));
+    const found = await findHelper(force);
     setEp(found?.ep ?? null);
     setHelperVersion(found?.version ?? null);
     setLink(found ? 'online' : 'offline');
+    return !!found;
   }, []);
 
   useEffect(() => { locate(); }, [locate]);
+
+  /**
+   * 못 찾았으면 **스스로 계속 찾는다.**
+   * ---------------------------------------------------------------------------
+   * 예전엔 화면을 열 때 딱 한 번만 찾았다. 그래서 도우미를 나중에 켜거나 재시작하면
+   * (포트·nonce 가 새로 발급된다) 화면은 "찾지 못했습니다" 에서 굳은 채, 사람이 '다시 찾기'를
+   * 누르기 전까지 영영 안 붙었다. 탐색은 로컬 포트를 찌르는 것뿐이라 비용이 거의 없다.
+   * force 로 캐시(15초)를 건너뛴다 — 안 그러면 옛 실패를 계속 다시 읽는다.
+   */
+  useEffect(() => {
+    if (link === 'online' || link === 'unsupported') return;
+    const t = setInterval(() => { locate(true); }, 4000);
+    return () => clearInterval(t);
+  }, [link, locate]);
 
   // ── 상태 폴링 ──
   const poll = useCallback(async () => {
     if (!ep) return;
     const s = await fetchStatus(ep, sinceRef.current);
     if (s === 'unsupported') { setLink('unsupported'); return; }
-    if (!s) { setLink('offline'); return; }
+    if (!s) {
+      // ★ 옛 주소를 붙들고 있으면 안 된다. 도우미를 재시작하면 nonce 가 새로 발급돼서
+      //   지금 쥔 값으로는 영영 401 이다 — 버리고 다시 찾게 만든다(위 자동 재탐색이 받는다).
+      setEp(null);
+      setLink('offline');
+      return;
+    }
     setLink('online');
     setStatus(s);
     const fresh = s.logs ?? [];
@@ -377,11 +398,11 @@ export default function NaverSourcingPage() {
               <p className="text-sm text-amber-800 mt-1 leading-relaxed">
                 {link === 'unsupported'
                   ? '도우미는 정상적으로 찾았지만, 설치된 버전에 네이버 소싱 기능이 아직 없습니다. 아래 "지금 업데이트"를 누르면 도우미가 바로 최신 버전을 받습니다(설치 후 자동 재시작). 앱에서 직접 하려면 도우미 사이드바의 "업데이트 확인"을 누르세요.'
-                  : '네이버는 서버(데이터센터 IP)의 접근을 차단하기 때문에, 수집은 이 PC에 설치된 도우미의 브라우저로만 할 수 있습니다. 도우미를 실행한 뒤 아래 "다시 찾기"를 눌러 주세요.'}
+                  : '네이버는 서버(데이터센터 IP)의 접근을 차단하기 때문에, 수집은 이 PC에 설치된 도우미의 브라우저로만 할 수 있습니다. 도우미를 실행하면 몇 초 안에 저절로 연결됩니다 — 기다려도 안 붙으면 아래 "다시 찾기"를 눌러 주세요.'}
               </p>
               <div className="flex gap-2 mt-4">
                 <button
-                  onClick={locate}
+                  onClick={() => { void locate(true); }}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white border border-amber-300 text-amber-900 text-sm font-medium hover:bg-amber-100"
                 >
                   <RefreshCw className="w-4 h-4" /> 다시 찾기
