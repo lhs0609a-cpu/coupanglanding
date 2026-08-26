@@ -616,9 +616,18 @@ export const collectCardsJs = `
     }
     const rm = text.match(/리뷰\\s*([\\d,]+)/);
 
+    /**
+     * 품절 판정 — 품절인 걸 가져와 봐야 등록도 못 하고 자리만 차지한다.
+     * ⚠️ '품절임박' 은 **아직 살 수 있는 상품**이라 빼면 안 된다. 그 말을 먼저 지우고 본다.
+     *   (실측 2026-08-26: 딸기 목록 카드에 '품절임박' 배지가 실제로 붙어 있었다)
+     */
+    const soldText = text.replace(/품절\\s*임박/g, '');
+    const soldOut = /품절|SOLD\\s*OUT/i.test(soldText);
+
     const item = {
       productNo: info.productNo,
       storeId: info.storeId,
+      soldOut,
       url: (a.href || '').split('?')[0],
       title: clean((d && d.prod_nm) || '').slice(0, 160) || titleOf(card, a),
       price,
@@ -633,6 +642,8 @@ export const collectCardsJs = `
     const prev = out.get(info.productNo);
     out.set(info.productNo, !prev ? item : {
       ...prev,
+      // 같은 상품의 앵커 중 하나라도 품절로 보이면 품절로 본다(놓치는 쪽보다 안전).
+      soldOut: prev.soldOut || item.soldOut,
       title: (prev.title || '').length >= (item.title || '').length ? prev.title : item.title,
       price: prev.price || item.price,
       thumb: prev.thumb || item.thumb,

@@ -311,12 +311,45 @@ export class ChromePage {
    * 한 번에 왕창 굴리지 않고 사람처럼 여러 번 나눠 굴린다 — 한 번에 바닥으로 뛰면
    * 중간 카드들이 화면을 스쳐 지나가 버려 렌더될 기회를 못 얻는다.
    */
-  async wheel({ steps = 6, deltaY = 500, pauseMs = [180, 320], x = 640, y = 400 } = {}) {
+  async wheel({ steps = 6, deltaY = 500, pauseMs = [180, 320], x = null, y = null } = {}) {
+    // ★ **어디에 대고 굴리느냐가 중요하다**(실측 2026-08-26). 휠은 마우스 아래에 있는
+    //   스크롤 영역에 먹는다. 목록 페이지 왼쪽 분류 사이드바는 자체 스크롤 영역이라
+    //   (내용 2320px / 창 795px) 거기에 굴리면 **사이드바만 내려가고 상품은 그대로**다.
+    //   딸기에서 49개 뒤로 더받기가 0회였던 게 이것이다. 상품 카드 위를 찾아 굴린다.
+    if (x == null || y == null) {
+      const p = await this.evaluateJson(`(() => {
+        const card = document.querySelector('[class*="basicProductCard"], [class*="productCard"]');
+        if (card) {
+          const r = card.getBoundingClientRect();
+          if (r.width > 0) return {
+            x: Math.round(r.left + r.width / 2),
+            y: Math.round(Math.min(Math.max(r.top + r.height / 2, 120), window.innerHeight - 120)),
+          };
+        }
+        // 카드를 못 찾으면 오른쪽 3/4 지점 — 사이드바는 왼쪽에 있다.
+        return { x: Math.round(window.innerWidth * 0.72), y: Math.round(window.innerHeight * 0.55) };
+      })()`).catch(() => null);
+      x = p?.x ?? 1000;
+      y = p?.y ?? 500;
+    }
     for (let i = 0; i < steps; i++) {
-      await this.send('Input.dispatchMouseEvent', {
-        type: 'mouseWheel', x, y, deltaX: 0, deltaY: Math.round(deltaY * (0.85 + Math.random() * 0.3)),
-        pointerType: 'mouse',
-      }).catch(() => {});
+      const dist = Math.round(deltaY * (0.85 + Math.random() * 0.3));
+      // ★ `Input.dispatchMouseEvent({type:'mouseWheel'})` 는 **실제로 스크롤되지 않는다**
+      //   (실측 2026-08-26: 6회차까지 +0 이다가, 사람이 손으로 굴린 7회차에 +99 가 들어왔다).
+      //   렌더러에 이벤트만 꽂힐 뿐 컴포지터를 안 거쳐서 그렇다.
+      //   `Input.synthesizeScrollGesture` 가 그걸 위한 API 다 — 컴포지터를 통해 진짜 스크롤
+      //   제스처를 만든다. yDistance 는 **음수가 아래로**다.
+      const ok = await this.send('Input.synthesizeScrollGesture', {
+        x, y, xDistance: 0, yDistance: -dist,
+        speed: 1200, gestureSourceType: 'mouse', repeatCount: 0,
+      }, 20000).then(() => true).catch(() => false);
+
+      if (!ok) {
+        // 구버전 크롬 등으로 제스처가 없으면 그때만 예전 방식으로 — 안 되는 것보다는 낫다.
+        await this.send('Input.dispatchMouseEvent', {
+          type: 'mouseWheel', x, y, deltaX: 0, deltaY: dist, pointerType: 'mouse',
+        }).catch(() => {});
+      }
       await sleep(rand(pauseMs[0], pauseMs[1]));
     }
     return this.evaluate('Math.round(window.scrollY)').catch(() => null);

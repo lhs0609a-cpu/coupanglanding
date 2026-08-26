@@ -510,8 +510,17 @@ export async function startCollect({ catId, catName = '', target = 300, autoDeta
   if (!catId) throw new Error('카테고리를 선택하세요.');
   if (collection.running) throw new Error('이미 수집이 진행 중입니다.');
 
+  /**
+   * Electron 창은 **필요할 때만** 띄운다.
+   * ---------------------------------------------------------------------------
+   * 목록 수집은 이제 크롬이 한다. 그런데 예전처럼 무조건 창 풀부터 켜면, 쓰지도 않을 창
+   * 2~4개가 수백 MB 를 물고 앉아 있는다(화면 "실행 중인 창 2" 가 그것이다). 게다가 그 뒤에
+   * 이어지는 상세페이지 생성은 RAM 이 모자라면 통째로 실패한다.
+   * → 창이 진짜 필요한 건 ① 크롬이 없어 폴백할 때 ② 상세 추출로 이어질 때뿐이다.
+   */
   const p = ensurePool();
-  if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
+  const needElectronWindows = autoDetail || !isChromeAvailable();
+  if (needElectronWindows && !p.running) { pushLog('창을 준비합니다…'); await p.start(); }
 
   // ★ 여기서 로그인을 기다리지 않는다. 캡차가 뜨면 사람이 풀 때까지 최대 10분인데, 그동안
   //   이 요청이 응답을 안 돌려줘서 웹 화면은 "눌렀는데 아무 일도 안 일어난다"가 된다(실측).
@@ -526,6 +535,13 @@ export async function startCollect({ catId, catName = '', target = 300, autoDeta
    */
   const opts = {
     target,
+    /**
+     * ★ 고른 카테고리 **하나만** 긁는다.
+     * 목표를 못 채우면 형제 소분류로 이어가게 해 봤는데, 딸기를 골랐더니 한라봉/감귤류·오렌지가
+     * 섞여 들어왔다. 사람이 '딸기'를 골랐으면 딸기만 나와야 한다 — 개수를 채우는 것보다
+     * 고른 대로 나오는 게 먼저다. 여러 칸이 필요하면 사람이 여러 번 고르는 게 맞다.
+     */
+    sweepSiblings: false,
     onLog: pushLog,
     onProgress: (pr) => { collection.progress = pr; },
     signal: collectAbort.signal,
@@ -552,6 +568,8 @@ export async function startCollect({ catId, catName = '', target = 300, autoDeta
 
   /** 크롬이 없거나 실패했을 때만 — 옛 Electron 경로(50개에서 멈춘다). */
   const runViaElectron = async () => {
+    // 크롬으로 가려다 실패해서 여기로 떨어졌으면 창이 아직 안 떠 있다.
+    if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
     const eopts = { ...opts, onNeedLogin: ensureNaverLogin };
     const first = await collectCategory(p, catId, eopts);
     if (first.stopped !== '네이버 로그인 필요' || collectAbort.signal.aborted) return first;

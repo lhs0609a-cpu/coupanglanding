@@ -56,7 +56,7 @@ const SIBLING_LINKS_JS = `(() => {
  */
 const PACE_MS = [7000, 12000];
 
-async function scrollHarvest(page, items, { target, onLog, onProgress, signal, pace = PACE_MS }) {
+async function scrollHarvest(page, items, { target, onLog, onProgress, signal, pace = PACE_MS, skippedSoldOut = new Set() }) {
   const before = items.size;
   let noNew = 0;
   // 카테고리를 옮기면 풀리는 설정이 있다 — 훑기 시작할 때마다 다시 못을 박는다.
@@ -104,7 +104,12 @@ async function scrollHarvest(page, items, { target, onLog, onProgress, signal, p
     let cards = [];
     try { cards = (await page.evaluateJson(collectCardsJs)) || []; }
     catch (e) { onLog(`⚠️ 카드 추출 실패 — ${e?.message || e}`); }
-    for (const c of cards) if (c?.productNo) items.set(String(c.productNo), c);
+    // 품절은 담지 않는다 — 등록도 못 하는 걸 카탈로그에 쌓아 봐야 셀러가 고른 뒤에야 안다.
+    for (const c of cards) {
+      if (!c?.productNo) continue;
+      if (c.soldOut) { skippedSoldOut.add(String(c.productNo)); continue; }
+      items.set(String(c.productNo), c);
+    }
 
     onProgress?.({ collected: items.size, scrolls: i, gained: items.size - had });
 
@@ -151,16 +156,19 @@ export async function collectCategoryViaChrome(page, catId, opts = {}) {
 
   const items = new Map();
   const visited = [];
+  /** 품절이라 건너뛴 상품 — 몇 개를 뺐는지 말해 줘야 "왜 적게 나오지"를 오해하지 않는다. */
+  const skippedSoldOut = new Set();
 
   const nav = await descendToCategory(page, catId, { onLog });
   if (!nav.ok) return { items: [], stopped: nav.error || '목록 도달 실패', visited };
 
-  let r = await scrollHarvest(page, items, { target, onLog, onProgress, signal, pace });
+  let r = await scrollHarvest(page, items, { target, onLog, onProgress, signal, pace, skippedSoldOut });
   visited.push({ id: catId, gained: r.gained, stopped: r.stopped });
   onLog(`${catId} — ${r.gained}개 (${r.stopped})`);
 
   if (items.size >= target || !sweepSiblings || signal?.aborted) {
-    return { items: [...items.values()], stopped: r.stopped, visited };
+    if (skippedSoldOut.size) onLog(`품절 ${skippedSoldOut.size}개는 담지 않았습니다.`);
+    return { items: [...items.values()], stopped: r.stopped, visited, soldOutSkipped: skippedSoldOut.size };
   }
 
   // ── 형제 소분류로 이어간다 ────────────────────────────────────────────
@@ -196,7 +204,7 @@ export async function collectCategoryViaChrome(page, catId, opts = {}) {
     await page.evaluate('window.scrollTo(0, 0)').catch(() => {});
     await sleep(rand(800, 1200));
 
-    r = await scrollHarvest(page, items, { target, onLog, onProgress, signal, pace });
+    r = await scrollHarvest(page, items, { target, onLog, onProgress, signal, pace, skippedSoldOut });
     visited.push({ id: sib.id, name: sib.name, gained: r.gained, stopped: r.stopped });
     onLog(`  ${sib.name || sib.id} — +${r.gained} (누적 ${items.size})`);
 
@@ -204,7 +212,9 @@ export async function collectCategoryViaChrome(page, catId, opts = {}) {
   }
 
   naverGate.recordSuccess();
+  if (skippedSoldOut.size) onLog(`품절 ${skippedSoldOut.size}개는 담지 않았습니다.`);
   return {
+    soldOutSkipped: skippedSoldOut.size,
     items: [...items.values()],
     stopped: items.size >= target ? '목표 도달' : (r?.stopped || '더 나올 것이 없음'),
     visited,
