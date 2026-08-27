@@ -31,7 +31,12 @@ try {
   Write-Host "3/4  winCodeSign 캐시 준비 (심링크 우회)..." -ForegroundColor Cyan
   $cache = Join-Path $env:LOCALAPPDATA 'electron-builder\Cache\winCodeSign'
   $cacheDir = Join-Path $cache 'winCodeSign-2.6.0'
-  if (-not (Test-Path (Join-Path $cacheDir 'windows-10'))) {
+  # ⚠️ 'windows-10' 폴더만 보고 "캐시 있음" 으로 판단하면 안 된다. 실측 2026-08-27:
+  #   그 폴더는 있는데 **rcedit-x64.exe 가 빠진** 반쪽 캐시가 남아 있어, 이 단계를 건너뛴 뒤
+  #   빌드가 "cannot execute ... rcedit-x64.exe: file does not exist" 로 4회 재시도 끝에 죽었다.
+  #   electron-builder 가 exe 의 버전정보·아이콘을 박을 때 쓰는 파일이라 없으면 무조건 실패한다.
+  #   → 실제로 쓰는 파일의 존재로 판단한다.
+  if (-not (Test-Path (Join-Path $cacheDir 'rcedit-x64.exe'))) {
     New-Item -ItemType Directory -Path $cache -Force | Out-Null
     $sevenZa = Join-Path $desktopDst 'node_modules\7zip-bin\win\x64\7za.exe'
     $arcItem = Get-ChildItem "$cache\*.7z" -ErrorAction SilentlyContinue | Select-Object -First 1
