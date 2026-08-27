@@ -3,12 +3,10 @@
  * 소싱 상세추출이 리뷰컷을 못 채우고 있는데, 올인원은 리뷰컷을 본문 교차 1순위로 쓴다
  * (folder-scanner 의 review_images/). 주소를 추측해서 짜면 조용히 0장이 되므로 먼저 잰다.
  *
- * 실행: npx --yes electron@33 scripts/naver-review-probe.mjs <상품URL>
+ * 실행: node scripts/naver-review-probe.mjs <상품URL>
  */
-import { app, BrowserWindow } from 'electron';
-import { appendFileSync } from 'node:fs';
-const say = (s) => { try { appendFileSync(process.env.RV_OUT, s + '\n'); } catch {} };
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+import { withProbeTab, say } from './_probe-tab.mjs';
+
 const URL_ARG = process.argv.find((a) => a.startsWith('https://'));
 
 // 페이지가 실제로 부른 주소 중 리뷰 관련만 추린다 + 채널/상품번호도 같이 얻는다.
@@ -41,17 +39,15 @@ const SCROLL = `(async () => {
   return document.body.scrollHeight;
 })()`;
 
-app.disableHardwareAcceleration();
-app.whenReady().then(async () => {
-  const { NAVER_PARTITION } = await import('../main/naver-session.mjs');
-  const w = new BrowserWindow({ show: false, width: 1280, height: 900, webPreferences: { partition: NAVER_PARTITION } });
-  await w.loadURL(URL_ARG, { userAgent: UA }).catch((e) => say('load err ' + e));
-  await new Promise((r) => setTimeout(r, 3000));
+withProbeTab(async (tab) => {
+  const nav = await tab.gotoViaClick(URL_ARG, { timeoutMs: 20000 });
+  if (!nav.ok) { say('❌ 이동 실패: ' + (nav.error || 'unknown')); return; }
+  await new Promise((r) => { const t = setTimeout(r, 3000); t.unref?.(); });
   say('스크롤로 리뷰 위젯을 띄웁니다…');
-  await w.webContents.executeJavaScript(SCROLL, true).catch((e) => say('scroll err ' + e));
-  await new Promise((r) => setTimeout(r, 2500));
+  await tab.evaluate(SCROLL).catch((e) => say('scroll err ' + e));
+  await new Promise((r) => { const t = setTimeout(r, 2500); t.unref?.(); });
 
-  const d = await w.webContents.executeJavaScript(DUMP, true).catch((e) => ({ error: String(e) }));
+  const d = await tab.evaluate(DUMP).catch((e) => ({ error: String(e?.message || e) }));
   say('URL            : ' + d.url);
   say('channelId      : ' + d.channelId);
   say('originProductNo: ' + d.originProductNo);
@@ -64,5 +60,6 @@ app.whenReady().then(async () => {
     say('  ' + u);
   }
   if (!d.reviewUrls?.length) say('  (없음 — 위젯이 안 떴거나 다른 이름을 씁니다)');
-  app.exit(0);
-});
+})
+  .then(() => process.exit(0))
+  .catch((e) => { say('❌ ' + (e?.stack || e)); process.exit(1); });

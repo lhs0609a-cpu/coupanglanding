@@ -13,14 +13,14 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import naverGate from '../../naver-gate.mjs';
-import { WindowPool, WINDOW_MIN, WINDOW_MAX, WINDOW_DEFAULT } from './window-pool.mjs';
+import { TabPool, WINDOW_MIN, WINDOW_MAX, WINDOW_DEFAULT } from './tab-pool.mjs';
+import { ChromeTab } from './chrome-tab.mjs';
 import { runOne } from './runner.mjs';
 import {
-  probePageJs, probeProductJs, collectCardsJs, scrollStepJs, keepLoginJs, naverAutoLoginJs, loginPageStateJs,
+  probePageJs, probeProductJs, collectCardsJs, keepLoginJs, naverAutoLoginJs, loginPageStateJs,
 } from './inject.mjs';
-import { loginState, clearLogin, setMediaAllowed } from './browser.mjs';
-import { persistLoginCookies } from '../../naver-session.mjs';
-import { reviveSession, startKeepAlive, keepAliveState } from '../../naver-keepalive.mjs';
+import { loginState, clearLogin, persistLoginCookies } from '../../naver-session.mjs';
+import { reviveSession, startKeepAlive } from '../../naver-keepalive.mjs';
 import {
   initCredentials, saveCredentials, clearCredentials, credentialInfo, hasCredentials,
   loadCredentials, encryptionAvailable,
@@ -30,10 +30,10 @@ import {
   initCategories, listChildren, clearCategoryCache, knownMap, prewarmTree, prewarmInfo, exportTree,
   ROOT_CATEGORIES,
 } from './categories.mjs';
-// collect-list.mjs(Electron 판)는 더 이상 부르지 않는다 — 아래 runCollect 의 설명 참고.
 import { collectCategoryViaChrome } from './collect-list-chrome.mjs';
 import {
-  initChromeSession, ensureChrome, ensureChromeLogin, isChromeAvailable, closeChrome,
+  initChromeSession, setAutoLoginHandler, ensureChromeLogin, ensureChromeBrowser,
+  isChromeAvailable, closeChrome,
 } from './chrome-session.mjs';
 import { extractOne, ensureRoot, extractDetailJs, writeProductFolder } from './detail-extract.mjs';
 import { isDetailExtractable } from './store-type.mjs';
@@ -98,8 +98,12 @@ export function initService({ store, send, userDataDir, getAccount, getToken, we
   naverGate.init(userDataDir);
   initCategories(store);
   initCredentials(store);
-  // 목록 수집은 **진짜 크롬**으로 한다 — Electron 창은 합성 이벤트라 50개에서 멈춘다(실측).
+  // 네이버로 나가는 **모든** 경로가 진짜 크롬을 쓴다 — Electron 창은 합성 이벤트(isTrusted=false)라
+  // 목록은 50개에서 멈추고 상세는 차단을 부른다(실측 2026-08-25~27).
   initChromeSession({ userDataDir, onLog: pushLog });
+  // 세션이 끊겼을 때 크롬이 스스로 다시 로그인할 수 있게 처리기를 꽂는다.
+  // (chrome-session 이 service 를 import 하면 순환이라 방향을 뒤집었다)
+  setAutoLoginHandler(() => ensureNaverLogin());
   const st = naverGate.state();
   if (st.cooling) {
     pushLog(`이전 실행에서 걸린 네이버 쿨다운이 ${Math.ceil(st.cooldownMsLeft / 1000)}초 남아 있습니다 — 그만큼 쉬고 시작합니다`);
@@ -138,9 +142,39 @@ function requireAdmin() {
 
 function ensurePool() {
   if (pool) return pool;
-  pool = new WindowPool({ onLog: pushLog, onStatus: pushStatus });
+  pool = new TabPool({ onLog: pushLog, onStatus: pushStatus });
   pool.setCount(deps.store?.get('naverIngestWindows', WINDOW_DEFAULT) ?? WINDOW_DEFAULT);
   return pool;
+}
+
+/**
+ * 풀에 속하지 않는 임시 탭 하나 — 로그인처럼 **한 번 하고 마는** 일에 쓴다.
+ * ---------------------------------------------------------------------------
+ * ★ 왜 풀에서 빌리지 않나: 교착 때문이다. 목록 수집은 'list'(0번) 탭을 몇 분씩 쥔 채로 도는데,
+ *   그 도중 세션이 끊겨 자동 로그인이 다시 'list' 탭을 달라고 하면 서로를 영원히 기다린다.
+ *   덤으로, 로그인 한 번 하려고 탭 3개짜리 풀을 통째로 띄웠다가 도로 접는 춤도 없어진다.
+ */
+const keptTabs = new Map();
+
+async function withTempTab(label, fn) {
+  // 지난번에 사람에게 보여주려고 남겨 둔 탭이 있으면 여기서 치운다(아래 keepOpen 참고).
+  const prev = keptTabs.get(label);
+  if (prev) { keptTabs.delete(label); try { prev.close(); } catch { /* ignore */ } }
+
+  const sw = new ChromeTab(-1);
+  sw.detail = label;
+  try {
+    await sw.ensure();
+    return await fn(sw);
+  } finally {
+    /**
+     * ★ 사람이 봐야 하는 화면(캡차·2단계·원인 불명)은 **닫지 않는다.** 닫아 버리면 방금
+     *   "창에서 풀어주세요"라고 해 놓고 그 창을 빼앗는 꼴이다. 다음번 같은 일이 시작될 때
+     *   치운다 — 그때는 사람이 이미 봤거나 관심이 없다는 뜻이므로.
+     */
+    if (sw.keepOpen) keptTabs.set(label, sw);
+    else sw.close();
+  }
 }
 
 /**
@@ -242,10 +276,12 @@ export async function start() {
 }
 
 export async function stop() {
+  // 순서가 중요하다 — 탭을 먼저 정리하고 브라우저를 닫는다. 반대로 하면 죽은 브라우저에
+  // Target.closeTarget 을 쏘느라 매번 타임아웃을 기다린다.
+  if (pool) await pool.stop();
+  for (const [k, sw] of keptTabs) { keptTabs.delete(k); try { sw.close(); } catch { /* ignore */ } }
   await closeChrome();
-  if (!pool) return true;
-  await pool.stop();
-  pushLog('수집을 멈추고 창을 정리했습니다.');
+  if (pool) pushLog('수집을 멈추고 창을 정리했습니다.');
   return true;
 }
 
@@ -388,9 +424,14 @@ export async function probePage(catId) {
     const det = await sw.detect().catch(() => null);
 
     const first = await sw.evaluate(probePageJs).catch((e) => ({ error: String(e?.message || e) }));
-    // 1회로는 "안 움직인 것"과 "움직였는데 더 없는 것"이 안 갈린다 — 3회 굴려 본다.
+    /**
+     * 1회로는 "안 움직인 것"과 "움직였는데 더 없는 것"이 안 갈린다 — 3회 굴려 본다.
+     * ★ 진짜 휠로 굴린다(scrollStepJs 의 window.scrollBy 가 아니라). 자바스크립트 스크롤은
+     *   컴포지터를 안 거쳐서 무한스크롤이 **발화하지 않는다**(실측 2026-08-26: 6회차까지 +0).
+     *   그걸로 진단하면 "더 안 나온다"는 잘못된 결론이 나온다 — 진단이 거짓말을 하면 안 된다.
+     */
     for (let i = 0; i < 3; i++) {
-      await sw.evaluate(scrollStepJs).catch(() => {});
+      await sw.page.wheel({ steps: 3, deltaY: 600, pauseMs: [250, 450] }).catch(() => {});
       await new Promise((r) => setTimeout(r, 2500));
     }
     const afterScroll = await sw.evaluate(probePageJs).catch((e) => ({ error: String(e?.message || e) }));
@@ -413,6 +454,12 @@ export async function probePage(catId) {
       afterScroll,
     };
   });
+
+  // 창을 못 얻었으면(풀이 멈췄거나 다른 작업이 오래 쥐고 있음) 그 사실 자체가 진단 결과다.
+  if (!report) {
+    pushLog('페이지 진단을 하지 못했습니다 — 수집 창을 얻지 못했습니다(다른 작업이 쓰는 중).');
+    return { ok: false, error: '수집 창을 얻지 못했습니다' };
+  }
 
   naverGate.recordSuccess();
 
@@ -511,19 +558,33 @@ export async function startCollect({ catId, catName = '', target = 300, autoDeta
   if (collection.running) throw new Error('이미 수집이 진행 중입니다.');
 
   /**
-   * Electron 창은 **필요할 때만** 띄운다.
+   * ★ 크롬이 없으면 여기서 끝낸다 — 창을 준비하기 **전에**.
+   * 일렉트론 폴백은 없앴다. 예전 폴백은 이런 것들이었다:
+   *   · 합성 입력이라 첫 화면 50개에서 멈춘다 — 300개를 시켜도 50개를 주고 "끝" 이라 한다.
+   *   · 품절·품절임박을 거르지 않는다 — 등록 못 하는 줄이 카탈로그에 섞여 들어간다.
+   * 반쯤 잘못된 결과를 조용히 내주느니 **왜 못 하는지 말하고 멈추는 게 낫다.**
+   */
+  if (!isChromeAvailable()) {
+    pushLog('❌ 구글 크롬이 없어 수집할 수 없습니다. 크롬을 설치한 뒤 다시 눌러 주세요 — https://www.google.com/chrome/');
+    throw new Error('구글 크롬이 필요합니다 — 설치 후 다시 시도해 주세요.');
+  }
+
+  /**
+   * 탭 풀은 **필요할 때만** 띄운다.
    * ---------------------------------------------------------------------------
-   * 목록 수집은 **크롬만** 한다. 예전처럼 무조건 창 풀부터 켜면, 쓰지도 않을 창 2~4개가
-   * 수백 MB 를 물고 앉아 있는다(화면 "실행 중인 창 2" 가 그것이다). 게다가 그 뒤에
-   * 이어지는 상세페이지 생성은 RAM 이 모자라면 통째로 실패한다.
-   * → 목록 수집에 창은 필요 없다. 이어지는 **상세 추출** 때만 띄운다.
+   * 목록 수집은 자기 탭 하나로 한다(아래 runViaChrome). 풀에서 빌리지 않는 이유가 둘이다:
+   *   ① 수집은 몇 분씩 걸린다. 그동안 'list' 자리를 쥐고 있으면 카테고리 펼치기·페이지 진단이
+   *      **응답 없이 매달린다** — 화면은 "눌렀는데 아무 일도 안 일어난다"가 된다.
+   *   ② 쓰지도 않을 탭 2~4개가 수백 MB 를 물고 앉아 있고, 뒤이은 상세페이지 생성이
+   *      RAM 부족으로 통째로 실패한다.
+   * → 목록 수집에 풀은 필요 없다. 이어지는 **상세 추출** 때만 띄운다.
    */
   const p = ensurePool();
   if (autoDetail && !p.running) { pushLog('창을 준비합니다…'); await p.start(); }
 
   // ★ 여기서 로그인을 기다리지 않는다. 캡차가 뜨면 사람이 풀 때까지 최대 10분인데, 그동안
   //   이 요청이 응답을 안 돌려줘서 웹 화면은 "눌렀는데 아무 일도 안 일어난다"가 된다(실측).
-  //   로그인 복구는 아래 runViaChrome 이 크롬 창에서 처리한다(ensureChromeLogin).
+  //   로그인 복구는 아래 runViaChrome 이 처리한다(ensureChromeLogin).
   collectAbort = new AbortController();
   collection = { catId, catName, items: [], stopped: null, at: Date.now(), running: true, progress: { collected: 0, scrolls: 0 } };
   pushLog(`수집 시작 — ${catName || catId} (목표 ${target}개)`);
@@ -547,39 +608,28 @@ export async function startCollect({ catId, catName = '', target = 300, autoDeta
   };
 
   /**
-   * 크롬으로 수집한다 — **이게 기본 경로다.**
+   * 크롬으로 수집한다.
    * ---------------------------------------------------------------------------
-   * Electron 창은 클릭도 스크롤도 자바스크립트로 만든 합성 이벤트라(isTrusted=false)
-   * 목록이 첫 화면 50개에서 멈춘다. 크롬을 CDP 로 조종하면 진짜 마우스·휠 입력이 들어가고,
-   * 같은 카테고리에서 244개까지 나왔다(실측 2026-08-25~26). 자세한 근거는
-   * collect-list-chrome.mjs 머리말.
+   * 크롬을 CDP 로 조종하면 진짜 마우스·휠 입력이 들어가고(isTrusted=true), 같은 카테고리에서
+   * 244개까지 나왔다(실측 2026-08-25~26). 자세한 근거는 collect-list-chrome.mjs 머리말.
+   *
+   * ★ 로그인 확보는 **탭을 열기 전에** 끝낸다. 로그인도 자기 탭이 필요한데, 수집 탭을 쥔 채로
+   *   로그인을 시작하면 순서가 꼬인다.
+   * ★ 수집은 **자기 탭**에서 돈다(풀 밖). 한 탭이 처음부터 끝까지 스크롤해야 목록이 이어지고,
+   *   그동안 풀의 'list' 자리를 비워 둬야 카테고리 펼치기가 안 막힌다.
    */
   const runViaChrome = async () => {
-    const { page } = await ensureChrome();
-    const li = await page.naverLogin();
-    if (!li.loggedIn) {
-      pushLog('크롬에 네이버 로그인이 필요합니다 — 열린 크롬 창에서 로그인해 주세요(한 번만, 프로필에 남습니다).');
-      const r = await ensureChromeLogin({ waitMs: 300_000 });
-      if (!r.ok) return { items: [], stopped: '네이버 로그인 필요(크롬)' };
-    }
-    return collectCategoryViaChrome(page, catId, opts);
+    const r = await ensureChromeLogin({ waitMs: 300_000 });
+    if (!r.ok) return { items: [], stopped: '네이버 로그인 필요' };
+    return withTempTab(`목록 수집 — ${catName || catId}`, async (sw) => {
+      sw.status = 'working';
+      // 워밍업(네이버 → 쇼핑 홈)은 descendToCategory 가 알아서 한다 — 여기서 또 하면 진입만 두 번이다.
+      return collectCategoryViaChrome(sw.page, catId, opts);
+    });
   };
 
-  /**
-   * ★ Electron 폴백은 **없다.** 목록 수집은 크롬만 한다.
-   * ---------------------------------------------------------------------------
-   * 예전에는 크롬이 없거나 실패하면 옛 Electron 경로로 떨어졌다. 그게 더 나빴다:
-   *   · 합성 입력이라 첫 화면 50개에서 멈춘다 — 300개를 시켜도 50개를 주고 "끝" 이라 한다.
-   *   · 품절·품절임박을 거르지 않는다 — 등록 못 하는 줄이 카탈로그에 섞여 들어간다.
-   *   · 창 2~4개가 수백 MB 를 물고 있어 뒤이은 상세페이지 생성이 RAM 부족으로 통째로 실패한다.
-   * 반쯤 잘못된 결과를 조용히 내주느니 **왜 못 하는지 말하고 멈추는 게 낫다.**
-   * 셀러가 할 일도 분명하다 — 크롬을 깔면 된다.
-   */
+  /** 크롬 가용성은 이 함수 맨 앞에서 이미 걸렀다 — 여기는 실행 중 실패만 받는다. */
   const runCollect = async () => {
-    if (!isChromeAvailable()) {
-      pushLog('❌ 구글 크롬이 없어 수집할 수 없습니다. 크롬을 설치한 뒤 다시 눌러 주세요 — https://www.google.com/chrome/');
-      return { items: [], stopped: '구글 크롬 필요 — 설치 후 다시 시도해 주세요' };
-    }
     try {
       return await runViaChrome();
     } catch (e) {
@@ -757,10 +807,9 @@ export async function startDetailExtract({ urls = [], rootDir = '', autoGenerate
       if (!deps.runAllinone) {
         pushLog('상세페이지 자동 생성을 건너뜁니다 — 이 실행 경로에는 올인원이 연결돼 있지 않습니다.');
       } else {
-        // 크롬도 같이 접는다 — 생성은 GPU·RAM 을 크게 쓰는데 크롬이 몇 백 MB 를 물고 있으면
-        // 모델이 못 올라가 생성이 통째로 실패한다(수집 창을 접는 것과 같은 이유).
-        try { await closeChrome(); } catch { /* ignore */ }
-        try { await pool?.stop(); } catch { /* 창 정리 실패는 생성을 막지 않는다 */ }
+        // 크롬을 통째로 접는다 — 생성은 GPU·RAM 을 크게 쓰는데 탭 3개가 몇 백 MB 를 물고
+        // 있으면 모델이 못 올라가 생성이 통째로 실패한다(allinone-runner 의 RAM 프리플라이트).
+        try { await stop(); } catch { /* 창 정리 실패는 생성을 막지 않는다 */ }
         pushLog(`상세페이지 자동 생성을 시작합니다 — 상품 ${detail.ok}개. 끝나면 검수 화면이 열립니다.`);
         startAllinone(detail.rootDir, detail.ok);
       }
@@ -1108,8 +1157,20 @@ async function drainQueue(p, root, want, seed = []) {
   return { done, ok, cut };
 }
 
+/** 크롬 없음 안내는 한 번만 — 60초마다 같은 줄이 쌓이면 진짜 로그가 안 보인다. */
+let noChromeWarned = false;
+
 async function queueTick() {
   if (queueBusy || detail.running || collection.running) return;   // 사람이 시킨 일이 우선이다
+  // 이 워커는 기본으로 켜져 무인으로 돈다 — 크롬이 없으면 조용히 쉰다(에러를 매분 찍지 않는다).
+  if (!isChromeAvailable()) {
+    if (!noChromeWarned) {
+      noChromeWarned = true;
+      pushLog('구글 크롬이 없어 셀러 요청 상세 준비를 쉽니다 — 크롬을 설치하면 자동으로 다시 돕니다.');
+    }
+    return;
+  }
+  noChromeWarned = false;
   queueBusy = true;
   try {
     const p = ensurePool();
@@ -1188,25 +1249,24 @@ export function getCollection() {
  *
  * 왜 필요한가: 상품 목록(search.shopping.naver.com)은 로그인 세션이 없으면 nid 로그인 화면으로
  * 리다이렉트된다(실측). 확장프로그램 방식이 됐던 이유가 "이미 로그인된 크롬 안에서 돌아서" 였다.
- * 여기서 한 번 로그인해 두면 쿠키가 수집 전용 파티션(persist:naveringest)에 남아 이후는 무인이다.
+ * 여기서 한 번 로그인해 두면 쿠키가 크롬 프로필(userData/chrome-profile)에 남아 이후는 무인이다.
+ * 그 프로필 하나를 수집·상세·카테고리·품절 감시가 **전부 공유한다** — 저장소가 둘로 갈렸을 때
+ * "✅ 자동 로그인 성공" 직후에 "로그인이 필요합니다"가 찍히던 모순이 그래서 사라졌다.
  *
- * 로그인 화면은 사람이 봐야 하므로 이미지 차단을 잠시 푼다(보안문자가 안 보이면 진행 불가).
+ * 로그인 화면은 사람이 봐야 하므로 이 탭에서는 이미지를 막지 않는다(보안문자가 안 보이면 진행 불가).
  */
 export async function openNaverLogin() {
   // 게이트 없음 — 네이버 로그인은 **모든 셀러**가 각자 해야 한다(품절 감시의 전제).
   if (loginTask) return { ok: true, already: true };
 
-  const p = ensurePool();
-  if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
+  pushLog('네이버 로그인 창을 엽니다 — 크롬 창에서 직접 로그인하세요. 한 번만 하면 이후 수집은 무인으로 진행됩니다.');
 
-  setMediaAllowed(true);
-  pushLog('네이버 로그인 창을 엽니다 — 창에서 직접 로그인하세요. 한 번만 하면 이후 수집은 무인으로 진행됩니다.');
-
-  loginTask = p.withWindow('list', async (sw) => {
+  loginTask = withTempTab('네이버 로그인 대기', async (sw) => {
     sw.status = 'login';
-    sw.detail = '네이버 로그인 대기';
+    // 보안문자가 보여야 사람이 풀 수 있다 — 이 탭에서는 이미지를 막지 않는다.
+    await sw.setMediaBlocked(false);
     await sw.gotoViaClick('https://nid.naver.com/nidlogin.login', { skipReady: true, timeoutMs: 20000 });
-    sw.show();
+    await sw.show();
     pushStatus();
 
     // "로그인 상태 유지"를 대신 켠다 — 이걸 놓치면 로그인은 되는데 앱을 끄는 순간 풀린다.
@@ -1234,18 +1294,15 @@ export async function openNaverLogin() {
         pushLog(st.persistent || kept
           ? '✅ 네이버 로그인 완료 — 이제 목록 수집이 됩니다. 앱을 껐다 켜도 유지됩니다.'
           : '✅ 네이버 로그인 완료 — 이제 목록 수집이 됩니다.');
-        sw.hide();
         sw.status = 'idle';
         sw.detail = '';
         return { ok: true, loggedIn: true };
       }
     }
     pushLog('로그인 대기를 종료합니다(15분) — 필요하면 다시 눌러주세요.');
-    sw.hide();
     sw.status = 'idle';
     return { ok: false, loggedIn: false };
   }).finally(() => {
-    setMediaAllowed(false);
     loginTask = null;
     pushStatus();
   });
@@ -1302,6 +1359,11 @@ export function clearNaverCredential() {
  * 끊겼는데 계정이 저장돼 있으면 조용히 다시 로그인한다.
  */
 export async function ensureNaverLogin() {
+  // ★ 크롬을 먼저 띄운다. loginState() 는 크롬이 안 떠 있으면 마지막 확인값(stale)을 돌려주는데,
+  //   그 값으로 판단하면 두 가지 오답이 난다: 멀쩡한 로그인을 못 봐서 쓸데없이 자동 로그인을
+  //   돌리거나(그게 캡차다), 이미 풀린 로그인을 살아 있다고 보고 수집이 통째로 헛돈다.
+  //   여기까지 온 호출자는 어차피 곧 네이버를 두드린다 — 띄워도 손해가 아니다.
+  await ensureChromeBrowser().catch(() => null);
   const st = await loginState();
   if (st.loggedIn) return { ok: true, already: true };
 
@@ -1343,12 +1405,6 @@ export async function autoLoginNow({ byHuman = false } = {}) {
   const creds = await loadCredentials();
   if (!creds) return { ok: false, reason: 'no-credential' };
 
-  const p = ensurePool();
-  // 로그인만을 위해 창을 켰다면 끝난 뒤 도로 접는다 — 품절 감시만 쓰는 셀러에게
-  // 수집용 창 3개를 계속 띄워 두는 건 순수 낭비다(수집 중이면 건드리지 않는다).
-  const startedForLogin = !p.running;
-  if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
-
   autoLoginTask = { running: true, at: Date.now(), result: null };
   pushStatus();
 
@@ -1359,11 +1415,12 @@ export async function autoLoginNow({ byHuman = false } = {}) {
   };
 
   try {
-    return await p.withWindow('list', async (sw) => {
+    // ★ 풀에서 빌리지 않고 임시 탭을 쓴다(withTempTab 머리말 참고) — 목록 수집이 0번 탭을 쥔
+    //   동안 세션이 끊기면, 풀에서 빌리는 구조로는 서로를 영원히 기다린다.
+    return await withTempTab('자동 로그인', async (sw) => {
       sw.status = 'login';
-      sw.detail = '자동 로그인';
-      // 캡차가 뜨면 사람이 봐야 하므로 이미지 차단을 잠시 푼다(로그인 화면 동안만).
-      setMediaAllowed(true);
+      // 캡차가 뜨면 사람이 봐야 하므로 이 탭에서는 이미지를 막지 않는다.
+      await sw.setMediaBlocked(false);
       pushLog('네이버 자동 로그인을 시도합니다…');
 
       await naverGate.acquire('ingest');
@@ -1381,7 +1438,8 @@ export async function autoLoginNow({ byHuman = false } = {}) {
 
       if (!filled?.ok) {
         pushLog(`자동 로그인 실패 — 로그인 화면을 다루지 못했습니다(${filled?.reason || 'unknown'}). 창에서 직접 로그인해 주세요.`);
-        sw.show();
+        sw.keepOpen = true;
+        await sw.show();
         return finish({ ok: false, reason: filled?.reason || 'fill-failed' });
       }
 
@@ -1396,7 +1454,6 @@ export async function autoLoginNow({ byHuman = false } = {}) {
           pushLog(st.persistent || kept
             ? '✅ 네이버 자동 로그인 성공 — 이 PC 에 로그인이 남아 도우미를 껐다 켜도 유지됩니다.'
             : '✅ 네이버 자동 로그인 성공 — 다만 세션 쿠키라 앱을 끄면 풀립니다(다음 실행 때 다시 자동 로그인합니다).');
-          sw.hide();
           sw.status = 'idle';
           sw.detail = '';
           return finish({ ok: true, persistent: !!st.persistent });
@@ -1416,10 +1473,11 @@ export async function autoLoginNow({ byHuman = false } = {}) {
       if (ps?.captcha || ps?.needHuman) {
         // 사람이 없으면 자동 재시도를 멈춘다 — 통과하면 아래에서 바로 해제한다.
         humanBlockedAt = Date.now();
-        sw.show();
+        sw.keepOpen = true;
+        await sw.show();
         const msg = ps.captcha
-          ? '🔐 네이버가 보안문자를 요구합니다 — 도우미 창에서 직접 풀어주세요. 풀면 자동으로 이어집니다.'
-          : '🔐 네이버가 기기 등록/2단계 인증을 요구합니다 — 도우미 창에서 진행해 주세요. 끝나면 자동으로 이어집니다.';
+          ? '🔐 네이버가 보안문자를 요구합니다 — 크롬 창에서 직접 풀어주세요. 풀면 자동으로 이어집니다.'
+          : '🔐 네이버가 기기 등록/2단계 인증을 요구합니다 — 크롬 창에서 진행해 주세요. 끝나면 자동으로 이어집니다.';
         pushLog(msg);
         // 창만 띄우면 다른 작업 중인 사람은 못 본다. 품절 감시는 대개 뒤에서 도는 기능이라
         // 여기서 막히면 "왜 안 되지"만 남는다 → OS 알림으로 확실히 부른다.
@@ -1438,28 +1496,26 @@ export async function autoLoginNow({ byHuman = false } = {}) {
             pushLog(st.persistent || kept
               ? '✅ 네이버 로그인 완료 — 이 PC 에 로그인이 남아 도우미를 껐다 켜도 유지됩니다.'
               : '✅ 네이버 로그인 완료 — 이어서 진행합니다.');
-            sw.hide();
+            sw.keepOpen = false;                    // 다 끝났으니 탭은 정리해도 된다
             sw.status = 'idle';
             return finish({ ok: true, viaHuman: true });
           }
         }
         pushLog('로그인 대기를 종료합니다(10분).');
-        sw.hide();
         return finish({ ok: false, reason: 'human-timeout' });
       }
 
       // ③ 그 밖 — 화면을 띄워 사람이 무슨 일인지 보게 한다(추측해서 재시도하지 않는다).
-      pushLog(`자동 로그인이 끝나지 않았습니다${ps?.error ? ` — ${ps.error}` : ''}. 도우미 창을 띄웠습니다.`);
-      sw.show();
+      pushLog(`자동 로그인이 끝나지 않았습니다${ps?.error ? ` — ${ps.error}` : ''}. 크롬 창을 띄웠습니다.`);
+      sw.keepOpen = true;
+      await sw.show();
       return finish({ ok: false, reason: 'unknown', error: ps?.error || '' });
     });
   } catch (e) {
     pushLog(`❌ 자동 로그인 실패 — ${e?.message || e}`);
     return finish({ ok: false, reason: String(e?.message || e) });
   } finally {
-    setMediaAllowed(false);
     if (autoLoginTask.running) finish({ ok: false, reason: 'aborted' });
-    if (startedForLogin && !collection.running) { try { await p.stop(); } catch { /* ignore */ } }
   }
 }
 
@@ -1475,13 +1531,19 @@ export async function naverLogout() {
 
 export function showWindow(index) {
   const slot = pool?.slots?.find((s) => s.index === index);
-  slot?.sw?.show();
+  slot?.sw?.show().catch(() => {});
   return !!slot;
 }
 
-export function shutdown() {
+/**
+ * 앱 종료 — 크롬을 반드시 닫는다.
+ * ★ 예전에는 크롬을 안 닫았다(일렉트론 창은 프로세스가 죽으면 같이 죽으니 문제가 없었다).
+ *   이제 네이버 접속이 전부 크롬이라 안 닫으면 도우미를 껐는데도 크롬이 프로필을 쥔 채
+ *   남는다 — 다음 실행이 "도우미용 크롬이 이미 떠 있습니다" 로 시작한다.
+ */
+export async function shutdown() {
   // 끄기 직전에 쿠키를 디스크에 밀어 넣는다 — 안 그러면 다음 실행이 로그아웃 상태로 시작하고
   // 그 로그인 시도가 곧 캡차다(오늘 이 경로로 여러 번 겪었다).
-  try { persistLoginCookies().catch(() => {}); } catch { /* ignore */ }
-  try { pool?.stop(); } catch { /* ignore */ }
+  try { await persistLoginCookies().catch(() => {}); } catch { /* ignore */ }
+  try { await stop(); } catch { /* ignore */ }
 }

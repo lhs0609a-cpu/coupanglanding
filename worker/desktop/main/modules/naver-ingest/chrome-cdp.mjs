@@ -21,9 +21,27 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { detectJs, spaReadyJs } from './inject.mjs';
 
 const sleep = (ms) => new Promise((r) => { const t = setTimeout(r, ms); t.unref?.(); });
 const rand = (min, max) => min + Math.random() * (max - min);
+
+/** 진입점 — 주소로 직접 여는 것이 허용된 **유일한** 두 곳이다(설계도 §14 규칙 1). */
+const HOME_URL = 'https://shopping.naver.com/ns/home';
+const NAVER_HOME = 'https://www.naver.com';
+
+/**
+ * 이미지/미디어/폰트 차단 패턴 — `setMediaBlocked(true)` 로만 켜진다.
+ * ⚠️ 기본값은 **끔**이다. 일렉트론 판은 항상 켜 뒀지만(installBlocker), 크롬 목록 수집이
+ *   244개→641개로 검증된 건 **차단이 없는 상태**에서였다. 지연 렌더·IntersectionObserver 가
+ *   이미지 로드에 얹혀 도는지 확인되지 않은 채로 켜면 검증된 성적을 잃는다.
+ *   메모리가 문제가 될 때 상세 탭에만 켜는 용도로 남겨 둔다.
+ */
+const MEDIA_BLOCK_PATTERNS = [
+  '*.jpg', '*.jpeg', '*.png', '*.gif', '*.webp', '*.avif', '*.svg', '*.ico',
+  '*.woff', '*.woff2', '*.ttf', '*.otf',
+  '*.mp4', '*.webm', '*.mp3', '*.m4s',
+];
 
 /** 크롬 실행파일 — 설치 위치가 셋뿐이라 레지스트리까지 안 뒤져도 된다. */
 export function findChrome() {
@@ -74,10 +92,31 @@ export class ChromeBrowser {
     this._rd = this.child.stdio[4];
     this._rd.on('data', (c) => this._onData(c));
     this.child.stderr?.on('data', () => { /* 크롬 잡음은 버린다 */ });
-    this.child.on('exit', () => { this.child = null; });
+    // ★ 프로필 점유 판정에 쓴다 — 아래 launch 실패 분기 참고.
+    let exitedEarly = false;
+    this.child.on('exit', () => { exitedEarly = true; this.child = null; });
 
     await sleep(1200);
-    const v = await this.send('Browser.getVersion');
+    let v;
+    try {
+      v = await this.send('Browser.getVersion', {}, undefined, 8000);
+    } catch (e) {
+      /**
+       * ★ 여기서 십중팔구는 "이 프로필을 이미 다른 크롬이 쥐고 있다" 이다.
+       * 같은 --user-data-dir 로 두 번째 크롬을 띄우면 크롬은 첫 번째 인스턴스에 주소만
+       * 넘기고 **즉시 종료한다**. 그러면 우리 파이프(fd 3/4)에는 아무도 없어서 1.2초 뒤
+       * `CDP 응답 없음: Browser.getVersion` 이라는, 원인을 전혀 알 수 없는 말만 남았다.
+       * 프로세스가 곧바로 죽었는지(윈도우) / 잠금 파일이 있는지(POSIX)로 구분해서 말해 준다.
+       */
+      const locked = exitedEarly
+        || existsSync(join(this.profileDir, 'SingletonLock'))
+        || existsSync(join(this.profileDir, 'lockfile'));
+      try { this.child?.kill(); } catch { /* ignore */ }
+      this.child = null;
+      throw new Error(locked
+        ? '도우미용 크롬이 이미 떠 있습니다 — 그 크롬 창을 닫고 다시 시도해 주세요.'
+        : `크롬에 연결하지 못했습니다 — ${e?.message || e}`);
+    }
     this.onLog(`크롬 연결됨 — ${v.product}`);
     return this;
   }
@@ -154,6 +193,10 @@ export class ChromePage {
     await this.send('Page.enable');
     await this.send('Runtime.enable');
     await this.send('DOM.enable');
+    // ★ 탭마다 켠다. 예전엔 chrome-session 이 단 하나의 페이지에만 걸었는데, 탭이 여러 장이 되면
+    //   Network 를 안 켠 탭에서는 watchResponses(418 감시)·getCookies(로그인 판정)·
+    //   setBlockedURLs 가 조용히 아무 일도 하지 않는다. 켜는 비용은 없다.
+    await this.send('Network.enable').catch(() => {});
 
     // ★ 창이 뒤로 가도 **계속 그리게** 만든다(실측 2026-08-25).
     //   크롬은 창이 가려지면 렌더링을 늦춘다. 그러면 무한스크롤을 발화시키는
@@ -442,20 +485,180 @@ export class ChromePage {
 
   /**
    * 네이버가 막았는지 / 로그인을 요구하는지 / 캡차인지 — 한 번에 판정한다.
-   * 문구는 실측(2026-08-25)한 그대로다: "쇼핑 서비스 접속이 일시적으로 제한되었습니다".
+   * ---------------------------------------------------------------------------
+   * ★ 판정기는 inject.mjs 의 `detectJs` **하나뿐이다**(단일 출처). 예전에 이 자리에는 정규식
+   *   네 줄짜리 축약판이 따로 있었는데, 그게 두 가지를 망가뜨렸다:
+   *     ① `is429` 를 안 돌려줬다 — runner.mjs·categories.mjs 가 그 값으로 쿨다운 길이를
+   *        90초/60초로 가르는데, undefined 라 429 가 전부 일반 차단으로 격하됐다.
+   *     ② 정상 목록 페이지를 캡차로 오탐했다 — detectJs 의 SAFE_PAGES 예외가 없었다.
+   *   실패하면 "차단"으로 본다(안전한 쪽). 판정 자체가 안 되는 페이지는 쓸 수 없는 페이지다.
    */
   async detect() {
-    return this.evaluateJson(`(() => {
-      const t = (document.body && document.body.innerText || '');
-      return {
-        url: location.href,
-        title: document.title,
-        blocked: /접속이 일시적으로 제한|비정상적인 접근/.test(t),
-        captcha: /보안 인증|자동입력 방지|캡차/.test(t + document.title),
-        loginRequired: /nid\\.naver\\.com/.test(location.href),
-        bodyLength: t.length,
-      };
-    })()`);
+    const d = await this.evaluateJson(detectJs).catch(() => null);
+    return d || { captcha: false, blocked: true, is429: false, loginRequired: false, bodyLength: 0 };
+  }
+
+  /**
+   * SPA 렌더링 완료 대기. 로드 완료 ≠ 데이터 표시 — 이걸 건너뛰면 상품명이 'Unknown' 인
+   * 껍데기가 저장된다(설계도 §14 규칙 3).
+   */
+  async waitSpaReady(isMainUrl = false) {
+    await sleep(isMainUrl ? 1500 : 1000);
+    for (let i = 0; i < 6; i++) {
+      const s = await this.evaluateJson(spaReadyJs).catch(() => null);
+      if (s?.ready) return s;
+      await sleep(1000);
+    }
+    return null;
+  }
+
+  /** '/main/products/' 는 실제 스토어로 302 된다. 리다이렉트가 끝날 때까지 기다린다. */
+  async _awaitMainRedirect() {
+    for (let i = 0; i < 20; i++) {
+      const u = String(await this.url().catch(() => ''));
+      if (u && !u.includes('/main/products/')) { await sleep(2000); return true; }
+      await sleep(500);
+    }
+    return false;
+  }
+
+  /**
+   * 임의의 주소로 **눌러서** 이동한다 — 상세 추출의 진입 경로.
+   * ---------------------------------------------------------------------------
+   * 목록은 화면에 진짜 링크가 있어서 clickLink 로 눌러 내려가면 됐다(chrome-navigate.mjs).
+   * 그런데 셀러가 요청한 상품 URL 은 지금 열린 페이지 어디에도 링크가 없다. 그렇다고
+   * 주소로 직접 열면 설계도 §14 규칙 1 을 어긴다.
+   *
+   * 그래서 **발판을 만든 다음 진짜로 누른다**:
+   *   ① 네이버 밖이면 쇼핑 홈을 연다(주소 직접 열기가 허용된 유일한 지점)
+   *   ② 그 페이지에 목적지 앵커를 심는다 — 반드시 **누를 수 있는 크기**로. 0×0 이나 화면 밖이면
+   *      clickLink 가 zero-size/offscreen 으로 튕긴다
+   *   ③ Input.dispatchMouseEvent 로 그 좌표를 누른다 → isTrusted=true, referrer 는 네이버
+   *
+   * 일렉트론 판(inject.mjs navigateViaClickJs)과 모양은 같지만 결정적으로 다르다. 저쪽은
+   * `el.dispatchEvent(new MouseEvent(...))` 라 isTrusted=false 였고, 그게 크롬으로 옮겨온 이유다.
+   */
+  async gotoViaClick(url, { timeoutMs = 15000, skipReady = false } = {}) {
+    const at = String(await this.url().catch(() => ''));
+    if (!/naver\.com/.test(at)) {
+      await this.goto(HOME_URL, { settleMs: 2000 });
+      await this.dismissPopups().catch(() => {});
+      await sleep(rand(600, 1200));
+    }
+
+    /**
+     * 앵커 자리를 세 군데 준비한다. 한 자리만 쓰면 그 위를 고정 배너·챗봇이 덮었을 때
+     * (clickLink 가 'covered' 로 돌려준다) 이동이 통째로 실패한다 — 실제로 쇼핑 홈은
+     * 하단에 고정 레이어를 자주 띄운다.
+     */
+    const SPOTS = [
+      'left:24px;bottom:120px;',
+      'left:50%;top:45%;margin-left:-60px;',
+      'right:32px;top:140px;',
+    ];
+
+    let last = 'not-found';
+    for (const spot of SPOTS) {
+      const planted = await this.evaluateJson(`(() => {
+        const old = document.getElementById('__mgl_nav');
+        if (old) old.remove();
+        const a = document.createElement('a');
+        a.id = '__mgl_nav';
+        a.href = ${JSON.stringify(url)};
+        a.textContent = '\\u00a0';
+        // opacity:0 / display:none 은 쓰지 않는다 — 안 보이는 링크 클릭은 그 자체가 봇 시그널이고,
+        // elementFromPoint 적중 판정에도 걸려야 한다.
+        a.style.cssText = 'position:fixed;${spot}width:120px;height:28px;'
+          + 'z-index:2147483647;opacity:0.01;background:#fff;display:block;pointer-events:auto;';
+        document.body.appendChild(a);
+        return { ok: true };
+      })()`).catch(() => null);
+      if (!planted?.ok) { last = 'anchor-plant-failed'; continue; }
+
+      // hover 는 짧게 — 우리가 방금 만든 링크라 메뉴가 열릴 일이 없다.
+      const r = await this.clickLink('#__mgl_nav', { hoverMs: [120, 300], timeoutMs });
+      if (r.ok) {
+        // 이동이 SPA 라우팅이면 문서가 그대로라 앵커가 남는다 — 다음 이동의 판정을 흐리지 않게 치운다.
+        await this.evaluate('(() => { const a = document.getElementById("__mgl_nav"); if (a) a.remove(); return true; })()')
+          .catch(() => { /* 문서가 바뀌었으면 이미 사라졌다 */ });
+        if (url.includes('/main/products/')) await this._awaitMainRedirect();
+        if (!skipReady) await this.waitSpaReady(url.includes('/main/products/'));
+        await this.keepRendering().catch(() => {});
+        return { ok: true, status: 200, url: String(await this.url().catch(() => url)) };
+      }
+      last = r.reason || 'click-failed';
+      if (last === 'covered') { await this.dismissPopups().catch(() => {}); await sleep(500); }
+      // 실패한 앵커는 치우고 다음 자리로 — 남겨 두면 다음 시도의 elementFromPoint 를 흐린다.
+      await this.evaluate('(() => { const a = document.getElementById("__mgl_nav"); if (a) a.remove(); return true; })()')
+        .catch(() => { /* 이동했으면 컨텍스트가 사라져 실패한다 — 정상 */ });
+    }
+    return { ok: false, status: 0, error: last };
+  }
+
+  /**
+   * 페이지 안에 **이미 있는 진짜 링크**를 눌러 이동한다. 목적지 링크가 실제로 있으면
+   * 우리가 심은 앵커보다 항상 낫다 — referrer·SPA 라우팅·추적 파라미터가 사람과 같아진다.
+   */
+  async gotoViaPageLink(hrefIncludes, { timeoutMs = 20000, skipReady = false } = {}) {
+    const sel = `a[href*="${String(hrefIncludes).replace(/"/g, '\\"')}"]`;
+    const has = await this.evaluate(`!!document.querySelector(${JSON.stringify(sel)})`).catch(() => false);
+    if (!has) return { ok: false, notFound: true, error: 'link-not-found' };
+
+    const r = await this.clickLink(sel, { hoverMs: [500, 900], timeoutMs });
+    if (!r.ok) return { ok: false, error: r.reason || 'click-failed' };
+    if (!skipReady) await this.waitSpaReady();
+    return { ok: true, status: 200, href: r.href, url: String(await this.url().catch(() => '')) };
+  }
+
+  /**
+   * 사람처럼 굴기 — 상품 페이지 진입 직후 1회.
+   * 일렉트론 판은 humanizeJs(자바스크립트 scrollBy + 합성 mousemove)를 썼는데, 그건 우리가
+   * 크롬으로 옮겨오며 버린 바로 그 방식이다. 여기서는 진짜 입력만 쓴다.
+   */
+  async humanize() {
+    await this.jiggle().catch(() => {});
+    await this.wheel({ steps: 2 + Math.floor(Math.random() * 3), deltaY: 340, pauseMs: [220, 480] })
+      .catch(() => {});
+    await sleep(rand(400, 900));
+    await this.jiggle().catch(() => {});
+    // 가끔 위로 되돌아본다 — 사람은 끝까지 내리고 그대로 멈추지 않는다.
+    if (Math.random() < 0.4) {
+      await this.wheel({ steps: 1, deltaY: -Math.round(rand(150, 320)), pauseMs: [180, 320] }).catch(() => {});
+    }
+    return true;
+  }
+
+  /**
+   * 세션 워밍업 — 탭을 처음 쓰기 전 1회.
+   * 쿠키 없는 첫 방문은 스마트스토어가 429 로 막는다(실측). 네이버 → (클릭으로) 쇼핑 순으로
+   * 들러 "방금 네이버를 쓰던 사람"의 쿠키를 만든다.
+   */
+  async warmUp() {
+    try {
+      await this.goto(NAVER_HOME, { settleMs: 1500 });
+      await sleep(rand(1500, 2600));
+      const r = await this.gotoViaClick(HOME_URL, { skipReady: true });
+      await sleep(rand(1500, 2600));
+      await this.dismissPopups().catch(() => {});
+      return !!r.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /** 이미지/미디어/폰트 차단 토글. 기본은 꺼짐 — MEDIA_BLOCK_PATTERNS 머리말 참고. */
+  async setMediaBlocked(on) {
+    await this.send('Network.setBlockedURLs', { urls: on ? MEDIA_BLOCK_PATTERNS : [] }).catch(() => {});
+  }
+
+  /** 이 탭을 사람에게 보여준다 — 캡차·로그인처럼 사람 손이 필요할 때. */
+  async bringToFront() {
+    const w = await this.browser.send('Browser.getWindowForTarget', { targetId: this.targetId }).catch(() => null);
+    if (w?.windowId != null) {
+      await this.browser.send('Browser.setWindowBounds', { windowId: w.windowId, bounds: { windowState: 'normal' } })
+        .catch(() => { /* 이미 normal 이면 그만 */ });
+    }
+    await this.send('Page.bringToFront').catch(() => {});
   }
 
   /**

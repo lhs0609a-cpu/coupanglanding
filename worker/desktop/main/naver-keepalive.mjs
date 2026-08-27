@@ -16,10 +16,10 @@
  *   ② 유지하기(keep)    — 주기적으로 같은 일을 해 세션이 늙어 죽지 않게 한다.
  * 둘 다 요청 1회짜리이고, 로그인 화면을 거치지 않으므로 캡차를 유발하지 않는다.
  */
-import { NAVER_PARTITION, installBlocker, loginState, persistLoginCookies } from './naver-session.mjs';
+import { loginState, persistLoginCookies } from './naver-session.mjs';
+import { chromeRunning, newTab } from './modules/naver-ingest/chrome-session.mjs';
 
 const VISIT_URL = 'https://www.naver.com/';
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 /** 방문 간격 — 세션을 살려 두기엔 충분하고, 네이버 예산으로는 무시할 수 있는 수준. */
 const KEEP_INTERVAL_MS = 25 * 60 * 1000;
@@ -28,29 +28,20 @@ let timer = null;
 let busy = false;
 let last = { at: 0, ok: false, reason: '' };
 
-/** 창 하나로 네이버를 잠깐 열었다 닫는다 — 쿠키만 받아 오는 게 목적이다. */
-async function visitNaver(timeoutMs = 15000) {
-  const { BrowserWindow } = await import('electron');
-  await installBlocker();
-  const win = new BrowserWindow({
-    show: false,
-    width: 1024,
-    height: 768,
-    webPreferences: { partition: NAVER_PARTITION, javascript: true, backgroundThrottling: false },
-  });
+/**
+ * 탭 하나로 네이버를 잠깐 열었다 닫는다 — 쿠키만 받아 오는 게 목적이다.
+ * ★ 주기 유지(keep)는 크롬이 안 떠 있으면 **띄우지 않는다.** 세션 유지는 있으면 좋은 것이지,
+ *   그것 때문에 브라우저를 깨울 일은 아니다(그 순간 사용자 화면에 크롬 창이 튀어나온다).
+ *   반대로 되살리기(revive)는 누군가 지금 수집을 하려는 중이라 띄워도 된다 — launch:true.
+ */
+async function visitNaver({ launch = false } = {}) {
+  if (!launch && !chromeRunning()) return false;
+  const tab = await newTab();
   try {
-    await new Promise((resolve) => {
-      const done = () => { clearTimeout(t); resolve(); };
-      const t = setTimeout(done, timeoutMs);
-      if (t.unref) t.unref();
-      win.webContents.once('did-finish-load', done);
-      win.webContents.once('did-fail-load', done);
-      win.loadURL(VISIT_URL, { userAgent: UA }).catch(done);
-    });
-    // 쿠키가 자리를 잡을 짧은 여유.
-    await new Promise((r) => { const t = setTimeout(r, 1200); if (t.unref) t.unref(); });
+    await tab.goto(VISIT_URL, { settleMs: 1500 });
+    return true;
   } finally {
-    try { if (!win.isDestroyed()) win.destroy(); } catch { /* ignore */ }
+    await tab.close().catch(() => {});
   }
 }
 
@@ -76,7 +67,7 @@ export async function reviveSession({ onLog = () => {} } = {}) {
     }
 
     onLog('네이버 세션을 되살립니다 — 로그인 없이 방문 1회로 복구합니다.');
-    await visitNaver();
+    await visitNaver({ launch: true });
     const after = await loginState();
     if (after.loggedIn) {
       await persistLoginCookies().catch(() => 0);

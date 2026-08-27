@@ -1,8 +1,6 @@
 /** 상품/상세 API 원본 응답 구조 — 옵션·본문이 왜 비는지 확인. */
-import { app, BrowserWindow } from 'electron';
-import { appendFileSync } from 'node:fs';
-const say = (s) => { try { appendFileSync(process.env.AX_OUT, s + '\n'); } catch {} };
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+import { probeUrl, say } from './_probe-tab.mjs';
+
 const URL_ARG = process.argv.find((a) => a.startsWith('https://'));
 
 const CALL = `
@@ -48,13 +46,6 @@ const CALL = `
   };
 })()`;
 
-app.disableHardwareAcceleration();
-app.whenReady().then(async () => {
-  const { NAVER_PARTITION } = await import('../main/naver-session.mjs');
-  const w = new BrowserWindow({ show: false, width: 1280, height: 900, webPreferences: { partition: NAVER_PARTITION } });
-  await w.loadURL(URL_ARG, { userAgent: UA }).catch((e) => say('load err ' + e));
-  await new Promise((r) => setTimeout(r, 3500));
-  const d = await w.webContents.executeJavaScript(CALL, true).catch((e) => ({ error: String(e) }));
-  say(JSON.stringify(d, null, 1).slice(0, 5000));
-  app.exit(0);
-});
+probeUrl(URL_ARG, CALL, { settleMs: 3500 })
+  .then((d) => { say(JSON.stringify(d, null, 1).slice(0, 5000)); process.exit(0); })
+  .catch((e) => { say('❌ ' + (e?.stack || e)); process.exit(1); });

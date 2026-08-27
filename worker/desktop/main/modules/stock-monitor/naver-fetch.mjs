@@ -1,8 +1,8 @@
-// 네이버 페이지 fetch + 상태/가격 파싱.
-// ⚠️ 전송: 1차 = 내장 크롬(BrowserWindow) 실제 로드 — 네이버 안티봇이 undici(Node fetch)를 진짜 크롬과
-//    구분해 즉시 429를 던지므로(헤더·쿠키로도 안 풀림, 실측), Electron Chromium 으로 페이지를 실제 렌더해
-//    진짜 브라우저 핑거프린트+쿠키+JS 로 통과시킨다. 2차(폴백) = undici 직접 fetch(electron 미가용/실패 시).
-//    둘 다 사용자 PC(=가정 IP)에서 나가므로 "가정 IP" 이점 유지. (Electron net 모듈은 ERR_FAILED 라 미사용.)
+﻿// 네이버 페이지 fetch + 상태/가격 파싱.
+// ⚠️ 전송: 1차 = 내장 크롬(CDP 탭) 실제 로드 — 네이버 안티봇이 undici(Node fetch)를 진짜 크롬과
+//    구분해 즉시 429를 던지므로(헤더·쿠키로도 안 풀림, 실측), 진짜 크롬으로 페이지를 실제 렌더해
+//    진짜 브라우저 핑거프린트+쿠키+JS 로 통과시킨다. 2차(폴백) = undici 직접 fetch(크롬 미가용/실패 시).
+//    둘 다 사용자 PC(=가정 IP)에서 나가므로 "가정 IP" 이점 유지.
 // __PRELOADED_STATE__ 권위 파서 포함.
 //
 // ★ 전역 예산 게이트(naver-gate)를 통과한다 — 이 프로세스에서 네이버로 나가는 요청은 품절 감시와
@@ -13,7 +13,7 @@ import naverGate from '../../naver-gate.mjs';
 // ★ 세션(쿠키·로그인)은 소싱 수집과 **공유한다** — main/naver-session.mjs 가 단일 출처.
 //   비로그인으로는 smartstore.naver.com 이 429 로 막힌다(실측: brand 3/3 성공, smartstore 0/5).
 //   사람이 소싱 화면에서 네이버 로그인을 한 번 해 두면 품절 감시도 그 세션으로 조회한다.
-import { NAVER_PARTITION, installBlocker, loginState } from '../../naver-session.mjs';
+import { loginState } from '../../naver-session.mjs';
 
 const REMOVED_PATTERNS = [/상품을\s*찾을\s*수\s*없|상품이\s*존재하지\s*않|판매가\s*종료|deleted|removed|<title>404/i];
 const SOLDOUT_PATTERNS = [/일시\s*품절|품절\s*상태|sold[\s-]?out|재고\s*없|재고가\s*없/i];
@@ -21,8 +21,6 @@ const IN_STOCK_PATTERNS = [/구매하기|장바구니|orderQty|stockQuantity"\s*
 
 // 본문 캡: 네이버 상품 state JSON 이 늦게 나올 수 있어 넉넉히(2.5MB). 과거 500KB 캡이 state 를 잘라 파싱 실패.
 const MAX_BODY = 2_500_000;
-
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 // ─── Google Translate 우회 URL ───
 // 가정 IP가 네이버에 429로 막혀도, translate.goog 는 "구글 서버가 네이버를 대신 fetch" 하므로
@@ -40,93 +38,103 @@ function toGoogleTranslateUrl(url) {
   } catch { return null; }
 }
 
-// ─── 진짜 크롬(BrowserWindow) 페처 ───
+// ─── 진짜 크롬(CDP) 페처 ───
 // 네이버 안티봇이 undici(Node fetch)를 진짜 크롬과 구분해 즉시 429를 던진다(헤더·쿠키로도 안 풀림, 실측).
-// 도우미는 Electron 이라 내장 Chromium 으로 페이지를 실제 로드하면 진짜 브라우저 핑거프린트+쿠키+JS 로
-// 안티봇을 통과한다. 창 1개를 재사용하고, 동시 로드 불가라 직렬화한다. electron 없으면(테스트) undici 폴백.
-let _win = null;
+// 진짜 브라우저로 페이지를 실제 로드하면 핑거프린트+쿠키+JS 로 안티봇을 통과한다.
+//
+// ⭐ 2026-08-27 — 일렉트론 BrowserWindow 에서 **크롬 탭**으로 옮겼다. 앱에서 네이버로 나가는
+//   경로를 하나로 모으기 위해서다. 예전에는 여기가 일렉트론 파티션(persist:naveringest)의
+//   쿠키를 보고, 소싱 수집은 크롬 프로필을 봐서 **로그인 상태가 둘로 갈렸다** — 사람이 소싱
+//   화면에서 로그인해도 품절 감시는 비로그인으로 돌던 문제가 그것이다.
+//
+// ★ 탭 1장을 재사용하고 직렬화하는 구조는 그대로다(_chain). 풀에 넣지 않는 이유:
+//   품절 감시는 셀러에게 바로 영향이 가는 상시 기능이라, 수집이 탭을 다 쓰는 동안 굶으면 안 된다.
+//   총량은 어차피 naverGate 가 'monitor' 우선순위로 제어한다.
+let _tab = null;
 let _chain = Promise.resolve();
 
-async function getWindow() {
-  const { BrowserWindow } = await import('electron');
-  if (_win && !_win.isDestroyed()) return _win;
-  // 이미지/미디어/폰트 차단 → 페이지당 속도↑. 차단 설치는 공유 모듈이 1회만 한다
-  // (onBeforeRequest 는 세션당 리스너가 하나라, 여기서 또 걸면 로그인 창의 보안문자까지 지운다).
-  await installBlocker();
-  _win = new BrowserWindow({
-    show: false,
-    width: 1280,
-    height: 900,
-    webPreferences: { offscreen: false, backgroundThrottling: false, javascript: true, partition: NAVER_PARTITION },
-  });
-  _win.webContents.setAudioMuted(true);
-  return _win;
+async function getTab() {
+  if (_tab) return _tab;
+  const { newTab } = await import('../naver-ingest/chrome-session.mjs');
+  _tab = await newTab();
+  // 이미지/미디어/폰트 차단 → 페이지당 속도↑. 여기는 사람이 볼 화면이 아니라 부작용이 없다
+  // (로그인·캡차 탭은 별개이고 거기서는 차단하지 않는다).
+  await _tab.setMediaBlocked(true).catch(() => {});
+  return _tab;
 }
 
 /** 지금 이 PC 가 네이버에 로그인돼 있는가 — 조회 실패 원인 진단·UI 안내용. 요청 0회(쿠키 판정). */
 export async function naverLoginState() { return loginState(); }
 
-function loadInWindow(url) {
-  return new Promise((resolve) => {
-    getWindow().then((w) => {
-      const wc = w.webContents;
-      let status = 0;
-      let settled = false;
-      const timer = setTimeout(() => finish('timeout'), 25000);
-      const onNavigate = (_e, _u, code) => { if (code) status = code; };
-      const onFail = (_e, errCode, errDesc, _vurl, isMain) => { if (isMain) finish(`load ${errCode} ${errDesc}`); };
-      const onFinish = async () => {
-        try {
-          // ★ window.__PRELOADED_STATE__ 객체를 직접 직렬화해 추출 — 렌더된 outerHTML 은 너무 커서
-          //   2.5MB 캡에 benefitsView(가격)가 잘려나가 가격을 못 읽던 문제 해결(상태는 앞쪽이라 살아남음).
-          //   state 가 없으면(드묾) outerHTML 로 폴백.
-          // ★ 제목도 같이 가져온다. state JSON 만 받으면 "상품이 존재하지 않습니다" 같은
-          //   **삭제 신호가 통째로 안 보인다**(실측: 삭제된 상품이 품절로 기록됐다).
-          //   제목은 수십 바이트라 비용이 없고, 판정의 마지막 안전망이 된다.
-          const raw = await wc.executeJavaScript(
-            '(function(){var t="";try{t=document.title||""}catch(e){}'
-            + 'try{var s=window.__PRELOADED_STATE__;return JSON.stringify({t:t,b:s?JSON.stringify(s):document.documentElement.outerHTML})}'
-            + 'catch(e){return JSON.stringify({t:t,b:document.documentElement.outerHTML})}})()',
-            true,
-          );
-          let body = raw, pageTitle = '';
-          try { const env = JSON.parse(raw); body = env.b || ''; pageTitle = env.t || ''; } catch (e) { /* 구형 응답은 그대로 */ }
-          finish(null, status || 200, body, pageTitle);
-        } catch (e) { finish('extract: ' + (e?.message || e)); }
-      };
-      function cleanup() {
-        clearTimeout(timer);
-        wc.removeListener('did-navigate', onNavigate);
-        wc.removeListener('did-fail-load', onFail);
-        wc.removeListener('did-finish-load', onFinish);
-      }
-      function finish(err, st, html, pageTitle) {
-        if (settled) return; settled = true; cleanup();
-        resolve({ status: st || 0, body: html ? html.slice(0, MAX_BODY) : '', title: pageTitle || '', error: err || null });
-      }
-      wc.on('did-navigate', onNavigate);
-      wc.on('did-fail-load', onFail);
-      wc.on('did-finish-load', onFinish);
-      wc.loadURL(url, { userAgent: UA }).catch((e) => finish('loadURL: ' + (e?.message || e)));
-    }).catch((e) => resolve({ status: 0, body: '', error: 'no-electron: ' + (e?.message || e) }));
+async function loadInTab(url) {
+  let tab;
+  try {
+    tab = await getTab();
+  } catch (e) {
+    return { status: 0, body: '', title: '', error: 'no-chrome: ' + (e?.message || e) };
+  }
+
+  /**
+   * 상태코드는 응답을 직접 들어서 잡는다 — CDP 의 Page.navigate 는 상태코드를 안 준다.
+   * ★ 리다이렉트를 타면 Document 응답이 여러 번 온다(smartstore /main/products/ → 302 → 스토어).
+   *   마지막 값을 쓰되, 도중에 429 가 한 번이라도 있었으면 그게 진실이다 — IP 단위 신호라
+   *   최종 200 에 묻히면 서킷브레이커가 배치를 못 멈춘다.
+   */
+  let status = 0;
+  let saw429 = false;
+  const unwatch = tab.watchResponses(({ status: s, type }) => {
+    if (type !== 'Document') return;
+    status = s;
+    if (s === 429) saw429 = true;
   });
+
+  try {
+    await tab.goto(url, { timeoutMs: 25000, settleMs: 1200 });
+    // ★ window.__PRELOADED_STATE__ 객체를 직접 직렬화해 추출 — 렌더된 outerHTML 은 너무 커서
+    //   2.5MB 캡에 benefitsView(가격)가 잘려나가 가격을 못 읽던 문제 해결(상태는 앞쪽이라 살아남음).
+    //   state 가 없으면(드묾) outerHTML 로 폴백.
+    // ★ 제목도 같이 가져온다. state JSON 만 받으면 "상품이 존재하지 않습니다" 같은
+    //   **삭제 신호가 통째로 안 보인다**(실측: 삭제된 상품이 품절로 기록됐다).
+    //   제목은 수십 바이트라 비용이 없고, 판정의 마지막 안전망이 된다.
+    const raw = await tab.evaluate(
+      '(function(){var t="";try{t=document.title||""}catch(e){}'
+      + 'try{var s=window.__PRELOADED_STATE__;return JSON.stringify({t:t,b:s?JSON.stringify(s):document.documentElement.outerHTML})}'
+      + 'catch(e){return JSON.stringify({t:t,b:document.documentElement.outerHTML})}})()',
+      { timeoutMs: 25000 },
+    );
+    let body = raw; let pageTitle = '';
+    try { const env = JSON.parse(raw); body = env.b || ''; pageTitle = env.t || ''; } catch { /* 구형 응답은 그대로 */ }
+    return {
+      status: saw429 ? 429 : (status || 200),
+      body: body ? String(body).slice(0, MAX_BODY) : '',
+      title: pageTitle,
+      error: null,
+    };
+  } catch (e) {
+    // 탭이 죽었으면(크롬 종료 등) 다음 호출이 새로 만들게 놓아 준다.
+    try { await _tab?.close(); } catch { /* ignore */ }
+    _tab = null;
+    return { status: saw429 ? 429 : status, body: '', title: '', error: String(e?.message || e) };
+  } finally {
+    unwatch();
+  }
 }
 
 const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let _warmedUp = false;
 
-/** 직렬화된 BrowserWindow 로드(창 1개 재사용). electron 미가용/실패 시 throw 로 폴백 유도. */
+/** 직렬화된 크롬 탭 로드(탭 1장 재사용). 크롬 미가용/실패 시 throw 로 폴백 유도. */
 async function fetchPageViaBrowser(url) {
   const run = _chain.then(async () => {
     // 최초 1회: 네이버 쇼핑 진입으로 세션 쿠키(NNB 등)를 시드한다. smartstore 는 brand 보다 게이트가
     // 엄격해 쿠키없는 첫 방문을 429로 막는다(brand 는 통과). 쿠키가 있으면 상품 페이지가 통과한다.
     if (!_warmedUp) {
       _warmedUp = true;
-      try { await loadInWindow('https://shopping.naver.com/'); await _sleep(800); } catch { /* best-effort */ }
+      try { await loadInTab('https://shopping.naver.com/'); await _sleep(800); } catch { /* best-effort */ }
     }
-    let r = await loadInWindow(url);
+    let r = await loadInTab(url);
     // 429 면 잠깐 뒤 1회 재시도 — 직전 429 응답이 쿠키를 심어 재시도 시 통과하는 경우가 있다.
-    if (r.status === 429) { await _sleep(3000); r = await loadInWindow(url); }
+    if (r.status === 429) { await _sleep(3000); r = await loadInTab(url); }
     return r;
   });
   _chain = run.then(() => {}, () => {});
@@ -135,8 +143,8 @@ async function fetchPageViaBrowser(url) {
   return { status: r.status, body: r.body, title: r.title || '' };
 }
 
-// 가정 IP가 네이버에 지속적으로 429를 맞으면(이 PC IP가 차단됨) BrowserWindow 로 매번 11초씩
-// 헛수고하지 말고 GT(구글 IP) 경로를 먼저 탄다. 가끔 BrowserWindow 를 재탐색해 회복 시 복귀.
+// 가정 IP가 네이버에 지속적으로 429를 맞으면(이 PC IP가 차단됨) 크롬 탭으로 매번 11초씩
+// 헛수고하지 말고 GT(구글 IP) 경로를 먼저 탄다. 가끔 크롬 탭을 재탐색해 회복 시 복귀.
 let _browser429Streak = 0;
 
 /**
@@ -160,10 +168,10 @@ async function fetchPage(url) {
     try {
       const r = await fetchPageDirect(gt);
       if (r.status >= 200 && r.status < 400 && r.body) return r;
-    } catch { /* GT 실패 → 아래에서 BrowserWindow 재탐색 */ }
+    } catch { /* GT 실패 → 아래에서 크롬 탭 재탐색 */ }
   }
 
-  // 1차(기본): 진짜 크롬(BrowserWindow) — 가정 IP, 안티봇 통과 시 가장 정확.
+  // 1차(기본): 진짜 크롬(CDP 탭) — 가정 IP, 안티봇 통과 시 가장 정확.
   try {
     const r = await fetchPageViaBrowser(url);
     if (r.status === 429) {
@@ -175,7 +183,7 @@ async function fetchPage(url) {
       naverGate.recordSuccess();   // 정상 응답 → 적응형 속도가 한 단계씩 회복된다
       return r;
     }
-  } catch { /* electron 미가용/로드 실패 → 폴백 */ }
+  } catch { /* 크롬 미가용/로드 실패 → 폴백 */ }
 
   // 2차: Google Translate 경유(undici) — 가정 IP가 429일 때 구글 IP로 네이버 우회.
   if (gt && !preferGT) {
@@ -372,7 +380,7 @@ function parseNaverMainPrice(html) {
  */
 export async function warmUpSession() {
   try {
-    await loadInWindow('https://www.naver.com/');
+    await loadInTab('https://www.naver.com/');
   } catch { /* 워밍업 실패는 무시 — 본 조회에 영향 없음 */ }
 }
 

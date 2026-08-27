@@ -37,7 +37,10 @@ async function waitForCaptchaCleared(sw, { waitMs, onLog, onCaptcha }) {
   sw.status = 'captcha';
   onLog?.(`⚠️ 창 ${sw.index + 1} — 캡차가 떴습니다. 창에서 직접 풀어주세요 (자동으로 이어집니다)`);
   onCaptcha?.(sw.index);
-  sw.show();
+  // ★ await 한다. 일렉트론 창에서는 show() 가 동기였지만 크롬 탭은 앞으로 가져오는 데
+  //   CDP 왕복이 필요하다 — 안 기다리면 "창에서 풀어주세요" 라고 해 놓고 그 창이 아직
+  //   뒤에 있는 채로 3초 폴링이 시작된다.
+  await sw.show();
   const deadline = Date.now() + waitMs;
   while (Date.now() < deadline) {
     await sleep(3000);

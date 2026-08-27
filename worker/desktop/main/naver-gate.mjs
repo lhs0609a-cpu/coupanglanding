@@ -195,17 +195,33 @@ class NaverGate {
   /**
    * 차단당했다 — 전 소비자 정지. is429 면 더 길게 식힌다.
    * 반환값: 이번에 적용된 쿨다운(ms). 로그용.
+   *
+   * ★ **같은 차단을 두 번 세지 않는다**(2026-08-27 수정).
+   *   동시 창/탭이 N개면 같은 차단 한 번을 N개가 각자 보고 각자 이 함수를 부른다. 예전에는
+   *   그때마다 blockStreak 이 올라 지수 백오프가 헛돌았다 — 실측 로그:
+   *       14:51:11  🔴 429 —  90초      (streak 1)
+   *       14:51:15  🔴 429 — 188초      (streak 2, 4초 뒤 다른 창이 같은 차단을 신고)
+   *   차단 1회가 즉시 2배가 됐고, recordBlock 의 level +2 까지 두 번 먹어 첫 차단만으로
+   *   속도 레벨이 MAX 로 갔다(탭 1개 + 상품 간 12~20초). 회복 조건은 연속 성공 5~8회라
+   *   거기서 빠져나올 수가 없었다.
+   *   이미 쿨다운 중이면 그건 **아직 소화 중인 같은 차단**이다. 남은 시간만 알려주고 만다.
    */
   triggerCooldown(is429 = false) {
     this._load();
+    const left = this.cooldownUntil - Date.now();
+    if (left > 0) {
+      // 429 를 처음 봤다면 통계에는 남긴다 — "일반 차단인 줄 알았는데 429 였다"는 진단 정보다.
+      if (is429) this.stats.blocks429++;
+      return Math.round(left);
+    }
+
     this.blockStreak++;
     this.stats.blocks++;
     if (is429) this.stats.blocks429++;
     const base = is429 ? COOLDOWN_BASE_429_MS : COOLDOWN_BASE_MS;
     const cap = is429 ? COOLDOWN_CAP_429_MS : COOLDOWN_CAP_MS;
     const ms = Math.min(base * 2 ** (this.blockStreak - 1), cap) + rand(COOLDOWN_JITTER_MS);
-    // max 를 쓰는 이유: 이미 더 긴 쿨다운이 걸려 있으면 짧은 값으로 덮어써 풀어주면 안 된다.
-    this.cooldownUntil = Math.max(this.cooldownUntil, Date.now() + ms);
+    this.cooldownUntil = Date.now() + ms;
     this.recordBlock();
     this._save();
     this._emit();
@@ -225,8 +241,15 @@ class NaverGate {
   }
 
   // ── 적응형 속도 (하락 전용) ──
+  /**
+   * ★ 한 단계씩만 올린다(2026-08-27 수정, 예전엔 +2).
+   *   +2 는 "차단은 심각하니 크게 물러서자"는 뜻이었는데, 기준선이 1 이고 상한이 3 이라
+   *   **차단 한 번이면 곧장 최대치**였다. 그 상태는 탭 1개 + 상품 간 12~20초인데 회복은
+   *   연속 성공 5~8회를 요구하니, 한 번 미끄러지면 사실상 돌아오지 못했다.
+   *   차단이 계속되면 어차피 여러 번 불려 3까지 올라간다 — 급할 이유가 없다.
+   */
   recordBlock() {
-    this.level = Math.min(MAX_LEVEL, this.level + 2);
+    this.level = Math.min(MAX_LEVEL, this.level + 1);
     this.successStreak = 0;
     this.lastBlockAt = Date.now();
     this._save();

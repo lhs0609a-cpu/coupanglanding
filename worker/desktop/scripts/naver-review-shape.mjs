@@ -1,8 +1,6 @@
 /** 리뷰 갤러리 API 응답 구조 실측 — 이미지 URL 이 어느 필드에 있는지 확정한다. */
-import { app, BrowserWindow } from 'electron';
-import { appendFileSync } from 'node:fs';
-const say = (s) => { try { appendFileSync(process.env.RV_OUT, s + '\n'); } catch {} };
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+import { withProbeTab, say } from './_probe-tab.mjs';
+
 const URL_ARG = process.argv.find((a) => a.startsWith('https://'));
 
 const CALL = `
@@ -39,15 +37,15 @@ const CALL = `
   return { full, total: j.totalElements, sample };
 })()`;
 
-app.disableHardwareAcceleration();
-app.whenReady().then(async () => {
-  const { NAVER_PARTITION } = await import('../main/naver-session.mjs');
-  const w = new BrowserWindow({ show: false, width: 1280, height: 900, webPreferences: { partition: NAVER_PARTITION } });
-  await w.loadURL(URL_ARG, { userAgent: UA }).catch((e) => say('load err ' + e));
-  await new Promise((r) => setTimeout(r, 2500));
-  await w.webContents.executeJavaScript(`(async()=>{for(let i=0;i<10;i++){window.scrollBy(0,window.innerHeight);await new Promise(r=>setTimeout(r,500));}return 1})()`, true).catch(() => {});
-  await new Promise((r) => setTimeout(r, 2000));
-  const d = await w.webContents.executeJavaScript(CALL, true).catch((e) => ({ error: String(e) }));
+withProbeTab(async (tab) => {
+  const nav = await tab.gotoViaClick(URL_ARG, { timeoutMs: 20000 });
+  if (!nav.ok) { say('❌ 이동 실패: ' + (nav.error || 'unknown')); return; }
+  await new Promise((r) => { const t = setTimeout(r, 2500); t.unref?.(); });
+  // 리뷰 갤러리 위젯은 내려가야 뜬다. 진짜 휠로 굴린다(합성 스크롤은 지연 렌더를 못 깨운다).
+  await tab.page.wheel({ steps: 10, deltaY: 700, pauseMs: [400, 700] }).catch(() => {});
+  await new Promise((r) => { const t = setTimeout(r, 2000); t.unref?.(); });
+  const d = await tab.evaluate(CALL).catch((e) => ({ error: String(e?.message || e) }));
   say(JSON.stringify(d, null, 1).slice(0, 4000));
-  app.exit(0);
-});
+})
+  .then(() => process.exit(0))
+  .catch((e) => { say('❌ ' + (e?.stack || e)); process.exit(1); });

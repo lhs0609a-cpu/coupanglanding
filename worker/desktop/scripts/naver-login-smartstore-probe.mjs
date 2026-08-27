@@ -8,17 +8,18 @@
  *
  * 실행:
  *   cd worker/desktop
- *   npx --yes electron@33 scripts/naver-login-smartstore-probe.mjs ../../probe-urls.json
+ *   node scripts/naver-login-smartstore-probe.mjs ../../probe-urls.json
  */
-import { app, BrowserWindow } from 'electron';
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { withProbeTab } from './_probe-tab.mjs';
+import { ensureChromeLogin, naverCookieState } from '../main/modules/naver-ingest/chrome-session.mjs';
 
 const URLS_FILE = process.argv.find((a) => a.endsWith('.json'));
 const LOG = process.env.PROBE_LOG || join(tmpdir(), 'naver-login-probe.log');
-const say = (s) => { try { appendFileSync(LOG, s + '\n'); } catch {} process.stdout.write(s + '\n'); };
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const say = (s) => { try { appendFileSync(LOG, s + '\n'); } catch { /* 로그 파일은 있으면 좋은 것 */ } process.stdout.write(s + '\n'); };
+const sleep = (ms) => new Promise((r) => { const t = setTimeout(r, ms); t.unref?.(); });
 
 /** 실제 파서와 같은 권위값(__PRELOADED_STATE__)을 본다. */
 const READ_JS = `
@@ -38,59 +39,38 @@ const READ_JS = `
   return o;
 })()`;
 
-app.disableHardwareAcceleration();
-app.whenReady().then(async () => {
-  const { NAVER_PARTITION, openLoginWindow, loginState, setMediaAllowed, installBlocker } =
-    await import('../main/naver-session.mjs');
+withProbeTab(async (tab) => {
   const urls = JSON.parse(readFileSync(URLS_FILE, 'utf-8'));
 
-  say(`파티션: ${NAVER_PARTITION}`);
   say('── 1단계: 네이버 로그인 ──────────────────────────────');
-
-  let st = await loginState();
+  let st = await naverCookieState();
   if (!st.loggedIn) {
-    await openLoginWindow({ onLog: (m) => say('  ' + m) });
-    say('  ⏳ 로그인 창에서 로그인해 주세요(최대 10분 대기)…');
-    for (let i = 0; i < 200; i++) {
-      await sleep(3000);
-      st = await loginState();
-      if (st.loggedIn) break;
-    }
+    say('  ⏳ 크롬 창에서 로그인해 주세요(최대 10분 대기)…');
+    // ensureChromeLogin 은 ChromePage 를 받는다(ChromeTab 이 아니라) — 안쪽 페이지를 넘긴다.
+    await ensureChromeLogin({ waitMs: 10 * 60 * 1000, tab: tab.page });
+    st = await naverCookieState();
   }
-  if (!st.loggedIn) { say('❌ 로그인되지 않아 실측을 중단합니다.'); return app.exit(1); }
+  if (!st.loggedIn) { say('❌ 로그인되지 않아 실측을 중단합니다.'); return 1; }
   say('  ✅ 로그인 확인됨');
 
   say('\n── 2단계: 조회 실측 ─────────────────────────────────');
-  await installBlocker();
-  setMediaAllowed(false);
-  const win = new BrowserWindow({
-    show: false, width: 1280, height: 900,
-    webPreferences: { partition: NAVER_PARTITION, javascript: true, backgroundThrottling: false },
-  });
-  win.webContents.setAudioMuted(true);
+  // 이미지/폰트를 막아 페이지당 시간을 줄인다 — 여기서 재는 건 429 여부지 그림이 아니다.
+  await tab.setMediaBlocked(true);
 
-  const load = (url) => new Promise((resolve) => {
-    const wc = win.webContents;
-    let http = 0, done = false;
+  /** 상태코드는 Document 응답을 들어서 잡는다 — CDP 이동은 상태코드를 안 준다. */
+  const load = async (url) => {
+    let http = 0;
+    const unwatch = tab.page.watchResponses(({ status, type }) => { if (type === 'Document') http = status; });
     const t0 = Date.now();
-    const timer = setTimeout(() => fin('timeout'), 30000);
-    const onNav = (_e, _u, code) => { if (code) http = code; };
-    const onFail = (_e, c, d, _u, main) => { if (main && c !== -3) fin(`load ${c} ${d}`); };
-    const onFin = async () => {
-      try { fin(null, await wc.executeJavaScript(READ_JS, true)); }
-      catch (e) { fin('extract: ' + (e?.message || e)); }
-    };
-    function fin(err, data) {
-      if (done) return; done = true;
-      clearTimeout(timer);
-      wc.removeListener('did-navigate', onNav);
-      wc.removeListener('did-fail-load', onFail);
-      wc.removeListener('did-finish-load', onFin);
-      resolve({ http, err, data, ms: Date.now() - t0 });
+    try {
+      const nav = await tab.gotoViaClick(url, { timeoutMs: 25000 });
+      if (!nav.ok) return { http, err: nav.error, data: null, ms: Date.now() - t0 };
+      const data = await tab.evaluate(READ_JS).catch((e) => ({ error: String(e?.message || e) }));
+      return { http: http || 200, err: null, data, ms: Date.now() - t0 };
+    } finally {
+      unwatch();
     }
-    wc.on('did-navigate', onNav); wc.on('did-fail-load', onFail); wc.on('did-finish-load', onFin);
-    wc.loadURL(url).catch((e) => fin('loadURL: ' + (e?.message || e)));
-  });
+  };
 
   const results = [];
   for (const [group, list] of [['smartstore', urls.smartstore || []], ['brand', urls.brand || []]]) {
@@ -114,5 +94,7 @@ app.whenReady().then(async () => {
   say('  ' + sum('smartstore'));
   say('  ' + sum('brand'));
   writeFileSync(join(tmpdir(), 'naver-login-probe.json'), JSON.stringify(results, null, 1));
-  app.exit(0);
-});
+  return 0;
+}, { warmUp: true })
+  .then((code) => process.exit(code ?? 0))
+  .catch((e) => { say('❌ ' + (e?.stack || e)); process.exit(1); });

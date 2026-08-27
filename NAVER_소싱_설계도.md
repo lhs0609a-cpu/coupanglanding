@@ -1,4 +1,4 @@
-# 네이버 스마트스토어 소싱 → 셀러 대량등록 시스템 설계도 v2
+﻿# 네이버 스마트스토어 소싱 → 셀러 대량등록 시스템 설계도 v2
 
 작성 2026-08-13 · 상태: **설계 확정, 구현 미착수**
 원천 자료: `H:\내 드라이브\소싱 아이템 목록\naveritemv2\네이버_상품추출_이식_가이드.txt` (2,238줄, 기존 크롬 확장 프로그램의 완전 명세)
@@ -15,8 +15,8 @@ P0 산출물
 ```
 main/naver-gate.mjs                      전역 예산 게이트 (품절 모니터와 공유) — 자동검증 17/17 통과
 main/modules/naver-ingest/inject.mjs     주입 JS (클릭 네비 · SPA 판정 · 차단/캡차 · 최소추출 · 418 감시)
-main/modules/naver-ingest/browser.mjs    수집 창 (공유 파티션 · 워밍업 · 클릭 이동 · 리소스 차단)
-main/modules/naver-ingest/window-pool.mjs 동시 창 풀 (개수 설정 · 3초 스태거 · 자동 감축 · 역할 분리)
+main/modules/naver-ingest/chrome-tab.mjs  수집 탭 (크롬 프로필 공유 · 워밍업 · 진짜 클릭 이동)
+main/modules/naver-ingest/tab-pool.mjs    동시 탭 풀 (개수 설정 · 3초 스태거 · 자동 감축 · 역할 분리)
 main/modules/naver-ingest/runner.mjs     상품 1건 시퀀스 (재시도 6회 · 캡차 수동 대기 · 차단 쿨다운)
 main/modules/naver-ingest/module.mjs     모듈 등록 · 관리자 게이트 · IPC
 renderer/modules/naver-ingest/panel.*    창 개수 슬라이더 · 창별 상태 · 1건 테스트
@@ -144,8 +144,8 @@ generate_category_mapping{,_ai}.py
 ```
 worker/desktop/main/modules/naver-ingest/
   module.mjs          모듈 등록 · 관리자 계정에서만 활성 · 잡 루프
-  browser.mjs         전용 파티션 BrowserWindow · 워밍업 · 클릭 네비게이션 · 인간행동
-  window-pool.mjs     ★ 동시 창 풀 — 개수 설정 · 3초 간격 기동 · 차단 시 자동 감축 (§4-2)
+  chrome-tab.mjs      크롬 탭(CDP) · 워밍업 · 진짜 클릭 네비게이션 · 인간행동
+  tab-pool.mjs        ★ 동시 탭 풀 — 개수 설정 · 3초 간격 기동 · 차단 시 자동 감축 (§4-2)
   gate.mjs            ★ 네이버 단일 예산 게이트 (§4)
   detect.mjs          isBlockedPage / isCaptchaPage / is429 / 418 카운터
   captcha.mjs         캡차 감지·풀이 (§7)
@@ -225,7 +225,7 @@ stock-monitor 와 naver-ingest 가 같은 게이트를 통과한다.
 → 창 배치: `1창 = 목록 수집 전담`, `나머지 N-1창 = 상세 추출`. 목록 잡이 없으면 전 창이 상세로 간다.
 
 **2. 세션(파티션)은 전 창이 공유한다**
-`persist:naveringest` 하나를 모든 창이 쓴다. 창마다 파티션을 나누면 **쿠키 없는 신규 방문자가 여러 명** 생기는 셈이라 오히려 봇으로 잡힌다. 우리가 원하는 그림은 "한 사람이 탭 3개 열어놓고 쇼핑 중"이다.
+크롬 프로필 하나(userData/chrome-profile)를 모든 탭이 쓴다. 탭마다 프로필을 나누면 **쿠키 없는 신규 방문자가 여러 명** 생기는 셈이라 오히려 봇으로 잡힌다. 우리가 원하는 그림은 "한 사람이 탭 3개 열어놓고 쇼핑 중"이다.
 
 **3. 게이트·쿨다운은 창 수와 무관하게 전역 단일**
 한 창이 차단당하면 **전 창이 같이 멈춘다.** 창별 쿨다운은 금지 — 한 창이 쉬는 동안 나머지가 계속 때려서 IP 밴이 누적된다(가이드 함정 9).
@@ -593,7 +593,7 @@ CREATE TABLE naver_publish_map (
 
 | 단계 | 내용 | 검증 기준 |
 |---|---|---|
-| **P0** | `gate.mjs`(단일 예산) + `browser.mjs`(클릭 네비게이션·워밍업) + SPA/차단/캡차 판정 | 상품 1건 진입 성공 · 품절 모니터 무영향 확인 |
+| **P0** | `naver-gate.mjs`(단일 예산) + `chrome-tab.mjs`(클릭 네비게이션·워밍업) + SPA/차단/캡차 판정 | 상품 1건 진입 성공 · 품절 모니터 무영향 확인 |
 | **P1** | `extract.js` 이식 — 상품명·가격만 먼저 → 나머지 필드 순차 | 10건 연속 추출, name 검증 게이트 통과 |
 | **P2** | 로컬 저장(product.json/summary/이미지) + 서버 스키마 + 업로드 | 산출 폴더를 `run-folder.mjs` 가 그대로 소비 |
 | **P3** | 카테고리 메뉴 클릭 진입 + 트리 발견·캐시 + 스크롤 수집 + 잡 큐 + 1000개 우회 | 소분류 1개 전량 수집 |
