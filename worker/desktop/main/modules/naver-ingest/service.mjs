@@ -30,7 +30,7 @@ import {
   initCategories, listChildren, clearCategoryCache, knownMap, prewarmTree, prewarmInfo, exportTree,
   ROOT_CATEGORIES,
 } from './categories.mjs';
-import { collectCategory } from './collect-list.mjs';
+// collect-list.mjs(Electron 판)는 더 이상 부르지 않는다 — 아래 runCollect 의 설명 참고.
 import { collectCategoryViaChrome } from './collect-list-chrome.mjs';
 import {
   initChromeSession, ensureChrome, ensureChromeLogin, isChromeAvailable, closeChrome,
@@ -513,18 +513,17 @@ export async function startCollect({ catId, catName = '', target = 300, autoDeta
   /**
    * Electron 창은 **필요할 때만** 띄운다.
    * ---------------------------------------------------------------------------
-   * 목록 수집은 이제 크롬이 한다. 그런데 예전처럼 무조건 창 풀부터 켜면, 쓰지도 않을 창
-   * 2~4개가 수백 MB 를 물고 앉아 있는다(화면 "실행 중인 창 2" 가 그것이다). 게다가 그 뒤에
+   * 목록 수집은 **크롬만** 한다. 예전처럼 무조건 창 풀부터 켜면, 쓰지도 않을 창 2~4개가
+   * 수백 MB 를 물고 앉아 있는다(화면 "실행 중인 창 2" 가 그것이다). 게다가 그 뒤에
    * 이어지는 상세페이지 생성은 RAM 이 모자라면 통째로 실패한다.
-   * → 창이 진짜 필요한 건 ① 크롬이 없어 폴백할 때 ② 상세 추출로 이어질 때뿐이다.
+   * → 목록 수집에 창은 필요 없다. 이어지는 **상세 추출** 때만 띄운다.
    */
   const p = ensurePool();
-  const needElectronWindows = autoDetail || !isChromeAvailable();
-  if (needElectronWindows && !p.running) { pushLog('창을 준비합니다…'); await p.start(); }
+  if (autoDetail && !p.running) { pushLog('창을 준비합니다…'); await p.start(); }
 
   // ★ 여기서 로그인을 기다리지 않는다. 캡차가 뜨면 사람이 풀 때까지 최대 10분인데, 그동안
   //   이 요청이 응답을 안 돌려줘서 웹 화면은 "눌렀는데 아무 일도 안 일어난다"가 된다(실측).
-  //   로그인 복구는 아래 collectCategory 의 onNeedLogin 이 **창을 잡기 전에** 처리한다.
+  //   로그인 복구는 아래 runViaChrome 이 크롬 창에서 처리한다(ensureChromeLogin).
   collectAbort = new AbortController();
   collection = { catId, catName, items: [], stopped: null, at: Date.now(), running: true, progress: { collected: 0, scrolls: 0 } };
   pushLog(`수집 시작 — ${catName || catId} (목표 ${target}개)`);
@@ -566,37 +565,30 @@ export async function startCollect({ catId, catName = '', target = 300, autoDeta
     return collectCategoryViaChrome(page, catId, opts);
   };
 
-  /** 크롬이 없거나 실패했을 때만 — 옛 Electron 경로(50개에서 멈춘다). */
-  const runViaElectron = async () => {
-    // 크롬으로 가려다 실패해서 여기로 떨어졌으면 창이 아직 안 떠 있다.
-    if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
-    const eopts = { ...opts, onNeedLogin: ensureNaverLogin };
-    const first = await collectCategory(p, catId, eopts);
-    if (first.stopped !== '네이버 로그인 필요' || collectAbort.signal.aborted) return first;
-    const re = await ensureNaverLogin();
-    if (!re?.ok) return first;
-    const second = await collectCategory(p, catId, eopts);
-    // 만료 전에 모은 것도 결과다 — 버리지 않고 합친다.
-    const merged = new Map(first.items.map((x) => [x.productNo, x]));
-    for (const x of second.items) merged.set(x.productNo, x);
-    return { items: [...merged.values()], stopped: second.stopped };
-  };
-
-  const runWithRelogin = async () => {
+  /**
+   * ★ Electron 폴백은 **없다.** 목록 수집은 크롬만 한다.
+   * ---------------------------------------------------------------------------
+   * 예전에는 크롬이 없거나 실패하면 옛 Electron 경로로 떨어졌다. 그게 더 나빴다:
+   *   · 합성 입력이라 첫 화면 50개에서 멈춘다 — 300개를 시켜도 50개를 주고 "끝" 이라 한다.
+   *   · 품절·품절임박을 거르지 않는다 — 등록 못 하는 줄이 카탈로그에 섞여 들어간다.
+   *   · 창 2~4개가 수백 MB 를 물고 있어 뒤이은 상세페이지 생성이 RAM 부족으로 통째로 실패한다.
+   * 반쯤 잘못된 결과를 조용히 내주느니 **왜 못 하는지 말하고 멈추는 게 낫다.**
+   * 셀러가 할 일도 분명하다 — 크롬을 깔면 된다.
+   */
+  const runCollect = async () => {
     if (!isChromeAvailable()) {
-      pushLog('⚠️ 구글 크롬이 없어 옛 방식으로 수집합니다 — 카테고리당 50개 안팎에서 멈춥니다. 크롬을 설치하면 훨씬 많이 가져옵니다.');
-      return runViaElectron();
+      pushLog('❌ 구글 크롬이 없어 수집할 수 없습니다. 크롬을 설치한 뒤 다시 눌러 주세요 — https://www.google.com/chrome/');
+      return { items: [], stopped: '구글 크롬 필요 — 설치 후 다시 시도해 주세요' };
     }
     try {
       return await runViaChrome();
     } catch (e) {
-      // 크롬이 안 뜨는 PC 도 있다 — 아무것도 못 가져가는 것보다는 옛 방식이 낫다.
-      pushLog(`⚠️ 크롬 수집 실패(${e?.message || e}) — 옛 방식으로 이어서 시도합니다.`);
-      return runViaElectron();
+      pushLog(`❌ 크롬 수집 실패 — ${e?.message || e}`);
+      return { items: [], stopped: `크롬 수집 실패 — ${e?.message || e}` };
     }
   };
 
-  runWithRelogin().then(async ({ items: raw, stopped }) => {
+  runCollect().then(async ({ items: raw, stopped }) => {
     // ── 담기 전에 거른다(실측 2026-08-20) ──────────────────────────────
     // 목록에는 상품이 아닌 배너 카드('전단행사' 같은 제목만 있는 줄)와, 상세를 뽑을 수 없는
     // 스토어(네이버 마켓·쇼핑윈도)가 섞여 온다. 그대로 두면 카탈로그에 **고를 수 없는 줄**이
