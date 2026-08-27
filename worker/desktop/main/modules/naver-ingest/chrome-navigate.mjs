@@ -90,6 +90,12 @@ async function stepInto(page, node, parentName, onLog) {
       continue;
     }
     if (r.reason === 'not-found') {
+      // ★ 팝업은 페이지가 뜬 **뒤에** 나타난다(쿠폰·멤버십 등). 진입 직전에 한 번 닫는 것만으로는
+      //   부족해서, 링크를 못 찾을 때마다 다시 치운다. 실측 2026-08-26: "시크릿 쿠폰" 팝업이
+      //   화면을 덮은 채라 카테고리 메뉴가 안 열렸고(catAnchors=0) 수집이 0개로 끝났다.
+      const d = await page.dismissPopups();
+      if (d?.closed) { onLog(`  · 팝업 ${d.closed}개를 닫았습니다.`); await sleep(700); }
+
       // 메뉴가 아직 안 열렸다 — 상위 이름에 마우스를 올려 연다.
       if (parentName) {
         await page.evaluate(`(() => {
@@ -100,6 +106,16 @@ async function stepInto(page, node, parentName, onLog) {
           return !!el;
         })()`).catch(() => {});
       }
+      // 대분류는 '카테고리' 메뉴가 열려야 화면에 나온다. 팝업 때문에 못 열렸을 수 있으니
+      // (위에서 방금 치웠다) 다시 열어 본다 — 부모가 없는 첫 단계에만 해당한다.
+      if (!parentName) {
+        for (const trigger of ['text=카테고리', 'button[class*="ategory"]', '[class*="categoryButton"]']) {
+          const opened = await page.clickLink(trigger, { hoverMs: [300, 600], timeoutMs: 1200 }).catch(() => null);
+          if (opened && (opened.ok || opened.reason === 'no-navigation')) break;
+        }
+        await sleep(800);
+      }
+
       // 이름으로도 한 번 노려본다(링크에 id 가 안 붙는 메뉴가 있다).
       if (node.name) {
         const byText = await page.clickLink(`text=${node.name}`, { hoverMs: [600, 1000] });

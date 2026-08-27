@@ -459,10 +459,24 @@ export class ChromePage {
    */
   async dismissPopups() {
     return this.evaluateJson(`(() => {
-      const OK = /^(닫기|취소|오늘 하루 보지 않기|오늘하루 보지않기|다시 보지 않기|나중에|건너뛰기)$/;
+      // ⚠️ 정확히 일치로만 잡으면 놓친다. 실측 2026-08-26: 쇼핑 홈의 "시크릿 쿠폰 도착" 팝업은
+      //   버튼이 '7일간 보지 않기' / '레이어 닫기' 라서 예전 목록에 하나도 안 걸렸고,
+      //   그 팝업이 화면을 덮은 채로 카테고리 메뉴를 못 열어 진입이 통째로 실패했다.
+      const OK = /(^|\\s)(닫기|취소|나중에|건너뛰기)(\\s|$)|보지\\s*않기|닫기$/;
+      // '확인' 은 무엇에 동의하는지 알 수 없어 절대 누르지 않는다.
+      const NEVER = /^(확인|동의|수락|가입|받으러가기|신청)/;
       let closed = 0;
-      for (const el of document.querySelectorAll('button, a[role="button"], [aria-label]')) {
-        const label = ((el.innerText || '') + ' ' + (el.getAttribute('aria-label') || '')).replace(/\\s+/g,' ').trim();
+      const seen = new Set();
+      const cands = document.querySelectorAll(
+        'button, a[role="button"], [role="button"], [aria-label], [class*="close"], [class*="Close"]'
+      );
+      for (const el of cands) {
+        if (seen.has(el)) continue;
+        seen.add(el);
+        const text = (el.innerText || '').replace(/\\s+/g,' ').trim();
+        const aria = (el.getAttribute('aria-label') || '').replace(/\\s+/g,' ').trim();
+        const label = (text + ' ' + aria).trim();
+        if (!label || NEVER.test(text) || NEVER.test(aria)) continue;
         if (!OK.test(label)) continue;
         const r = el.getBoundingClientRect();
         if (r.width < 1 || r.height < 1) continue;      // 안 보이는 건 건드리지 않는다
