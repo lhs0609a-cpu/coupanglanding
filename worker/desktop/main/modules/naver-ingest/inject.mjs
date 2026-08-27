@@ -542,12 +542,40 @@ export const collectCardsJs = `
     } catch (e) { return null; }
   };
 
-  /** 카드 컨테이너 — 가격과 이미지를 함께 품은 가장 가까운 조상. */
+  /**
+   * 이 안에 들어 있는 **서로 다른** 상품 수(2에서 끊는다 — 그 이상은 알 필요가 없다).
+   * 같은 상품이 썸네일용·제목용 앵커로 두 번 나오므로 개수가 아니라 **상품번호**로 센다.
+   * 목록 그리드는 앵커가 1000개씩 되므로, 같은 조상을 여러 앵커가 물을 때를 대비해 캐시한다.
+   */
+  const _pcCache = new WeakMap();
+  const productCount = (root) => {
+    const hit = _pcCache.get(root);
+    if (hit !== undefined) return hit;
+    const s = new Set();
+    for (const x of root.querySelectorAll('a[href]')) {
+      const m = String(x.href || '').match(/\\/products\\/(\\d+)/);
+      if (m) { s.add(m[1]); if (s.size > 1) break; }
+    }
+    _pcCache.set(root, s.size);
+    return s.size;
+  };
+
+  /**
+   * 카드 컨테이너 — 가격과 이미지를 함께 품은 가장 가까운 조상.
+   *
+   * ⚠️ 조건을 못 맞추면 예전엔 **8단계를 그냥 다 올라갔다.** 그러면 목록 그리드 전체가
+   *   이 상품의 '카드' 가 되어, 옆 카드의 가격·제목·'품절' 배지가 통째로 딸려 들어온다.
+   *   품절 판정이 카드 텍스트 하나로 결정되므로, 이 오버슈트 한 번에 **멀쩡한 상품이 조용히
+   *   버려진다** — 목록이 왜 적게 나오는지 로그로는 영영 안 보이는 종류의 손실이다.
+   *   그래서 위로 올라가다 상품이 2개 이상 보이면 **직전 단계에서 멈춘다.**
+   */
   const cardOf = (a) => {
     let el = a;
     for (let i = 0; i < 8 && el.parentElement; i++) {
-      if (/원/.test(el.innerText || '') && el.querySelector('img')) break;
-      el = el.parentElement;
+      if (/원/.test(el.innerText || '') && el.querySelector('img')) return el;
+      const up = el.parentElement;
+      if (productCount(up) > 1) return el;      // 옆 카드까지 품었다 — 더 올라가지 않는다
+      el = up;
     }
     return el;
   };
@@ -597,6 +625,18 @@ export const collectCardsJs = `
       if (NOISE.test(t) || /^[\\d,]+\\s*원?$/.test(t) || /^리뷰/.test(t)) continue;
       if (t.length > best.length) best = t;
     }
+    /**
+     * 마지막 폴백 — **앵커 자신의 글자.** 위 훑기 목록에 a 가 없어서, 제목이 앵커의 텍스트
+     * 노드에 바로 붙어 있는 모양이면 여기까지 빈손으로 온다. 제목이 비면 service.mjs 의
+     * isBanner 가 '상품이 아님' 으로 보고 **그 상품을 통째로 버린다** — 로그에는 "배너 제외"
+     * 로만 찍혀서 멀쩡한 상품이 사라진 걸 아무도 모른다.
+     * ★ best 가 비었을 때만 쓴다. 앵커가 카드를 통째로 감싸는 흔한 모양에서는 이 글자가
+     *   카드 전체(가격·배지 포함)라, 먼저 찾은 잎 노드 제목을 밀어내면 안 된다.
+     */
+    if (!best) {
+      const t = trimPromo(a.innerText);
+      if (t.length > 3 && t.length <= 120 && !NOISE.test(t)) best = t;
+    }
     return best;
   };
 
@@ -618,11 +658,13 @@ export const collectCardsJs = `
 
     /**
      * 품절 판정 — 품절인 걸 가져와 봐야 등록도 못 하고 자리만 차지한다.
-     * ⚠️ '품절임박' 은 **아직 살 수 있는 상품**이라 빼면 안 된다. 그 말을 먼저 지우고 본다.
-     *   (실측 2026-08-26: 딸기 목록 카드에 '품절임박' 배지가 실제로 붙어 있었다)
+     * '품절임박' 도 **함께 뺀다**(2026-08-27 셀러 요청). 아직 살 수는 있지만, 상세를 뽑고
+     * 대표컷까지 만든 뒤 등록 직전에 품절이 되면 그 공정이 통째로 버려진다.
+     * ⚠️ 대가: 멀쩡히 팔리는 상품이 같이 빠진다(실측 2026-08-26: 딸기 목록 카드에 그 배지가
+     *   실제로 붙어 있었다). 되돌리려면 '임박' 을 지우고 보던 예전 판정으로 돌리면 된다.
+     * '품절임박' 은 '품절' 을 품고 있으므로 따로 볼 필요 없이 한 번에 걸린다.
      */
-    const soldText = text.replace(/품절\\s*임박/g, '');
-    const soldOut = /품절|SOLD\\s*OUT/i.test(soldText);
+    const soldOut = /품절|SOLD\\s*OUT/i.test(text);
 
     const item = {
       productNo: info.productNo,
