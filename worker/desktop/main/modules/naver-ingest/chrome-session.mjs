@@ -20,6 +20,7 @@
  */
 import { join } from 'node:path';
 import { ChromeBrowser, findChrome } from './chrome-cdp.mjs';
+import naverGate from '../../naver-gate.mjs';
 
 let browser = null;
 let userDataDir = null;
@@ -154,10 +155,26 @@ export async function ensureChromeLogin({ waitMs = 300_000, tab = null } = {}) {
 
   // ① 저장된 계정으로 조용히 시도한다 — 사람이 자리에 없어도 여기서 끝나는 게 정상 경로다.
   if (autoLoginHandler) {
-    const r = await autoLoginHandler().catch(() => null);
+    let r = await autoLoginHandler().catch(() => null);
     if (r?.ok) return { ok: true, auto: true };
-    // 자격증명이 없거나(no-credential) 쿨다운 중이면(cooling) 사람을 부르는 게 맞다.
-    // 캡차·2단계에 막힌 경우도 마찬가지 — 그 판단은 handler 안에서 끝난다.
+
+    /**
+     * ★ '쿨다운 중'은 **사람을 부를 이유가 아니다**(2026-08-27 수정).
+     * 자동 로그인은 네이버가 막고 있는 동안 시도를 미룬다 — 달아오른 IP 로 로그인 폼을
+     * 두드리면 캡차를 자초하기 때문이고, 그 판단 자체는 옳다. 그런데 그 결과를 그대로
+     * 사람에게 넘기면 이런 일이 난다: **계정을 저장해 뒀는데도 빈 로그인 창이 뜬다.**
+     * 게이트가 한 단계만 올라가도 쿨다운이 수시로 걸리므로 사실상 매번 그렇게 된다.
+     * 어차피 쿨다운 동안은 수집도 못 한다 — 여기서 식기를 기다렸다 자동으로 다시 한다.
+     */
+    if (r?.reason === 'cooling') {
+      const left = naverGate.state().cooldownMsLeft;
+      onLog(`네이버가 막고 있어 ${Math.ceil(left / 1000)}초 기다린 뒤 자동 로그인을 다시 시도합니다.`);
+      await naverGate.waitCooldown();
+      r = await autoLoginHandler().catch(() => null);
+      if (r?.ok) return { ok: true, auto: true };
+    }
+    // 여기까지 왔으면 진짜 사람이 필요하다 — 계정 미저장(no-credential),
+    // 비밀번호 오류(bad-credential), 캡차·2단계(human-required).
   }
 
   st = await naverCookieState();
