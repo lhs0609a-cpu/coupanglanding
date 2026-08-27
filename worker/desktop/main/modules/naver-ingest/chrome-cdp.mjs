@@ -377,15 +377,37 @@ export class ChromePage {
    * 418 이 오면 페이지는 이미 받아 둔 카드까지 되돌린다(439장 → 253장). 그래서
    * "안 늘어난다"로만 보이고 원인이 안 보였다. 상태를 직접 듣는 게 유일한 방법이다.
    *
-   * @param {(r:{status:number,url:string,type:string})=>void} fn
+   * requestId 도 같이 준다 — `Network.getResponseBody` 로 **418 의 본문을 실제로 읽어**
+   * "차단 맞나" 를 눈으로 확인하기 위해서다. 버퍼가 살아 있는 동안만 읽을 수 있으므로
+   * 듣는 쪽에서 곧바로 불러야 한다.
+   *
+   * @param {(r:{status:number,url:string,type:string,requestId:string})=>void} fn
    * @returns {() => void} 구독 해지
    */
   watchResponses(fn) {
     return this.browser.on('Network.responseReceived', (p) => {
       const url = p?.response?.url || '';
       if (!/naver\.com/.test(url)) return;
-      fn({ status: p.response.status, url, type: p.type || '' });
+      fn({ status: p.response.status, url, type: p.type || '', requestId: p.requestId || '' });
     }, this.sessionId);
+  }
+
+  /**
+   * 응답 본문을 읽는다(버퍼에 남아 있는 동안만). 실패는 빈 문자열로 삼킨다 — 진단용이다.
+   * `responseReceived` 시점에는 아직 본문이 안 모여 "No data found" 가 나기 쉽다.
+   * 그렇다고 loadingFinished 를 따로 듣기엔 배보다 배꼽이라, 짧게 몇 번 다시 묻는다.
+   */
+  async responseBody(requestId) {
+    if (!requestId) return '';
+    for (let i = 0; i < 3; i++) {
+      const r = await this.send('Network.getResponseBody', { requestId }, 5000).catch(() => null);
+      if (r) {
+        if (r.base64Encoded) return Buffer.from(r.body || '', 'base64').toString('utf8');
+        if (r.body) return r.body;
+      }
+      await sleep(250);
+    }
+    return '';
   }
 
   /**
