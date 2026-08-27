@@ -174,9 +174,25 @@ export class ChromeBrowser {
     return page;
   }
 
+  /**
+   * 크롬을 **곱게** 닫는다.
+   * ---------------------------------------------------------------------------
+   * ★ Browser.close 를 보내고 곧바로 kill 하면 크롬이 세션을 정리할 틈이 없어, 다음 실행 때
+   *   "Chrome이 제대로 종료되지 않았습니다 — 페이지를 복원하시겠습니까?" 배너가 뜬다(실측).
+   *   사용자 눈에는 도우미가 크롬을 망가뜨린 것처럼 보이고, 배너가 화면 위를 덮으면
+   *   클릭 이동이 그 배너에 먹힐 수도 있다.
+   *   그래서 프로세스가 스스로 끝나기를 잠깐 기다리고, 그래도 안 죽을 때만 kill 한다.
+   */
   async close() {
-    try { await this.send('Browser.close', {}, undefined, 5000); } catch { /* ignore */ }
-    try { this.child?.kill(); } catch { /* ignore */ }
+    const child = this.child;
+    if (!child) return;
+    const exited = new Promise((r) => { child.once('exit', r); });
+    try { await this.send('Browser.close', {}, undefined, 5000); } catch { /* 이미 죽었을 수 있다 */ }
+    await Promise.race([exited, sleep(4000)]);
+    if (child.exitCode === null && child.signalCode === null) {
+      try { child.kill(); } catch { /* ignore */ }
+      await Promise.race([exited, sleep(1000)]);
+    }
     this.child = null;
   }
 }

@@ -33,6 +33,15 @@ let launching = null;
  */
 let autoLoginHandler = null;
 
+/**
+ * 로그인이 확인된 **바로 그 순간** 쿠키에 만료시각을 찍는 처리기(naver-session 이 꽂는다).
+ * ★ 왜 그 자리여야 하나(실측 2026-08-27): 네이버가 막 내준 NID_AUT/NID_SES 는 **세션 쿠키**다.
+ *   도장을 안 찍은 채 크롬이 닫히면 로그인이 통째로 사라진다 — 방금 로그인했는데 다음 실행이
+ *   또 로그인 화면이고, 그 로그인 시도가 곧 캡차다. 주기 타이머(60초)에 맡기면 그 사이에
+ *   앱이 꺼진 경우를 못 막는다.
+ */
+let loginPersistHandler = null;
+
 export function initChromeSession({ userDataDir: dir, onLog: log } = {}) {
   userDataDir = dir || userDataDir;
   if (log) onLog = log;
@@ -40,6 +49,14 @@ export function initChromeSession({ userDataDir: dir, onLog: log } = {}) {
 
 /** service.mjs 가 자기 autoLoginNow 를 꽂는다. 없으면 사람이 직접 로그인하는 경로로 간다. */
 export function setAutoLoginHandler(fn) { autoLoginHandler = fn; }
+
+/** naver-session.mjs 가 persistLoginCookies 를 꽂는다(순환 참조를 피하려고 방향을 뒤집었다). */
+export function setLoginPersistHandler(fn) { loginPersistHandler = fn; }
+
+/** 로그인이 확인될 때마다 부른다 — 실패해도 로그인 자체를 무르지는 않는다. */
+async function stampLogin() {
+  try { await loginPersistHandler?.(); } catch { /* 도장 실패가 로그인을 되돌릴 이유는 없다 */ }
+}
 
 export function chromeProfileDir() {
   return join(userDataDir || '.', 'chrome-profile');
@@ -131,7 +148,9 @@ export async function ensureChromeLogin({ waitMs = 300_000, tab = null } = {}) {
   //   "안 떠 있음 = 로그아웃"으로 읽어 쓸데없이 자동 로그인을 돌린다(그게 곧 캡차다).
   await ensureChromeBrowser();
   let st = await naverCookieState();
-  if (st.loggedIn) return { ok: true, already: true };
+  // 이미 로그인돼 있어도 세션 쿠키면 도장을 찍는다 — 네이버는 브라우징 중 NID_SES 를
+  // 세션 쿠키로 계속 재발급해서, 어제 찍은 도장이 오늘 지워져 있는 일이 흔하다.
+  if (st.loggedIn) { if (!st.persistent) await stampLogin(); return { ok: true, already: true }; }
 
   // ① 저장된 계정으로 조용히 시도한다 — 사람이 자리에 없어도 여기서 끝나는 게 정상 경로다.
   if (autoLoginHandler) {
@@ -142,7 +161,7 @@ export async function ensureChromeLogin({ waitMs = 300_000, tab = null } = {}) {
   }
 
   st = await naverCookieState();
-  if (st.loggedIn) return { ok: true, auto: true };
+  if (st.loggedIn) { await stampLogin(); return { ok: true, auto: true }; }
 
   // ② 사람 차례.
   const own = !tab;
@@ -156,7 +175,13 @@ export async function ensureChromeLogin({ waitMs = 300_000, tab = null } = {}) {
     while (Date.now() < until) {
       await new Promise((r) => { const t = setTimeout(r, 4000); t.unref?.(); });
       const cur = await naverCookieState().catch(() => st);
-      if (cur.loggedIn) { onLog('네이버 로그인 확인됨.'); return { ok: true }; }
+      if (cur.loggedIn) {
+        // ★ 여기서 **반드시** 도장을 찍는다. 안 찍으면 세션 쿠키라 크롬이 닫히는 순간
+        //   방금 한 로그인이 통째로 사라진다(실측 2026-08-27).
+        await stampLogin();
+        onLog('네이버 로그인 확인됨.');
+        return { ok: true };
+      }
     }
     return { ok: false, error: '로그인이 확인되지 않았습니다.' };
   } finally {

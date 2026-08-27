@@ -23,7 +23,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
-  chromeRunning, chromeSend, newTab, ensureChromeLogin, naverCookieState,
+  chromeRunning, chromeSend, newTab, ensureChromeLogin, naverCookieState, setLoginPersistHandler,
 } from './modules/naver-ingest/chrome-session.mjs';
 
 /** 우리가 만료시각을 붙여 지켜 주는 쿠키 — 이 넷이 로그인의 전부다. */
@@ -42,6 +42,8 @@ let _cachePath = null;
 let _cache = { loggedIn: false, hasAuth: false, persistent: false, at: 0 };
 
 export function initNaverSession(userDataDir) {
+  // 로그인이 확인되는 순간 크롬 쪽에서 이걸 부른다 — 세션 쿠키로 남으면 크롬이 닫힐 때 사라진다.
+  setLoginPersistHandler(() => persistLoginCookies());
   _cachePath = join(userDataDir || tmpdir(), 'naver-login-state.json');
   try {
     const s = JSON.parse(readFileSync(_cachePath, 'utf8'));
