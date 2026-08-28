@@ -362,14 +362,44 @@ export class OllamaManager {
     this.onLog(`✅ ollama 모델 준비: ${model}`);
   }
 
-  async stop() {
-    if (!this.proc) return;
-    const pid = this.proc.pid;
+  /**
+   * @param {{includeForeign?: boolean}} [opts]
+   *   includeForeign=true 면 **우리가 띄우지 않은 ollama 까지** 정리한다.
+   *
+   * ★ 왜 필요한가(실측 2026-08-28): 사용자가 ollama 를 따로 설치해 둔 PC 에서는
+   *   우리 것을 내리는 순간 그쪽 트레이 앱이 11434 를 물려받고, 도우미의 재생성 루프가
+   *   거기에 모델을 다시 올린다. 실측으로 exaone3.5:7.8b(4.9GB)가 1초도 안 돼 다시
+   *   적재됐다 — **껐다고 생각하는데 메모리는 그대로 잡혀 있다.** 유휴 반납이 통째로
+   *   무력화되므로, 반납할 때만큼은 포트를 쥔 쪽까지 함께 내린다.
+   *   (트레이 앱 'ollama app.exe' 를 먼저 죽인다. 그놈이 살아 있으면 serve 를 다시 띄운다.)
+   */
+  async stop({ includeForeign = false } = {}) {
+    const pid = this.proc?.pid;
     this.proc = null;
-    if (process.platform === 'win32') {
-      spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true });
-    } else {
-      try { process.kill(pid, 'SIGTERM'); } catch { /* ignore */ }
+    if (pid) {
+      if (process.platform === 'win32') {
+        spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true });
+      } else {
+        try { process.kill(pid, 'SIGTERM'); } catch { /* ignore */ }
+      }
     }
+    if (!includeForeign) return;
+
+    // 우리 것을 내렸는데도 포트가 살아 있으면 = 다른 설치본이 쥐고 있다는 뜻이다.
+    await sleep(600);
+    if (!(await this.isUp())) return;
+    this.onLog('[유휴] 이 PC 에 따로 설치된 ollama 가 포트를 쥐고 있어 함께 내립니다 — 그러지 않으면 메모리가 돌아오지 않습니다.');
+    try {
+      const { execFile } = await import('node:child_process');
+      const kill = (cmd, args) => new Promise((res) => execFile(cmd, args, () => res()));
+      if (process.platform === 'win32') {
+        await kill('taskkill', ['/IM', 'ollama app.exe', '/T', '/F']);
+        await kill('taskkill', ['/IM', 'ollama.exe', '/T', '/F']);
+      } else {
+        await kill('pkill', ['-f', 'ollama serve']);
+      }
+      for (let i = 0; i < 10 && (await this.isUp()); i++) await sleep(300);
+    } catch { /* 실패해도 다음 유휴 때 다시 시도한다 */ }
+    if (await this.isUp()) this.onLog('[유휴] 외부 ollama 를 내리지 못했습니다 — 메모리 반납이 일부만 됩니다.');
   }
 }

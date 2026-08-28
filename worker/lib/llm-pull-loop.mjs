@@ -124,6 +124,7 @@ async function runCategory(input) {
  */
 export async function runLlmPullLoop({
   session, workerId, hostname, appVersion, getLocalEndpoint, pollMs = 700, signal, onEvent = () => {}, model: preferModel,
+  ensureEngine,
 }) {
   const stopped = () => signal?.aborted;
   let model = null;
@@ -167,22 +168,31 @@ export async function runLlmPullLoop({
     idleLogged = false;
     idleTicks = 0;
 
-    // 텍스트 잡이 있을 때만 ollama/모델 확인 (불필요한 기동 방지)
-    if (!model) {
-      if (!(await isUp())) {
-        // Ollama 미실행 → 이미 claim 한 잡을 pending 으로 되돌려 'processing' 에 갇히지 않게.
-        //   ★ claim 이 올린 attempts 를 되돌린다(−1) — ollama 가 오래 꺼져 있으면 claim→되돌림→재claim 이
-        //     반복되며 attempts 가 수천(실측 1198)까지 폭증하던 버그. 일시 사유는 한도에 안 쌓이게 한다.
-        onEvent({ type: 'warn', message: 'Ollama 데몬이 실행 중이 아닙니다. (잡 반환 후 대기)' });
-        for (const job of jobs) {
-          try { await patchRow(session, 'megaload_llm_jobs', `id=eq.${job.id}`, { status: 'pending', worker_id: null, claimed_at: null, attempts: Math.max(0, (job.attempts || 1) - 1) }); }
-          catch { /* ignore */ }
-        }
-        await sleep(OLLAMA_DOWN_BACKOFF_MS); // 긴 백오프로 재claim 빈도 자체를 낮춤
-        continue;
-      }
-      model = await pickModel(preferModel);
+    /**
+     * 텍스트 잡이 있을 때만 ollama 를 확인한다(큐가 빈 동안에는 건드리지 않는다).
+     *
+     * ⚠️ 예전엔 이 확인 전체가 `if (!model)` 안에 있었다 — 즉 **첫 잡에서 한 번만** 봤다.
+     *    도우미가 유휴일 때 ollama 를 내려 램을 돌려주게 되면서 그 전제가 깨진다: 두 번째
+     *    잡이 들어올 땐 model 캐시가 살아 있다는 이유로 확인을 건너뛰고, 내려간 ollama 에
+     *    그대로 요청을 던져 연결 거부로 죽는다. 그래서 **매 배치마다** 본다(로컬 HTTP 1회).
+     */
+    if (ensureEngine && !(await isUp())) {
+      try { await ensureEngine(); }
+      catch (e) { onEvent({ type: 'warn', message: `Ollama 기동 실패: ${e.message || e}` }); }
     }
+    if (!(await isUp())) {
+      // Ollama 미실행 → 이미 claim 한 잡을 pending 으로 되돌려 'processing' 에 갇히지 않게.
+      //   ★ claim 이 올린 attempts 를 되돌린다(−1) — ollama 가 오래 꺼져 있으면 claim→되돌림→재claim 이
+      //     반복되며 attempts 가 수천(실측 1198)까지 폭증하던 버그. 일시 사유는 한도에 안 쌓이게 한다.
+      onEvent({ type: 'warn', message: 'Ollama 데몬이 실행 중이 아닙니다. (잡 반환 후 대기)' });
+      for (const job of jobs) {
+        try { await patchRow(session, 'megaload_llm_jobs', `id=eq.${job.id}`, { status: 'pending', worker_id: null, claimed_at: null, attempts: Math.max(0, (job.attempts || 1) - 1) }); }
+        catch { /* ignore */ }
+      }
+      await sleep(OLLAMA_DOWN_BACKOFF_MS); // 긴 백오프로 재claim 빈도 자체를 낮춤
+      continue;
+    }
+    if (!model) model = await pickModel(preferModel);
 
     for (const job of jobs) {
       if (stopped()) break;

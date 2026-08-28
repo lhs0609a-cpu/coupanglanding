@@ -179,6 +179,10 @@ export async function startGeneration({
   if (!folder) throw new Error('폴더가 지정되지 않았습니다.');
   if (child) throw new Error('이미 생성이 진행 중입니다.');
 
+  // 생성이 도는 동안에는 엔진(ComfyUI·ollama)이 내려가면 안 된다. 아래 모든 종료 경로에서
+  // 놓아 준다 — 혹시 빠뜨려도 main.mjs 가 isGenerating() 으로 다시 확인하므로 영구 점유는 없다.
+  holdEngines();
+
   // ── 하드웨어 자동 적응 — "어떤 PC 에서도 빠르게" ──────────────────────────
   //   GPU 감지해 모델/상세토큰을 자동 선택하고, ollama 가 그 모델을 갖도록(없으면 pull) 맞춘다.
   const profile = await pickGenProfile();
@@ -230,6 +234,7 @@ export async function startGeneration({
       + `가상 메모리(페이지파일)가 꺼져 있어도 같은 증상이 납니다.`;
     send('allinone:log', '⛔ ' + reason);
     onDone?.(-1, reason);
+    freeEngines();
     send('allinone:done', { code: -1, reason });
     return false;
   }
@@ -289,6 +294,7 @@ export async function startGeneration({
       if (!go) {
         send('allinone:log', '생성을 시작하지 않았습니다 — 무거운 프로그램을 닫고 다시 눌러주세요.');
         onDone?.(0, null);
+        freeEngines();
         send('allinone:done', { code: 0, canceled: true });
         return false;
       }
@@ -335,6 +341,7 @@ export async function startGeneration({
       'AI 엔진을 준비하지 못했습니다 — ' + explainLlmError(String(e?.message || e)));
     send('allinone:log', '❌ ' + reason);
     onDone?.(-1, reason);
+    freeEngines();
     send('allinone:done', { code: -1, reason });
     return false;
   }
@@ -485,6 +492,7 @@ export async function startGeneration({
     const reason = code === 0 ? null : buildReason(code, signal);
     if (reason) send('allinone:log', `❌ 생성 실패: ${reason}`);
     onDone?.(code, reason);
+    freeEngines();
     send('allinone:done', { code, reason });
   });
   child.on('error', (e) => {
@@ -492,10 +500,22 @@ export async function startGeneration({
     const reason = '실행 오류: ' + e.message;
     send('allinone:log', reason);
     onDone?.(-1, reason);
+    freeEngines();
     send('allinone:done', { code: -1, reason });
   });
   return true;
 }
+
+/**
+ * 엔진 유휴 게이트 — main.mjs 가 시작할 때 한 번 꽂는다.
+ * ★ 왜 여기서 주입받나: startGeneration 은 두 곳(웹 통로 main.mjs, 앱 탭 modules/allinone)
+ *   에서 불린다. 호출부마다 붙이면 한쪽을 빠뜨렸을 때 **엔진이 영영 안 내려간다** —
+ *   빠뜨려도 티가 안 나는 종류의 실수라, 붙잡고 놓는 자리를 여기 한 곳으로 모은다.
+ */
+let engineGate = null;
+export function setEngineGate(g) { engineGate = g; }
+const holdEngines = () => { try { engineGate?.hold('allinone'); } catch { /* ignore */ } };
+const freeEngines = () => { try { engineGate?.release('allinone'); } catch { /* ignore */ } };
 
 export function stopGeneration() {
   if (child) { try { child.kill(); } catch { /* skip */ } child = null; }

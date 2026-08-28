@@ -21,7 +21,7 @@ import { OllamaManager } from './ollama-manager.mjs';
 import { WorkerRunner } from './worker-runner.mjs';
 import { AdRunner } from './ad-runner.mjs';
 import { startPairServer } from './pair-server.mjs';
-import { startGeneration } from './allinone-runner.mjs';
+import { startGeneration, setEngineGate, isGenerating } from './allinone-runner.mjs';
 import * as bootstrap from './bootstrap.mjs';
 import { setupAutoUpdate, checkForUpdatesNow } from './auto-update.mjs';
 import { loadModules } from './shell/registry.mjs';
@@ -60,8 +60,84 @@ if (!single) app.quit();
 function send(channel, payload) { win?.webContents.send(channel, maskPayload(payload)); }
 function log(scope, message) { send('thumbnail-gpu:comfy-log', `[${scope}] ${message}`); }
 
+/**
+ * ── 엔진 유휴 해제(램 반납) ───────────────────────────────────────────────────
+ * ComfyUI(SDXL)와 ollama 는 합쳐 5~10GB 를 문다. 예전엔 한 번 뜨면 **앱을 끌 때까지**
+ * 절대 안 내려갔다 — 하루 종일 켜 두는 프로그램이 쓰지도 않는 램을 그만큼 붙들고 있었고,
+ * 사용자가 다른 일(게임·영상·크롬)을 하려면 도우미를 통째로 꺼야 했다.
+ * 이제 할 일이 하나도 없어지는 순간 둘 다 내린다. 다시 필요해지면 잡을 집은 루프가
+ * ensureEngineFor 로 알아서 띄운다 — 사람이 누를 일은 없다.
+ *
+ * ⚠️ SETTLE 은 "즉시"를 깎으려는 값이 **아니라** 뜯었다 붙였다를 막는 최소 간격이다.
+ *    재생성 잡은 0.7초마다 폴링으로 들어오고 웹에서 여러 건이 잇달아 떨어진다. 진짜 0초로
+ *    내리면 잡과 잡 사이마다 5GB 모델을 다시 올리게 되어, 램은 못 돌려받고 대기시간만 늘어난다.
+ *    0 으로 두면 정말 즉시 내린다(설정 engineIdleSettleMs).
+ */
+const ENGINE_IDLE_SETTLE_MS = 15_000;
+const engineHold = new Set();      // 'thumb' | 'llm' | 'allinone'
+let engineIdleTimer = null;
+
+function holdEngines(tag) {
+  engineHold.add(tag);
+  if (engineIdleTimer) { clearTimeout(engineIdleTimer); engineIdleTimer = null; }
+}
+
+function releaseEngines(tag) {
+  engineHold.delete(tag);
+  scheduleEngineRelease();
+}
+
+function scheduleEngineRelease() {
+  // 올인원은 자기 종료 경로에서 놓지만, 그 전에 예외로 빠져나가면 붙잡은 채 남을 수 있다.
+  // 실제 프로세스를 보고 다시 확인한다 — "영원히 안 내려감"만은 만들지 않는다.
+  if (engineHold.has('allinone') && !isGenerating()) engineHold.delete('allinone');
+  if (engineHold.size) return;
+  if (engineIdleTimer) clearTimeout(engineIdleTimer);
+  const settle = Math.max(0, Number(store?.get('engineIdleSettleMs', ENGINE_IDLE_SETTLE_MS)) || 0);
+  engineIdleTimer = setTimeout(() => {
+    engineIdleTimer = null;
+    if (engineHold.size) return;                 // 그 사이 새 작업이 들어왔다
+    shutdownIdleEngines().catch(() => {});
+  }, settle);
+  engineIdleTimer.unref?.();
+}
+
+async function shutdownIdleEngines() {
+  const freed = [];
+  try { if (comfy?.proc) { await comfy.stop(); freed.push('ComfyUI'); } } catch { /* ignore */ }
+  // ★ includeForeign — 이 PC 에 따로 깔린 ollama 가 포트를 물려받아 모델을 다시 올리면
+  //   내린 의미가 없다(실측: 1초 만에 4.9GB 재적재). 반납할 때는 그쪽까지 정리한다.
+  try {
+    // 실제로 떠 있었을 때만 "내렸다"고 말한다 — 아무것도 없었는데 로그를 남기면 거짓말이 된다.
+    const wasUp = !!ollama?.proc || !!(await ollama?.isUp());
+    await ollama?.stop({ includeForeign: true });
+    if (wasUp) freed.push('ollama');
+  } catch { /* ignore */ }
+  if (freed.length) {
+    send('thumbnail-gpu:comfy-log',
+      `[유휴] 할 일이 없어 ${freed.join(' · ')} 을(를) 내렸습니다 — 메모리를 돌려드립니다. 다음 작업 때 자동으로 다시 띄웁니다.`);
+    updateTray();
+  }
+}
+
+/**
+ * 잡을 집은 루프가 부른다 — 필요한 엔진을 띄우고, 끝날 때까지 유휴 해제를 막는다.
+ * @param {'thumb'|'llm'} tag
+ */
+async function ensureEngineFor(tag) {
+  holdEngines(tag);
+  if (tag === 'thumb') await comfy.start();
+  else await ollama.start();
+}
+
 // ── 썸네일 워커 헬퍼 (모듈이 ctx.services 로 호출) ──
 function onWorkerEvent(e) {
+  // 엔진 유휴 판정 — 잡을 집으면 붙잡고, 큐가 비면 놓는다. 두 루프(썸네일·LLM)가
+  //   같은 이벤트 모양을 쓰므로 여기 한 곳이면 둘 다 덮인다.
+  const tag = e.scope === 'llm' ? 'llm' : 'thumb';
+  if (e.type === 'claimed') holdEngines(tag);
+  else if (e.type === 'idle' || e.type === 'finished' || e.type === 'stopped') releaseEngines(tag);
+
   if (e.type === 'claimed') stats.current = e.label;
   if (e.type === 'done') { stats.ok = e.ok; stats.processed = e.processed; stats.current = null; }
   if (e.type === 'error') { stats.fail = e.fail; stats.processed = e.processed; stats.current = null; }
@@ -71,7 +147,9 @@ function onWorkerEvent(e) {
 }
 async function startWorker() {
   if (!(await bootstrap.isInstalled(installDir))) throw new Error('엔진이 아직 설치되지 않았습니다.');
-  await comfy.start();
+  // ★ 여기서 ComfyUI 를 미리 띄우지 않는다. 워커를 켠다고 잡이 있는 것은 아니라서,
+  //   예전에는 앱을 켜 두기만 해도 SDXL 이 램에 상주했다. 이제 잡을 집은 순간
+  //   루프가 ensureEngineFor('thumb') 로 띄운다(첫 잡만 기동 시간을 한 번 낸다).
   await runner.start({
     comfyUrl: comfy.url,
     workflowPath: store.get('workflowPath', DEFAULT_WORKFLOW),
@@ -233,10 +311,14 @@ function setupServices() {
   runner = new WorkerRunner(userData, {
     onEvent: onWorkerEvent,
     appVersion: app.getVersion(),
+    // 유휴일 때 내려간 엔진을, 잡을 집은 루프가 스스로 다시 띄우게 하는 통로.
+    ensureEngine: ensureEngineFor,
     // pair 서버는 이 시점 뒤에 뜨므로 지연 평가 — 매 하트비트마다 현재 포트를 읽는다.
     getLocalEndpoint: () => (pair ? { port: pair.port, nonce: pair.nonce } : null),
   });
   ads = new AdRunner({ getSession: () => runner.session, onEvent: (e) => send('ads:event', e) });
+  // 올인원 생성은 시작/종료 자리가 allinone-runner 안에 있다 — 게이트를 그쪽에 넘겨준다.
+  setEngineGate({ hold: holdEngines, release: releaseEngines });
 }
 
 function buildContext() {
@@ -473,10 +555,15 @@ app.whenReady().then(async () => {
       // 웹에서 시작한 생성도 "검수 시작 가능" 시점을 따로 알린다 — 누끼는 그 뒤에도 계속 돈다.
       onReviewReady,
     }),
-    onPair: async (tokens) => {
+    // 웹이 "이 도우미가 지금 로그인돼 있나"를 /health 로 물어볼 수 있게 한다.
+    //   세션이 죽었을 때만 웹이 조용히 재페어링하므로, 이 값이 곧 자동 재연결의 방아쇠다.
+    getSessionState: () => ({ loggedIn: runner.loggedIn, account: runner.account }),
+    onPair: async (tokens, { silent = false } = {}) => {
       await runner.pair(SUPABASE_URL, SUPABASE_ANON_KEY, tokens);
       send('shell:pair-done', true);
-      win?.show(); win?.focus();
+      // 사람이 "메가로드 연결"을 눌러 온 경우에만 창을 띄운다. 웹이 자동으로 붙인
+      // 재연결(silent)에서 창을 띄우면 브라우저를 쓰던 사용자에게서 포커스를 뺏는다.
+      if (!silent) { win?.show(); win?.focus(); }
       sendHeartbeat();
       autoStartIfReady();
     },

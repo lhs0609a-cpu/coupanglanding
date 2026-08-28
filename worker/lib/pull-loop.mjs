@@ -34,7 +34,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export async function runPullLoop({
   session, comfyUrl, workflow, defaultPositive, defaultNegative,
   timeoutMs, pollMs, workerId, hostname, appVersion, getLocalEndpoint, maxJobs = Infinity, once = false, signal, onEvent = () => {},
-  processImage,
+  processImage, ensureEngine,
 }) {
   const stopped = () => signal?.aborted;
   let processed = 0, ok = 0, fail = 0;
@@ -70,6 +70,26 @@ export async function runPullLoop({
       continue;
     }
     idleLogged = false;
+
+    /**
+     * ★ 잡을 집은 **뒤에** 엔진을 켠다.
+     * 도우미는 유휴일 때 ComfyUI 를 내려 램/VRAM 을 돌려준다(engine idle release). 그래서
+     * 여기서 켜 주지 않으면, 내려간 뒤 처음 들어온 잡이 "ComfyUI 응답 없음"으로 실패한다.
+     * 켜기 전에 잡부터 집는 이유: 큐가 비어 있는 동안(대부분의 시간) 엔진을 건드리지 않기 위해서다.
+     */
+    if (ensureEngine) {
+      try { await ensureEngine(); }
+      catch (e) {
+        // 엔진을 못 켜면 이 잡은 **되돌린다** — error 로 종결하면 사람이 다시 눌러야 한다.
+        onEvent({ type: 'warn', message: `엔진 기동 실패(잡 반환 후 대기): ${e.message || e}` });
+        for (const job of jobs) {
+          try { await patchRow(session, 'megaload_thumbnail_jobs', `id=eq.${job.id}`, { status: 'pending', worker_id: null, claimed_at: null }); }
+          catch { /* ignore */ }
+        }
+        await sleep(15000);
+        continue;
+      }
+    }
 
     for (const job of jobs) {
       if (processed >= maxJobs || stopped()) break;
