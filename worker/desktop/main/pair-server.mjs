@@ -79,6 +79,10 @@ export async function startPairServer({
   // 네이버 소싱 수집 서비스(관리자 전용). 웹 대시보드가 이 통로로 도우미를 조종한다.
   //   { getStatus, getLogs, setWindows, start, stop, testOne, showWindow } | null
   naverIngest = null,
+  // 지금 도우미가 **메가로드에 로그인돼 있는지**를 돌려주는 함수 → /health 로 웹에 알린다.
+  //   웹이 이걸 보고 세션이 죽은 도우미에만 조용히 재페어링한다(자동 재연결).
+  //   { loggedIn: boolean, account: {email,userId,role}|null }
+  getSessionState = () => ({ loggedIn: false, account: null }),
 } = {}) {
   const nonce = randomUUID();
   const state = { paired: false, nonce, port: 0 };
@@ -131,10 +135,18 @@ export async function startPairServer({
       // nonce 는 **우리 도메인에서 온 요청에만** 준다(Origin 헤더가 실제로 일치할 때).
       //   Origin 없는 요청(curl 등 로컬 프로세스)에는 신원만 알려주고 열쇠는 주지 않는다.
       const trusted = !!origin && allowedOriginRe.test(origin);
+      // ⚠️ paired 는 "이 프로세스가 켜진 뒤 페어링 POST 를 받았나"일 뿐이다. 저장 세션으로
+      //    복구해 멀쩡히 로그인된 상태에서도 false 이고, 세션이 만료돼 죽은 뒤에도 true 로 남는다
+      //    (invalidateSession 은 이 값을 안 내린다). 그래서 로그인 여부는 runner 에게 직접 묻는다.
+      //    loggedIn 이 자동 재연결의 유일한 판단 근거다 — paired 로 판단하면 멀쩡한 세션을
+      //    매번 덮어쓰거나(창이 튀어나옴), 죽은 세션을 영영 안 고친다.
+      let sess = { loggedIn: false, account: null };
+      try { sess = getSessionState() || sess; } catch { /* 조회 실패는 미로그인 취급 */ }
       res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         ok: true, app: 'megaload-desktop', version: appVersion || null, paired: state.paired,
-        ...(trusted ? { port: state.port, nonce: state.nonce } : {}),
+        // 계정 식별정보(이메일·역할)는 열쇠와 같은 등급 — 우리 도메인에만 준다.
+        ...(trusted ? { port: state.port, nonce: state.nonce, loggedIn: !!sess.loggedIn, account: sess.account ?? null } : {}),
       }));
     }
 
@@ -557,7 +569,10 @@ export async function startPairServer({
           access_token: body.access_token,
           refresh_token: body.refresh_token,
           expires_at: body.expires_at,
-        });
+        // silent = 웹이 사용자를 대신해 자동으로 붙인 재연결. 사람이 누른 게 아니므로
+        //   앱 창을 띄우지 않는다 — 안 그러면 사이트에 들어갈 때마다 도우미 창이 튀어나와
+        //   브라우저 포커스를 뺏는다(자동화가 오히려 방해가 된다).
+        }, { silent: body.silent === true });
         state.paired = true;
         res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ ok: true }));

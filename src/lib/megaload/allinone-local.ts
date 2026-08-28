@@ -127,20 +127,47 @@ export const DISCOVERY_PORTS = [47690, 47691, 47692, 47693, 47694, 47695, 47696,
  *   구버전 도우미는 nonce 를 안 주므로 여기서 걸리지 않고 아래 하트비트 폴백이 받는다.
  */
 async function scanLocalPorts(): Promise<LocalEndpoint | null> {
-  const probe = async (port: number): Promise<LocalEndpoint | null> => {
+  return (await probeLocalHelper())?.ep ?? null;
+}
+
+/**
+ * /health 응답 한 벌 — 엔드포인트에 **로그인 상태까지** 얹어 돌려준다.
+ * 자동 재연결(auto-pair)은 "도우미는 떠 있는데 메가로드 세션이 죽었다"를 정확히 알아야
+ * 하는데, 그걸 아는 곳은 도우미 자신뿐이다(서버 하트비트는 최대 30초 늦다).
+ * loggedIn 이 undefined 면 그 필드를 아직 안 보내는 구버전 도우미다 — 판단 근거가 없으므로
+ * 호출부가 서버 하트비트로 폴백한다.
+ */
+export interface HelperHealth {
+  ep: LocalEndpoint;
+  version: string | null;
+  /** 구버전 도우미(< 0.5.2)는 이 값을 안 보낸다 → undefined */
+  loggedIn?: boolean;
+  account?: { email: string | null; userId: string | null; role: string | null } | null;
+}
+
+export async function probeLocalHelper(): Promise<HelperHealth | null> {
+  const probe = async (port: number): Promise<HelperHealth | null> => {
     try {
       const r = await fetch(`http://127.0.0.1:${port}/health`, {
         cache: 'no-store', signal: AbortSignal.timeout(1200),
       });
       if (!r.ok) return null;
-      const j = (await r.json()) as { app?: string; nonce?: string; port?: number };
+      const j = (await r.json()) as {
+        app?: string; nonce?: string; port?: number; version?: string | null;
+        loggedIn?: boolean; account?: HelperHealth['account'];
+      };
       if (j.app !== 'megaload-desktop' || typeof j.nonce !== 'string') return null;
-      return { port: typeof j.port === 'number' ? j.port : port, nonce: j.nonce };
+      return {
+        ep: { port: typeof j.port === 'number' ? j.port : port, nonce: j.nonce },
+        version: j.version ?? null,
+        loggedIn: typeof j.loggedIn === 'boolean' ? j.loggedIn : undefined,
+        account: j.account ?? null,
+      };
     } catch { return null; }
   };
   // 전 포트를 동시에 찔러 대역 스캔 지연을 없앤다(연결거부는 즉시 반환).
   const results = await Promise.all(DISCOVERY_PORTS.map(probe));
-  return results.find((r): r is LocalEndpoint => r !== null) ?? null;
+  return results.find((r): r is HelperHealth => r !== null) ?? null;
 }
 
 /**

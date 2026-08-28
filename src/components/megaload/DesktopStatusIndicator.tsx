@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useLatestVersions, isOutdated } from '@/lib/megaload/use-latest-versions';
 import { triggerLocalUpdate, classifyHelperLink, type LocalEndpoint } from '@/lib/megaload/allinone-local';
+import { autoPairHelper, resetAutoPairGuard } from '@/lib/megaload/auto-pair';
 import { WORKER_SETTINGS_URL } from '@/lib/megaload/worker-download';
 
 /**
@@ -30,27 +31,66 @@ export default function DesktopStatusIndicator() {
   const [updating, setUpdating] = useState(false);
   const [updateMsg, setUpdateMsg] = useState('');
 
+  // 자동 재연결 표시 — 사람이 아무것도 안 눌러도 되지만, 무슨 일이 벌어졌는지는 보여준다.
+  const [pairing, setPairing] = useState<'idle' | 'trying' | 'paired' | 'failed'>('idle');
+
+  const poll = useCallback(async (): Promise<WorkerRow[]> => {
+    try {
+      const res = await fetch('/api/megaload/products/thumbnail-jobs/worker-status');
+      const j = await res.json();
+      const rows: WorkerRow[] = Array.isArray(j.workers) ? j.workers : [];
+      setWorkers(rows);
+      return rows;
+    } catch {
+      setWorkers([]);
+      return [];
+    }
+  }, []);
+
+  /**
+   * 세션이 죽은 도우미를 **사용자가 누르지 않아도** 다시 붙인다.
+   * 도우미는 리프레시 토큰이 폐기되면 혼자 복구할 방법이 없다(비밀번호가 없다). 반면 이 페이지엔
+   * 살아 있는 세션이 있고 도우미 위치도 안다 — 그래서 사람을 부를 이유가 없다.
+   * 판단은 도우미의 /health(loggedIn)가 하고, 그 값을 안 주는 구버전만 하트비트 판정으로 시도한다.
+   *
+   * ⚠️ 폴링마다 부른다. "상태가 바뀌는 순간 한 번"으로는 부족하다 — 사이트를 열어 둔 채 도우미를
+   *    나중에 켜는 순서(가장 흔하다)에서는 상태가 계속 미연결이라 두 번 다시 시도하지 않는다.
+   *    실제 재시도 간격은 auto-pair 쪽 쿨다운(30초)과 연속 실패 상한이 잡는다.
+   */
+  const tryAutoPair = useCallback(async (rows: WorkerRow[], alive: () => boolean) => {
+    if (classifyHelperLink(rows) === 'online') return;
+    const r = await autoPairHelper(true, () => { if (alive()) setPairing('trying'); });
+    if (!alive()) return;
+    if (r.status === 'paired') {
+      setPairing('paired');
+      // 도우미가 페어링 직후 하트비트를 쏘므로, 다음 정기 폴링(최대 15초)을 기다리지 않는다.
+      setTimeout(() => { if (alive()) void poll(); }, 1500);
+    } else if (r.status === 'failed') {
+      setPairing('failed');
+    } else {
+      // no-helper / no-session / already / skipped — 안내는 기존 문구가 한다.
+      setPairing((p) => (p === 'trying' ? 'idle' : p));
+    }
+  }, [poll]);
+
   useEffect(() => {
     let alive = true;
-    const poll = async () => {
-      try {
-        const res = await fetch('/api/megaload/products/thumbnail-jobs/worker-status');
-        const j = await res.json();
-        if (alive) setWorkers(Array.isArray(j.workers) ? j.workers : []);
-      } catch {
-        if (alive) setWorkers([]);
-      }
+    const isAlive = () => alive;
+    const tick = async () => {
+      const rows = await poll();
+      if (alive) await tryAutoPair(rows, isAlive);
     };
-    poll();
-    const id = setInterval(poll, 15_000);
+    void tick();
+    const id = setInterval(() => { void tick(); }, 15_000);
     return () => { alive = false; clearInterval(id); };
-  }, []);
+  }, [poll, tryAutoPair]);
 
   // ⚠️ 예전엔 `workers.length > 0` 이 곧 "연결됨"이었다 — 그게 거짓 초록의 원인이었다.
   //    세션이 만료되면 품절 모니터('desktop-monitor', 토큰 인증이라 만료 없음)만 남는데도
   //    🟢 연결됨으로 보여, 정작 올인원·썸네일·재생성이 죽은 걸 아무도 몰랐다(실측 10시간).
   const link = workers === null ? null : classifyHelperLink(workers);
   const online = link === null ? null : link === 'online';
+
   // 버전을 보낸 워커 중 가장 낮은 버전을 기준으로 판정(하나라도 구버전이면 업데이트 안내).
   const versioned = (workers ?? []).filter((w) => w.app_version);
   const installed = versioned.length
@@ -142,16 +182,46 @@ export default function DesktopStatusIndicator() {
       {link === 'monitor-only' && (
         <div className="px-3">
           <p className="text-[10px] leading-snug text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
-            올인원 생성·썸네일·재생성이 멈춘 상태입니다.
-            <br />
-            도우미 앱에서 <b>로그아웃 · 다른 계정 연결</b> → <b>메가로드 연결</b>을 눌러 다시 연결하세요.
+            {pairing === 'trying' ? (
+              <>올인원 생성·썸네일·재생성이 멈춘 상태입니다.<br />이 브라우저의 로그인으로 <b>자동 재연결 중…</b></>
+            ) : pairing === 'paired' ? (
+              <>✅ 도우미를 다시 연결했습니다 — 상태 갱신 중입니다.</>
+            ) : (
+              <>
+                올인원 생성·썸네일·재생성이 멈춘 상태입니다.
+                <br />
+                자동 재연결이 안 됐습니다{pairing === 'failed' ? '(도우미 응답 없음)' : ''}. 아래를 눌러 보고, 그래도 안 되면 도우미 앱에서 <b>메가로드 연결</b>을 눌러 주세요.
+              </>
+            )}
           </p>
+          {pairing !== 'trying' && pairing !== 'paired' && (
+            <button
+              type="button"
+              onClick={() => {
+                resetAutoPairGuard();
+                void autoPairHelper(true, () => setPairing('trying')).then(async (r) => {
+                  setPairing(r.status === 'paired' ? 'paired' : 'failed');
+                  await poll();
+                });
+              }}
+              className="mt-1 w-full text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-md px-2 py-1 transition"
+            >
+              지금 재연결
+            </button>
+          )}
         </div>
       )}
 
       {/* 완전 미연결이면 설치 안내(설정 다운로드 허브) */}
       {link === 'offline' && (
-        <div className="px-3">
+        <div className="px-3 space-y-1">
+          {(pairing === 'trying' || pairing === 'paired') && (
+            <p className="text-[10px] leading-snug text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
+              {pairing === 'trying'
+                ? <>이 브라우저의 로그인으로 <b>자동 재연결 중…</b></>
+                : <>✅ 도우미를 다시 연결했습니다 — 상태 갱신 중입니다.</>}
+            </p>
+          )}
           <Link href={WORKER_SETTINGS_URL} className="text-[10px] font-medium text-indigo-600 hover:text-indigo-800">
             도우미 받기 · 설치 방법 →
           </Link>

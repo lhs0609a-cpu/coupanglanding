@@ -29,9 +29,15 @@ function decodeJwt(token) {
 }
 
 export class WorkerRunner {
-  constructor(userDataDir, { onEvent = () => {}, appVersion = null, getLocalEndpoint = null } = {}) {
+  constructor(userDataDir, { onEvent = () => {}, appVersion = null, getLocalEndpoint = null, ensureEngine = null } = {}) {
     this.userDataDir = userDataDir;
     this.onEvent = onEvent;
+    /**
+     * 잡을 집었을 때 엔진(ComfyUI·ollama)을 켜 주는 훅 — main.mjs 가 꽂는다.
+     * ★ 유휴일 때 엔진을 내려 램을 돌려주기 때문에 반드시 필요하다. 이게 없으면 내려간 뒤
+     *   처음 들어온 잡이 실패하거나 영원히 되돌려진다.
+     */
+    this.ensureEngine = ensureEngine;
     // 하트비트에 실어 보낼 앱 버전 — 웹이 "구버전 쓰는 중"을 실제로 감지하는 근거.
     this.appVersion = appVersion;
     // 하트비트에 실어 보낼 로컬 서버 {port,nonce} — 웹 올인원이 결과·이미지를 직독하는 통로.
@@ -101,6 +107,9 @@ export class WorkerRunner {
     const s = new Session(supabaseUrl, anonKey, join(this.userDataDir, '.session.json'));
     await s.seed(sessionTokens);
     this.session = s;
+    // 새 세션이 들어왔으니 "만료됐습니다" 경고는 그 자리에서 지운다. 하트비트 성공을
+    // 기다리면(최대 30초) 이미 연결된 화면에 빨간 안내가 남아 사용자가 또 누른다.
+    this.sessionError = null;
     this.startLlmLoop();
   }
 
@@ -136,6 +145,7 @@ export class WorkerRunner {
         pollMs: 700,   // 활성 시 0.7초로 빠르게 집음(루프 내부에서 장기 유휴 시 자동 백오프)
         signal: this.llmAbort.signal,
         onEvent: (e) => this.onEvent({ scope: 'llm', ...e }),
+        ensureEngine: this.ensureEngine ? () => this.ensureEngine('llm') : undefined,
       }))
       .catch((e) => this.onEvent({ type: 'warn', message: `LLM 루프 종료: ${e.message}` }))
       .finally(() => { this.llmAbort = null; this.llmLoopPromise = null; });
@@ -218,6 +228,7 @@ export class WorkerRunner {
       getLocalEndpoint: this.getLocalEndpoint,
       signal: this.abort.signal,
       onEvent: this.onEvent,
+      ensureEngine: this.ensureEngine ? () => this.ensureEngine('thumb') : undefined,
       // 기본: 누끼+흰배경 1:1. job.mode==='regenerate' 면 prefill+SDXL img2img+재누끼.
       // 모델(BiRefNet_lite)은 userData/hf-cache 에 최초 1회 다운로드 후 영구 캐시.
       processImage: (buf, job) => processCutoutThumbnail(buf, {
