@@ -20,7 +20,7 @@ import {
   probePageJs, probeProductJs, collectCardsJs, keepLoginJs, naverAutoLoginJs, loginPageStateJs,
 } from './inject.mjs';
 import { loginState, clearLogin, persistLoginCookies } from '../../naver-session.mjs';
-import { reviveSession, startKeepAlive } from '../../naver-keepalive.mjs';
+import { reviveSession, startKeepAlive, keepAliveState } from '../../naver-keepalive.mjs';
 import {
   initCredentials, saveCredentials, clearCredentials, credentialInfo, hasCredentials,
   loadCredentials, encryptionAvailable,
@@ -239,6 +239,11 @@ export function getStatus() {
       waiting: !!loginTask,
       credential: credentialInfo(),          // 비밀번호는 여기 안 실린다(가린 아이디만)
       auto: { running: autoLoginTask.running, at: autoLoginTask.at, result: autoLoginTask.result },
+      // 세션 유지(keep-alive)가 실제로 도는지 — 캡차를 막는 첫 방어선이라 보이게 둔다.
+      //   지금까지 이 값이 어디에도 안 실려서, 유지가 죽어 있어도 알 방법이 없었다.
+      keepAlive: keepAliveState(),
+      // 연속 실패로 로그인 시도를 미루는 중이면 언제까지인지 — "왜 자동 로그인을 안 하지"의 답.
+      backoffUntil: loginBackoffUntil,
     },
   };
   // 수집 진행 요약 — 결과 배열(수백 건)은 빼고 카운트만 실어 폴링을 가볍게 유지한다.
@@ -1351,6 +1356,40 @@ let autoLoginTask = { running: false, at: 0, result: null };
 let humanBlockedAt = 0;
 const HUMAN_BLOCK_QUIET_MS = 30 * 60 * 1000;
 
+/**
+ * 로그인 실패 백오프 — **캡차를 부르는 건 로그인 시도 그 자체다.**
+ * ---------------------------------------------------------------------------
+ * 실측 2026-08-28. 세션이 죽어 있는 동안 이런 패턴이 찍혔다:
+ *   10:19 로그인 시도 → 보안문자 → 10:29 대기 종료
+ *   11:01 로그인 시도 → 보안문자 → 11:11 종료
+ *   12:17 로그인 시도 → 보안문자 → 12:27 종료
+ * 30분 고정 침묵(HUMAN_BLOCK_QUIET_MS)만으로는 "한 시간에 한 번씩 로그인 폼을 두드리는"
+ * 패턴이 그대로 남는다. 네이버 입장에서 이건 정확히 자동화의 모양이고, 그래서 시도할 때마다
+ * 또 캡차가 붙는다 — 실패가 실패를 부르는 고리다.
+ *
+ * 그래서 **연속 실패 횟수만큼 간격을 배로 늘린다.** 성공하면 그 자리에서 0 으로 되돌린다.
+ * 사람이 "지금 자동 로그인"을 누르면 해제한다 — 사람이 화면 앞에 있으면 캡차는 문제가 아니다.
+ */
+const LOGIN_BACKOFF_BASE_MS = 30 * 60 * 1000;   // 첫 실패 뒤 30분
+const LOGIN_BACKOFF_MAX_MS = 6 * 60 * 60 * 1000; // 상한 6시간 — 그 이상은 사람을 부르는 게 맞다
+let loginFailStreak = 0;
+let loginBackoffUntil = 0;
+
+/** 실패를 기록하고 다음 시도 가능 시각을 민다. */
+function noteLoginFailure(reason) {
+  loginFailStreak++;
+  const wait = Math.min(LOGIN_BACKOFF_MAX_MS, LOGIN_BACKOFF_BASE_MS * 2 ** (loginFailStreak - 1));
+  loginBackoffUntil = Date.now() + wait;
+  pushLog(`자동 로그인이 ${loginFailStreak}회 연속 실패했습니다(${reason}) — `
+    + `${Math.round(wait / 60000)}분 동안 시도하지 않습니다. 로그인 시도가 잦을수록 보안문자가 더 자주 붙습니다.`);
+}
+
+/** 성공 — 고리를 끊는다. */
+function noteLoginSuccess() {
+  loginFailStreak = 0;
+  loginBackoffUntil = 0;
+}
+
 /** 자동 로그인이 가능한 상태인지 — 웹 화면이 버튼을 켤지 말지 판단하는 값. */
 export async function credentialStatus() {
   // 게이트 없음 — 네이버 로그인은 **모든 셀러**가 각자 해야 한다(품절 감시의 전제).
@@ -1385,7 +1424,7 @@ export async function ensureNaverLogin() {
   //   여기까지 온 호출자는 어차피 곧 네이버를 두드린다 — 띄워도 손해가 아니다.
   await ensureChromeBrowser().catch(() => null);
   const st = await loginState();
-  if (st.loggedIn) return { ok: true, already: true };
+  if (st.loggedIn) { noteLoginSuccess(); return { ok: true, already: true }; }
 
   // ★ 로그인은 **마지막 수단**이다. 캡차는 로그인 시도에 붙기 때문이다(실측: 하루 4번).
   //   ① 반쪽 세션(NID_AUT 는 있고 NID_SES 만 없음)이면 네이버 방문 1회로 되살아난다 —
@@ -1394,6 +1433,7 @@ export async function ensureNaverLogin() {
     const rev = await reviveSession({ onLog: pushLog }).catch(() => null);
     if (rev?.loggedIn) {
       loginCache = { loggedIn: true, persistent: true, at: Date.now() };
+      noteLoginSuccess();        // 로그인 화면을 안 거치고 살아났다 — 실패 집계를 끌 이유가 충분하다
       pushStatus();
       return { ok: true, revived: true };
     }
@@ -1404,11 +1444,18 @@ export async function ensureNaverLogin() {
   const gate = naverGate.state();
   if (gate.cooling) {
     pushLog(`네이버가 막고 있는 중이라(${Math.ceil(gate.cooldownMsLeft / 1000)}초) 로그인은 미룹니다 — 캡차를 자초하지 않기 위해서입니다.`);
+    // ⚠️ 이건 로그인 실패가 아니다(시도조차 안 했다). 백오프에 세면 쿨다운 위에 백오프가
+    //    또 얹혀 복구가 몇 배로 늦어진다 — 게이트가 풀리면 바로 다시 시도해야 한다.
     return { ok: false, reason: 'cooling' };
   }
 
   if (!hasCredentials()) return { ok: false, reason: 'no-credential' };
   if (autoLoginTask.running) return { ok: false, reason: 'running' };
+  // ★ 연속 실패 백오프 — 로그인 시도 자체가 캡차를 부르므로, 실패가 쌓이면 간격을 벌린다.
+  //   (사람이 "지금 자동 로그인"을 누르면 autoLoginNow 가 이 값을 푼다.)
+  if (Date.now() < loginBackoffUntil) {
+    return { ok: false, reason: 'backoff', retryInMs: loginBackoffUntil - Date.now() };
+  }
   // 방금 캡차/2단계에 막혔으면 자동으로는 다시 시도하지 않는다 — 사람이 없는데 반복해 봐야
   // 네이버에 로그인 시도만 쌓인다. 사람이 "지금 자동 로그인"을 누르면 그때 다시 간다.
   if (Date.now() - humanBlockedAt < HUMAN_BLOCK_QUIET_MS) {
@@ -1420,7 +1467,8 @@ export async function ensureNaverLogin() {
 
 /** 사람이 직접 누른 경우 — 위 조용히-기다리기를 해제하고 간다. */
 export async function autoLoginNow({ byHuman = false } = {}) {
-  if (byHuman) humanBlockedAt = 0;
+  // 사람이 화면 앞에 있으면 캡차는 막힘이 아니다 — 침묵도 백오프도 푼다.
+  if (byHuman) { humanBlockedAt = 0; noteLoginSuccess(); }
   if (autoLoginTask.running) return { ok: false, reason: 'running' };
   const creds = await loadCredentials();
   if (!creds) return { ok: false, reason: 'no-credential' };
@@ -1429,6 +1477,12 @@ export async function autoLoginNow({ byHuman = false } = {}) {
   pushStatus();
 
   const finish = (result) => {
+    // ★ 여기가 유일한 종료 지점이다 — 성공·실패·캡차·타임아웃이 전부 이 문을 지난다.
+    //   그래서 백오프 집계도 여기 한 곳에서만 한다(경로마다 넣으면 반드시 하나를 빠뜨린다).
+    if (result?.ok) noteLoginSuccess();
+    else if (result?.reason && result.reason !== 'running' && result.reason !== 'no-credential') {
+      noteLoginFailure(result.reason);
+    }
     autoLoginTask = { running: false, at: Date.now(), result };
     pushStatus();
     return result;

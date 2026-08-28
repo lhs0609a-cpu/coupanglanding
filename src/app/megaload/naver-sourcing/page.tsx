@@ -102,6 +102,7 @@ function explainHelperFail(reason?: string): string {
     'human-timeout': '사람 확인을 10분 동안 기다리다 종료했습니다.',
     'aborted': '자동 로그인이 중간에 끊겼습니다.',
     'unknown': '자동 로그인이 끝나지 않았습니다 — 띄워 둔 크롬 창을 확인해 주세요.',
+    'backoff': '로그인 시도가 연속 실패해 잠시 쉬는 중입니다 — 시도가 잦을수록 보안문자가 더 자주 붙어서입니다. 지금 하시려면 아래 버튼을 눌러 주세요.',
   };
   return table[r] || r;
 }
@@ -539,6 +540,17 @@ export default function NaverSourcingPage() {
             </div>
             {/* 세션 쿠키 경고 — 로그인은 됐는데 앱을 끄면 풀리는 상태. 원인을 여기서 말해야
                 "왜 자꾸 로그인이 풀리냐"가 반복되지 않는다. */}
+            {/* 세션 유지가 도는지 — 이게 죽으면 세션이 늙어 죽고, 그다음이 로그인이고, 그다음이 보안문자다. */}
+            {status.naverLogin.keepAlive && (
+              <p className="text-xs text-emerald-800 mt-2">
+                세션 유지: {status.naverLogin.keepAlive.running ? '켜짐' : '꺼짐'}
+                {status.naverLogin.keepAlive.last.at > 0 && (
+                  <> · 마지막 {new Date(status.naverLogin.keepAlive.last.at).toLocaleTimeString('ko-KR')}
+                    {' '}{status.naverLogin.keepAlive.last.ok ? '✓' : '✗'} {status.naverLogin.keepAlive.last.reason}</>
+                )}
+                {status.naverLogin.keepAlive.last.at === 0 && <> · 아직 한 번도 안 돎</>}
+              </p>
+            )}
             {status.naverLogin.persistent === false && !status.naverLogin.credential?.has && (
               <p className="text-xs text-emerald-800 mt-2 leading-relaxed">
                 ⚠️ 이 로그인은 <b>세션 쿠키</b>라 도우미를 껐다 켜면 풀립니다. 아래처럼 계정을 저장해 두면
@@ -583,6 +595,13 @@ export default function NaverSourcingPage() {
                 >
                   저장된 계정 지우기
                 </button>
+                {/* 백오프 중이면 "왜 가만히 있는지"를 말한다 — 안 그러면 고장으로 보인다. */}
+                {!!status.naverLogin.backoffUntil && status.naverLogin.backoffUntil > Date.now() && (
+                  <p className="w-full text-xs text-amber-800 mt-1">
+                    ⏸ 로그인 시도를 {Math.ceil((status.naverLogin.backoffUntil - Date.now()) / 60000)}분 더 쉽니다 —
+                    시도가 잦을수록 보안문자가 더 자주 붙어서입니다. 지금 하시려면 위 버튼을 눌러 주세요.
+                  </p>
+                )}
                 {/* 마지막 시도가 왜 실패했는지 — 이게 없으면 눌러도 아무 일도 안 난 것처럼 보인다. */}
                 {status.naverLogin.auto?.result?.ok === false && !status.naverLogin.auto.running && (
                   <p className="w-full text-xs text-red-700 mt-1">

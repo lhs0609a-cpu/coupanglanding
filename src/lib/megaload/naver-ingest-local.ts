@@ -164,6 +164,13 @@ export interface IngestStatus {
     /** 저장된 계정 — 비밀번호는 절대 오지 않는다(가린 아이디만). */
     credential?: { has: boolean; idMasked: string; savedAt: number };
     auto?: { running: boolean; at: number; result: { ok: boolean; reason?: string } | null };
+    /**
+     * 세션 유지(keep-alive)가 실제로 도는지. 캡차를 막는 첫 방어선이라 화면에 보여야 한다 —
+     * 지금까지 이 값이 어디에도 안 실려서 유지가 죽어 있어도 알 방법이 없었다.
+     */
+    keepAlive?: { running: boolean; last: { at: number; ok: boolean; reason: string } };
+    /** 연속 실패로 자동 로그인을 미루는 중이면 그 종료 시각(ms). 0 이면 미루지 않는 중. */
+    backoffUntil?: number;
   };
   detail?: DetailState;
   logs?: IngestLog[];

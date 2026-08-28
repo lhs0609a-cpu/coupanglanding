@@ -91,16 +91,36 @@ export async function reviveSession({ onLog = () => {} } = {}) {
  */
 export function startKeepAlive({ onLog = () => {} } = {}) {
   if (timer) return;
+  /**
+   * ⚠️ 예전 tick 은 결과를 **어디에도 남기지 않았다.** `last` 는 선언만 돼 있고 한 번도
+   *    갱신되지 않아 keepAliveState() 가 영원히 {at:0, ok:false} 를 돌려줬고, 실패는
+   *    빈 catch 가 통째로 삼켰다. 그래서 "keep-alive 가 도는지"를 **아무도 확인할 수 없었다** —
+   *    이게 도는 줄 알고 세션 만료를 다른 데서 찾고 있었다(실측 2026-08-28).
+   *    세션 유지는 캡차를 막는 첫 번째 방어선이라, 조용히 죽어 있으면 안 되는 종류의 일이다.
+   */
   const tick = async () => {
+    const started = Date.now();
+    const mark = (ok, reason) => { last = { at: started, ok, reason }; };
     try {
       const st = await loginState();
       if (st.loggedIn) {
-        await visitNaver();
-        await persistLoginCookies().catch(() => 0);
-      } else if (st.hasAuth) {
-        await reviveSession({ onLog });
+        const visited = await visitNaver();
+        if (!visited) return mark(false, '크롬이 안 떠 있어 건너뜀');   // 정상 동작이다(창을 깨우지 않는다)
+        const kept = await persistLoginCookies().catch(() => 0);
+        return mark(true, kept ? `세션 갱신 · 쿠키 ${kept}개에 만료 도장` : '세션 갱신');
       }
-    } catch { /* 유지 실패는 다음 주기에 다시 */ }
+      if (st.hasAuth) {
+        // 반쪽 세션 — 로그인 화면을 거치지 않고 되살린다(캡차가 붙을 자리가 없다).
+        const rev = await reviveSession({ onLog });
+        return mark(!!rev?.loggedIn, rev?.loggedIn ? '반쪽 세션 되살림' : (rev?.reason || '되살리기 실패'));
+      }
+      return mark(false, st.stale ? '상태 미확인(크롬 꺼짐)' : '로그인 안 됨');
+    } catch (e) {
+      // 조용히 삼키지 않는다 — 연속 실패는 곧 세션 만료이고, 그다음은 로그인이고, 그다음이 캡차다.
+      const reason = String(e?.message || e);
+      mark(false, reason);
+      onLog(`네이버 세션 유지에 실패했습니다(${reason}). ${Math.round(KEEP_INTERVAL_MS / 60000)}분 뒤 다시 시도합니다.`);
+    }
   };
   timer = setInterval(tick, KEEP_INTERVAL_MS);
   if (timer.unref) timer.unref();
