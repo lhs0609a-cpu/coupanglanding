@@ -88,9 +88,16 @@ function releaseEngines(tag) {
 }
 
 function scheduleEngineRelease() {
-  // 올인원은 자기 종료 경로에서 놓지만, 그 전에 예외로 빠져나가면 붙잡은 채 남을 수 있다.
-  // 실제 프로세스를 보고 다시 확인한다 — "영원히 안 내려감"만은 만들지 않는다.
+  /**
+   * ★ 안전망 — 붙잡기는 이벤트로 놓는데, 이벤트는 유실될 수 있다(루프가 예외로 죽거나,
+   *   놓는 신호를 안 쏘고 끝나거나). 한 번 새면 엔진이 **영원히** 안 내려가고, 사용자에게는
+   *   "안 쓰는데 계속 메모리를 물고 있다"로 보인다 — 이 기능의 존재 이유가 통째로 사라진다.
+   *   그래서 놓을지 판단할 때마다 **실제로 그 일이 도는 중인지** 다시 확인한다.
+   *   이벤트가 진실의 원천이 아니라, 프로세스/루프 상태가 진실의 원천이다.
+   */
   if (engineHold.has('allinone') && !isGenerating()) engineHold.delete('allinone');
+  if (engineHold.has('thumb') && !runner?.running) engineHold.delete('thumb');
+  if (engineHold.has('llm') && !runner?.llmRunning) engineHold.delete('llm');
   if (engineHold.size) return;
   if (engineIdleTimer) clearTimeout(engineIdleTimer);
   const settle = Math.max(0, Number(store?.get('engineIdleSettleMs', ENGINE_IDLE_SETTLE_MS)) || 0);
@@ -571,6 +578,14 @@ app.whenReady().then(async () => {
 
   sendHeartbeat();
   setInterval(sendHeartbeat, 30_000);
+  /**
+   * ★ 유휴 반납 스윕 — 위 안전망은 releaseEngines() 가 불릴 때만 도는데, 붙잡기가 **샌**
+   *   경우엔 그 호출 자체가 오지 않는다. 그러면 안전망이 있어도 영영 실행되지 않는다.
+   *   주기적으로 한 번씩 두드려, 새더라도 1분 안에 스스로 회복하게 한다.
+   *   (주기 60초 > 안정화 15초라 타이머가 밀려 굶는 일은 없다.)
+   */
+  const sweep = setInterval(() => { try { scheduleEngineRelease(); } catch { /* ignore */ } }, 60_000);
+  sweep.unref?.();
   autoStartIfReady();
 }).catch((e) => {
   // 시작 중 예외가 나면 조용히 죽지 않고 원인을 보여준다(= "아무것도 안 뜸" 방지/진단).

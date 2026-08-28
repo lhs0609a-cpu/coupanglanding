@@ -54,6 +54,8 @@ export class WorkerRunner {
   }
 
   get running() { return !!this.abort; }
+  /** LLM 재생성 루프가 도는 중인가 — 엔진 유휴 반납의 안전망이 이 값을 본다. */
+  get llmRunning() { return !!this.llmAbort; }
   get loggedIn() { return !!this.session; }
 
   /** 현재 연결된 계정 식별정보(이메일/역할/userId). 세션 없으면 null. */
@@ -148,7 +150,20 @@ export class WorkerRunner {
         ensureEngine: this.ensureEngine ? () => this.ensureEngine('llm') : undefined,
       }))
       .catch((e) => this.onEvent({ type: 'warn', message: `LLM 루프 종료: ${e.message}` }))
-      .finally(() => { this.llmAbort = null; this.llmLoopPromise = null; });
+      .finally(() => {
+        this.llmAbort = null;
+        this.llmLoopPromise = null;
+        /**
+         * ★ 루프가 끝났다는 걸 **반드시** 알린다 — 엔진 붙잡기를 놓는 유일한 신호다.
+         *   유휴 반납 게이트는 claimed 에서 잡고 idle/finished/stopped 에서 놓는데,
+         *   ① LLM 루프는 정상 종료해도 finished 를 쏘지 않고 그냥 return 하고
+         *   ② 예외로 죽으면 warn 만 나간다.
+         *   둘 다 놓는 신호가 아니라서, 잡을 집은 직후 루프가 끝나면 ollama 가
+         *   **영영 안 내려간다**(사용자 눈엔 "안 쓰는데 계속 메모리를 물고 있다").
+         *   여기 finally 는 어떤 경로로 끝나든 반드시 지나므로 이 자리가 맞다.
+         */
+        this.onEvent({ scope: 'llm', type: 'finished' });
+      });
   }
 
   async stopLlmLoop() {
@@ -239,7 +254,14 @@ export class WorkerRunner {
         img2imgFn,
       }),
     }).catch((e) => this.onEvent({ type: 'error', message: e.message }))
-      .finally(() => { this.abort = null; this.loopPromise = null; });
+      .finally(() => {
+        this.abort = null;
+        this.loopPromise = null;
+        // 위 LLM 루프와 같은 이유. runPullLoop 은 정상 종료 때 finished 를 쏘지만
+        // **예외로 죽으면 error 만** 나가고, error 는 잡 1건 실패에도 쓰이는 이벤트라
+        // 그걸로는 놓을 수 없다(배치 중간에 엔진이 내려간다). 중복 finished 는 무해하다.
+        this.onEvent({ type: 'finished' });
+      });
   }
 
   async stop() {
