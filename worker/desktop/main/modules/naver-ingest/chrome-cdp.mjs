@@ -59,9 +59,12 @@ export function findChrome() {
 }
 
 export class ChromeBrowser {
-  constructor({ profileDir, onLog = () => {}, windowSize = '1440,1000' } = {}) {
+  constructor({ profileDir, onLog = () => {}, onExit = () => {}, windowSize = '1440,1000' } = {}) {
     this.profileDir = profileDir;
     this.onLog = onLog;
+    // 크롬이 **우리가 닫은 게 아닌데** 죽었을 때 부른다(사용자가 창을 닫음·크래시·자체 종료).
+    // 이걸 안 알리면 위층이 죽은 핸들을 계속 쥔다 — 아래 exit 핸들러 주석 참고.
+    this.onExit = onExit;
     this.windowSize = windowSize;
     this.child = null;
     this._nextId = 1;
@@ -94,7 +97,20 @@ export class ChromeBrowser {
     this.child.stderr?.on('data', () => { /* 크롬 잡음은 버린다 */ });
     // ★ 프로필 점유 판정에 쓴다 — 아래 launch 실패 분기 참고.
     let exitedEarly = false;
-    this.child.on('exit', () => { exitedEarly = true; this.child = null; });
+    this.child.on('exit', () => {
+      exitedEarly = true;
+      this.child = null;
+      /**
+       * ★ 여기서 위층에 알리지 않으면 크롬은 **영영 다시 뜨지 않는다**(실측 2026-08-28).
+       *   chrome-session 의 모듈 변수 browser 는 이 객체를 계속 쥐고 있고,
+       *   ensureChromeBrowser 는 `if (browser) return browser` 라 그 시체를 그대로 돌려줬다.
+       *   그 뒤 모든 CDP 호출이 "크롬이 떠 있지 않습니다."로 실패한다 — 10초마다 창 워밍업이
+       *   실패하고, 저장된 계정이 있어도 자동 로그인이 같은 사유로 불가능해진다. 앱을 껐다
+       *   켜기 전에는 복구되지 않았다.
+       */
+      this._failPending('크롬이 종료됐습니다.');
+      try { this.onExit?.(); } catch { /* 통지 실패가 종료를 되돌리지는 않는다 */ }
+    });
 
     await sleep(1200);
     let v;
@@ -119,6 +135,18 @@ export class ChromeBrowser {
     }
     this.onLog(`크롬 연결됨 — ${v.product}`);
     return this;
+  }
+
+  /** 지금 이 브라우저가 실제로 살아 있는가. 죽은 핸들과 없는 핸들을 위층이 구분하는 유일한 값. */
+  get alive() { return !!this.child; }
+
+  /** 크롬이 사라진 순간, 답을 기다리던 호출들을 30초 타임아웃까지 붙들어 두지 않는다. */
+  _failPending(msg) {
+    for (const { reject, timer } of this._pending.values()) {
+      clearTimeout(timer);
+      try { reject(new Error(msg)); } catch { /* ignore */ }
+    }
+    this._pending.clear();
   }
 
   _onData(chunk) {

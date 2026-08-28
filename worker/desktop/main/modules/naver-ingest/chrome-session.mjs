@@ -67,9 +67,18 @@ export function isChromeAvailable() {
   return !!findChrome();
 }
 
-/** 지금 크롬이 떠 있는가 — 상태 폴링이 크롬을 켜지 않도록 판단하는 값. */
+/**
+ * 지금 크롬이 떠 있는가 — 상태 폴링이 크롬을 켜지 않도록 판단하는 값.
+ * ⚠️ 핸들이 있다고 살아 있는 게 아니다. 사용자가 크롬 창을 닫으면 핸들은 남고 child 만 죽는다.
+ */
 export function chromeRunning() {
-  return !!browser;
+  return !!browser?.alive;
+}
+
+/** 살아 있는 브라우저만 돌려준다 — 죽었으면 그 자리에서 버린다(다음 ensure 가 새로 띄운다). */
+function liveBrowser() {
+  if (browser && !browser.alive) browser = null;
+  return browser;
 }
 
 /**
@@ -77,12 +86,26 @@ export function chromeRunning() {
  * 탭 풀이 탭 3장을 3초 간격으로 만들면서 동시에 들어오기 때문이다.
  */
 export async function ensureChromeBrowser() {
-  if (browser) return browser;
+  // ★ 죽은 핸들을 그대로 돌려주면 크롬은 영영 다시 뜨지 않는다(실측 2026-08-28).
+  //   사용자가 도우미용 크롬 창을 닫으면 child 만 죽고 이 변수는 시체를 쥔 채 남는데,
+  //   예전 코드는 `if (browser) return browser` 라 그 시체를 계속 내줬다. 그 뒤로
+  //   워밍업·자동 로그인·수집이 전부 "크롬이 떠 있지 않습니다."로 끝났고, 앱을 재시작하기
+  //   전에는 복구되지 않았다. 살아 있는 것만 재사용한다.
+  if (liveBrowser()) return browser;
   if (launching) return launching;
   if (!findChrome()) throw new Error('구글 크롬이 설치돼 있지 않습니다 — 크롬을 설치해 주세요.');
 
   launching = (async () => {
-    const b = new ChromeBrowser({ profileDir: chromeProfileDir(), onLog });
+    const b = new ChromeBrowser({
+      profileDir: chromeProfileDir(),
+      onLog,
+      // 크롬이 우리 손 밖에서 죽으면 그 자리에서 핸들을 버린다 — 다음 호출이 새로 띄운다.
+      onExit: () => {
+        if (browser !== b) return;      // 이미 교체됐으면 남의 일이다
+        browser = null;
+        onLog('크롬이 닫혔습니다 — 다음 작업 때 자동으로 다시 띄웁니다.');
+      },
+    });
     await b.launch();
     browser = b;
     return b;
@@ -106,7 +129,7 @@ export async function newTab() {
  *   상태 폴링이 브라우저를 깨우는 꼴이 된다.
  */
 export async function chromeSend(method, params = {}) {
-  if (!browser) return null;
+  if (!liveBrowser()) return null;
   return browser.send(method, params);
 }
 
@@ -117,7 +140,7 @@ export async function chromeSend(method, params = {}) {
  * 크롬이 안 떠 있으면 띄우지 않고 모른다고 답한다.
  */
 export async function naverCookieState() {
-  if (!browser) return { running: false, loggedIn: false, hasAuth: false, persistent: false };
+  if (!liveBrowser()) return { running: false, loggedIn: false, hasAuth: false, persistent: false };
   const r = await browser.send('Storage.getCookies').catch(() => null);
   const all = r?.cookies || [];
   // 도메인은 '.naver.com' / 'nid.naver.com' / 'naver.com' 세 모양으로 온다.

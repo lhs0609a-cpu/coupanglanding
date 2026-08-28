@@ -81,6 +81,31 @@ const STATUS_LABEL: Record<string, string> = {
 
 type Link = 'checking' | 'online' | 'offline' | 'unsupported';
 
+/**
+ * 도우미가 돌려준 reason 을 사람이 읽는 문장으로. 모르는 값은 **그대로 보여준다** —
+ * 못 알아듣는 코드라도 화면에 뜨는 편이 아무것도 안 뜨는 것보다 언제나 낫다.
+ */
+function explainHelperFail(reason?: string): string {
+  const r = String(reason || '').trim();
+  if (!r) return '사유를 알 수 없습니다. 아래 로그를 확인해 주세요.';
+  if (r.includes('크롬이 떠 있지 않습니다') || r.includes('크롬이 종료됐습니다')) {
+    return '도우미용 크롬이 닫혀 있습니다. 도우미가 곧 다시 띄웁니다 — 잠시 뒤 한 번 더 눌러 주세요(계속 이러면 도우미를 최신으로 업데이트해 주세요).';
+  }
+  const table: Record<string, string> = {
+    'running': '이미 자동 로그인이 진행 중입니다 — 끝날 때까지 기다려 주세요.',
+    'no-credential': '저장된 계정을 읽지 못했습니다. 계정을 다시 저장해 주세요.',
+    'cooling': '네이버가 지금 요청을 막고 있어(쿨다운) 로그인을 미뤘습니다. 잠시 뒤 자동으로 다시 시도합니다.',
+    'human-required': '네이버가 사람 확인(보안문자·2단계)을 요구한 상태입니다 — 크롬 창에서 한 번 통과시켜 주세요.',
+    'nav-failed': '네이버 로그인 화면을 열지 못했습니다(네트워크 또는 차단).',
+    'fill-failed': '로그인 화면을 다루지 못했습니다 — 띄워 둔 크롬 창에서 직접 로그인해 주세요.',
+    'bad-credential': '저장된 아이디/비밀번호가 맞지 않아 저장을 지웠습니다. 계정을 다시 저장해 주세요.',
+    'human-timeout': '사람 확인을 10분 동안 기다리다 종료했습니다.',
+    'aborted': '자동 로그인이 중간에 끊겼습니다.',
+    'unknown': '자동 로그인이 끝나지 않았습니다 — 띄워 둔 크롬 창을 확인해 주세요.',
+  };
+  return table[r] || r;
+}
+
 export default function NaverSourcingPage() {
   const [ep, setEp] = useState<LocalEndpoint | null>(null);
   const [helperVersion, setHelperVersion] = useState<string | null>(null);
@@ -212,9 +237,22 @@ export default function NaverSourcingPage() {
     if (logBoxRef.current) logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight;
   }, [logs]);
 
+  /**
+   * 도우미 호출 한 번.
+   *
+   * ⚠️ 도우미는 **실패도 HTTP 200 + {ok:false, reason}** 으로 답한다(그래야 사유를 실어 보낼 수
+   *    있다). 예전엔 이 반환값을 통째로 버려서, 실패해도 화면에 아무 변화가 없었다 — 그게
+   *    "지금 자동 로그인을 눌러도 반응이 없다"의 정체였다(실측 2026-08-28: 도우미는
+   *    '크롬이 떠 있지 않습니다.' 라고 또박또박 답하고 있었는데 화면이 그걸 버렸다).
+   */
   const run = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key); setErr(null);
-    try { await fn(); await poll(); }
+    try {
+      const r = await fn();
+      const failed = r && typeof r === 'object' && (r as { ok?: boolean }).ok === false;
+      if (failed) setErr(explainHelperFail((r as { reason?: string }).reason));
+      await poll();
+    }
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(null); }
   };
@@ -545,6 +583,12 @@ export default function NaverSourcingPage() {
                 >
                   저장된 계정 지우기
                 </button>
+                {/* 마지막 시도가 왜 실패했는지 — 이게 없으면 눌러도 아무 일도 안 난 것처럼 보인다. */}
+                {status.naverLogin.auto?.result?.ok === false && !status.naverLogin.auto.running && (
+                  <p className="w-full text-xs text-red-700 mt-1">
+                    ❌ 마지막 자동 로그인 실패 — {explainHelperFail(status.naverLogin.auto.result.reason)}
+                  </p>
+                )}
               </div>
             ) : (
               <form
