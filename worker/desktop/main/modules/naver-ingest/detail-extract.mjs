@@ -104,14 +104,28 @@ export const extractDetailJs = `
   const get = async (path) => {
     try {
       const res = await fetch(location.origin + path, { credentials: 'include', headers: { accept: 'application/json' } });
-      if (!res.ok) return { ok: false, status: res.status };
+      if (!res.ok) {
+        // ★ 실패 본문을 버리지 않는다. 예전엔 status 만 들고 나와서 419 가 무슨 뜻인지
+        //   **알 방법이 아예 없었다** — 네이버가 본문에 사유를 적어 보내는데 그걸 읽지
+        //   않으니, 하루 종일 419 를 맞으면서도 원인을 추측만 했다(실측 2026-08-28~31).
+        var body = '';
+        try { body = String(await res.text()).slice(0, 300); } catch (e2) { body = ''; }
+        return { ok: false, status: res.status, body: body };
+      }
       return { ok: true, status: res.status, json: await res.json() };
     } catch (e) { return { ok: false, error: String(e && e.message) }; }
   };
 
   // ① 상품 본체 — 이름·가격·브랜드·카테고리·옵션·대표이미지
   const main = await get(apiBase + '/v2/channels/' + channelId + '/products/' + channelProductNo + '?withWindow=false');
-  if (!main.ok) return { name: null, error: '상품 API 실패 ' + (main.status || main.error) };
+  // status 를 그대로 올려 보낸다 — 호출부가 "요청이 틀렸다(404)"와 "지금 오지 마라(419/429)"를
+  // 구분해야 하는데, 문자열만 주면 구분할 수가 없어 전부 같은 재시도를 돌렸다.
+  if (!main.ok) return {
+    name: null,
+    error: '상품 API 실패 ' + (main.status || main.error),
+    status: main.status || 0,
+    body: main.body || '',
+  };
   const P = main.json || {};
   const originProductNo = String(P.originProductNo || P.productNo || P.id || '');
 

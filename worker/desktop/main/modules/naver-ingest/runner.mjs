@@ -147,6 +147,32 @@ export async function openProduct(sw, url, opts = {}) {
     //   진단이 불가능했다(실측: 상세 추출 1건 실패의 진짜 이유를 로그로 알 수 없었다).
     if (data && data.error) {
       lastError = String(data.error).slice(0, 200);
+
+      /**
+       * ★ "요청이 틀렸다"와 "지금 오지 마라"는 완전히 다른 실패인데 같은 재시도를 돌고 있었다.
+       *
+       * 실측 2026-08-28~31: 상품 API 가 419 를 뱉으면 recordFailure() 로 속도만 한 단계
+       * 낮추고 **2초 뒤 곧바로 다시** 때렸다. MAX_ATTEMPTS 6회를 그렇게 소진하고 240초
+       * 상한에 걸려 "시간 초과" 로 끝난다 — 상품 1건 실패에 API 를 6번 두드리는 셈이다.
+       * 게이트에는 blocks:0 · level:1(최고 속도)로 남아 있어 다른 창도 같은 속도를 유지하고,
+       * 탭 풀은 차단이 기록되지 않으니 3개로 늘리기를 반복했다.
+       * 즉 **419 에 대한 우리 대응이 419 를 키우고 있었다**(26건 중 23성공 → 10건 중 0성공).
+       *
+       * 419/429/418 은 응답 코드로 오는 차단 신호다. DOM 기반 det.blocked 가 이걸 못 보므로
+       * 여기서 직접 게이트에 신고하고, **같은 상품을 다시 두드리지 않고 즉시 물러난다.**
+       * 답은 어차피 같고, 물러나면 240초도 함께 아낀다(큐가 다음 주기에 다시 집는다).
+       */
+      const apiStatus = Number(data.status) || 0;
+      if (apiStatus === 419 || apiStatus === 429 || apiStatus === 418) {
+        sawBlock = true;
+        const ms = naverGate.triggerCooldown(apiStatus === 429);
+        const body = String(data.body || '').replace(/\s+/g, ' ').slice(0, 120);
+        onLog(`🔴 상품 API 차단(${apiStatus}) — ${Math.round(ms / 1000)}초 동안 전체 정지`
+          + (body ? ` · 네이버 응답: ${body}` : ''));
+        sw.status = 'idle';
+        return { ok: false, error: lastError, retryable: true, blocked: true, apiStatus };
+      }
+
       naverGate.recordFailure();
       await sleep(2000);
       continue;
