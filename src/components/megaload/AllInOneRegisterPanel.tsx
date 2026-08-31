@@ -739,6 +739,15 @@ function DiagPanel({ diag, helper, open, onToggle }: {
   );
 }
 
+/**
+ * 화면에서 내린 카드(uid)의 부가 상태를 함께 턴다 — 펼침·재생성 표시가 유령으로 남지 않게.
+ * 걸리는 키가 없으면 원본을 그대로 돌려줘 불필요한 리렌더를 만들지 않는다.
+ */
+function dropKeys<T>(map: Record<string, T>, uids: Set<string>): Record<string, T> {
+  if (!Object.keys(map).some((k) => uids.has(k))) return map;
+  return Object.fromEntries(Object.entries(map).filter(([k]) => !uids.has(k)));
+}
+
 export default function AllInOneRegisterPanel() {
   const [rows, setRows] = useState<Row[]>([]);
   // 대표컷 후보 펼침 상태 — 새 생성 시작 시 함께 초기화하므로 rows 와 같이 위에 선언한다.
@@ -774,6 +783,11 @@ export default function AllInOneRegisterPanel() {
   const [certLoading, setCertLoading] = useState(false);
   /** 등록 후 서버가 알려준 인증 미반영 요약 */
   const [certNotice, setCertNotice] = useState('');
+  /**
+   * 등록이 끝난 뒤 화면에 남기는 결과 한 줄.
+   * 성공 카드는 지워지므로(handleRegister 의 finally) 무엇이 몇 건 올라갔는지는 여기서만 보인다.
+   */
+  const [doneSummary, setDoneSummary] = useState<{ success: number; failed: number; at: number } | null>(null);
   // 구매옵션 미리보기 — 등록 경로(preflight-builder)와 같은 추출기로 "실제 등록될 옵션"을
   // 카드에 미리 채운다. LLM 이 지어낸 "무알콜=무알콜" 대신 카테고리 스키마 기반 진짜 옵션.
   const [optionPreviews, setOptionPreviews] = useState<Map<string, OptionPreviewResult>>(new Map());
@@ -1111,6 +1125,7 @@ export default function AllInOneRegisterPanel() {
       }
       built.sort((a, b) => a.productCode.localeCompare(b.productCode, undefined, { numeric: true }));
       setRows(built);
+      setDoneSummary(null);   // 새 카드가 들어왔으면 직전 판의 결과 줄은 무효
       const withGen = built.filter((r) => r.gen).length;
 
       // 진단 스냅샷 — 항상 기록한다(일부만 비는 경우도 검수 대상이므로).
@@ -1347,6 +1362,7 @@ export default function AllInOneRegisterPanel() {
       }
       built.sort((a, b) => a.productCode.localeCompare(b.productCode, undefined, { numeric: true }));
       setRows(built);
+      setDoneSummary(null);   // 새 카드가 들어왔으면 직전 판의 결과 줄은 무효
       const withImg = built.filter((r) => r.mainImages.length > 0).length;
       setScanMsg(`도우미에서 ${built.length}개 불러옴 · 대표이미지 ${withImg}개 · 대표가공 ${built.filter((r) => r.usingRegen).length}개`);
       if (built.length === 0) setError('도우미가 생성한 상품이 없습니다. 올인원 생성을 먼저 완료하세요.');
@@ -1395,6 +1411,7 @@ export default function AllInOneRegisterPanel() {
     //   또한 이전 카드의 이미지 URL 은 죽은 세션 포트를 가리켜(앱 재시작 시) 깨진 채로 남는다.
     setRows([]);
     setOpenMain({});
+    setDoneSummary(null);
     setImagesStale(false);
     setError('');
     setAutoCountdown(null); // 직전 결과에 걸려 있던 자동등록 예약은 새 생성과 함께 무효
@@ -2267,6 +2284,7 @@ export default function AllInOneRegisterPanel() {
    */
   const handleRegister = useCallback(async (overrideTargets?: Row[]) => {
     setError('');
+    setDoneSummary(null);
     const targets = overrideTargets ?? rows.filter((r) => r.approved && r.gen && r.status !== 'success');
     if (targets.length === 0) { setError('승인된 상품이 없습니다.'); return; }
     if (!selectedOutbound) { setError('출고지를 선택해주세요. (쿠팡 Wing에 등록 필요)'); return; }
@@ -2286,6 +2304,9 @@ export default function AllInOneRegisterPanel() {
     }
 
     setRegistering(true);
+    // 성공 집계·성공 uid 는 try 밖에 둔다 — 중간에 예외로 튀어도 finally 에서 화면 정리를 마쳐야 한다.
+    let totalSuccess = 0, totalError = 0;
+    const succeeded = new Set<string>();
     const startedAt = Date.now();
     setNowTick(startedAt);
     setProgress({ done: 0, total: targets.length, prepared: 0, startedAt });
@@ -2302,7 +2323,7 @@ export default function AllInOneRegisterPanel() {
       const categoryMeta: Record<string, { noticeMeta: unknown[]; attributeMeta: unknown[] }> = initData.categoryMeta || {};
 
       // 2) 배치 분할 + 순차 등록
-      let totalSuccess = 0, totalError = 0, doneCount = 0;
+      let doneCount = 0;
       for (let b = 0; b < targets.length; b += BATCH_SIZE) {
         const batch = targets.slice(b, b + BATCH_SIZE);
         const batchUids = new Set(batch.map((r) => r.uid));
@@ -2461,6 +2482,7 @@ export default function AllInOneRegisterPanel() {
             totalSuccess += batchData.successCount || 0;
             totalError += batchData.errorCount || 0;
             const results = batchData.results as { uid?: string; success: boolean; channelProductId?: string; error?: string }[];
+            for (const res of results) if (res.success && res.uid) succeeded.add(res.uid);
             setRows((prev) => prev.map((r) => {
               const res = results.find((x) => x.uid === r.uid);
               if (!res) return r;
@@ -2498,6 +2520,33 @@ export default function AllInOneRegisterPanel() {
       setError(err instanceof Error ? err.message : '등록 실패');
     } finally {
       setRegistering(false);
+      // ── 등록이 끝난 카드는 화면에서 내린다 ─────────────────────────────
+      //   예전엔 status='success' 로 초록 테두리만 두른 채 카드가 그대로 남아, 다음 폴더를
+      //   불러오기 전까지 이미 올린 화면이 계속 떠 있었다("업로드했는데 이 화면이 안 사라진다").
+      //   ⚠️ 실패분은 남긴다 — 사유를 보고 고쳐서 다시 올릴 대상이라, 같이 지우면 무엇이 빠졌는지
+      //      아무 데도 안 남는다.
+      if (succeeded.size > 0) {
+        const removed = targets.filter((r) => succeeded.has(r.uid));
+        setRows((prev) => prev.filter((r) => !succeeded.has(r.uid)));
+        setOpenMain((prev) => dropKeys(prev, succeeded));
+        setOpenDetail((prev) => dropKeys(prev, succeeded));
+        setRegen((prev) => dropKeys(prev, succeeded));
+        // 내린 카드가 쥐고 있던 blob URL 은 여기서 놓아 준다 — 판을 거듭할수록 메모리에 쌓인다.
+        //   도우미 직독 경로의 http://127.0.0.1 URL 은 blob 이 아니라 건드리지 않는다.
+        for (const r of removed) {
+          const imgs = [...r.mainImages, ...r.detailImages, ...r.reviewImages, ...(r.scanned.infoImages || [])];
+          for (const img of imgs) {
+            if (img.objectUrl?.startsWith('blob:')) {
+              URL.revokeObjectURL(img.objectUrl);
+              img.objectUrl = undefined;
+            }
+          }
+        }
+      }
+      // 카드가 사라져도 "몇 건 올라갔는지"는 남아야 한다 — 결과 줄이 그 자리를 대신한다.
+      if (totalSuccess + totalError > 0) {
+        setDoneSummary({ success: totalSuccess, failed: totalError, at: Date.now() });
+      }
     }
   }, [rows, selectedOutbound, selectedReturn, contactNumber, thumbPendingCount, thumbJustDone]);
 
@@ -2821,6 +2870,31 @@ export default function AllInOneRegisterPanel() {
         </p>
       )}
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+
+      {/* ── 등록 결과 ────────────────────────────────────────────────
+          성공 카드는 이미 화면에서 내려갔다. 몇 건이 올라갔는지는 이 줄로만 남는다. */}
+      {doneSummary && !registering && (
+        <div className="rounded-xl border-2 border-green-400 bg-green-50 px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="text-sm font-bold text-green-800">
+            ✅ 쿠팡 등록 완료 {doneSummary.success}건
+            {doneSummary.failed > 0 && <span className="text-red-700"> · 실패 {doneSummary.failed}건</span>}
+          </span>
+          <span className="text-xs text-green-700">
+            {doneSummary.success > 0 && '등록된 카드는 화면에서 내렸습니다(쿠팡 Wing에서 확인). '}
+            {doneSummary.failed > 0
+              ? '실패한 카드는 사유와 함께 아래에 남겨 뒀습니다 — 고쳐서 다시 등록하세요.'
+              : '다음 폴더를 불러오면 새 카드가 채워집니다.'}
+          </span>
+          <span className="flex-1" />
+          <span className="text-[11px] text-green-600 tabular-nums">
+            {new Date(doneSummary.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+          <button type="button" onClick={() => setDoneSummary(null)}
+            className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-green-700 text-white hover:bg-green-800">
+            확인
+          </button>
+        </div>
+      )}
 
       {/* ── 등록 진행 ────────────────────────────────────────────────
           예전엔 버튼에 "등록 중… 3/50" 텍스트뿐이라 얼마나 걸릴지 알 수 없었다.
