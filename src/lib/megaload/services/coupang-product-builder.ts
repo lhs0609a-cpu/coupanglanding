@@ -147,6 +147,12 @@ export interface BuildCoupangPayloadParams {
   categoryPath?: string;
   // SEO 상세페이지 신규 필드
   seoKeywords?: string[];
+  /**
+   * 검수 화면에서 확정한 검색어 태그(로컬 에이전트가 뽑은 쿠팡 연관검색어 포함).
+   * 여기 있는 말이 1순위 후보다 — 사람이 보고 넘긴 것이라 생성기 키워드보다 우선한다.
+   * 그래도 규칙 검사(금지어·타사 브랜드·중복)는 똑같이 통과해야 한다.
+   */
+  searchTagsOverride?: string[];
   faqItems?: { question: string; answer: string }[];
   closingText?: string;
   // V2: 설득형 콘텐츠 블록
@@ -275,6 +281,7 @@ export function buildCoupangProductPayload(
     detailLayoutVariant,
     categoryPath,
     seoKeywords,
+    searchTagsOverride,
     faqItems,
     closingText,
     contentBlocks,
@@ -728,13 +735,16 @@ export function buildCoupangProductPayload(
     brand: resolvedBrand,
     sourceName: rawName,
     candidates: [
+      ...(searchTagsOverride || []),                                 // 검수 화면에서 확정(연관검색어)
       ...(seoKeywords || []),                                        // 생성기 키워드
       ...(product.productJson.tags || []),                           // 소싱 태그
       ...(extractedBuyOptions || []).map((o) => String(o.value || '')), // 옵션값(색상·용량 등)
     ],
   });
-  if (searchTags.length > 0) {
-    console.log(`[payload-builder] 검색어 태그 ${searchTags.length}개: ${searchTags.join(', ')}`);
+  console.log(`[payload-builder] 검색어 태그 ${searchTags.length}/20개: ${searchTags.join(', ')}`);
+  if (searchTags.length < 20) {
+    // 20칸을 못 채웠다는 건 후보가 규칙에 다 걸렸다는 뜻이다 — 조용히 넘기면 원인을 못 찾는다.
+    console.warn(`[payload-builder] ⚠️ 검색어 태그 ${searchTags.length}개 — 20칸을 못 채웠습니다 "${rawName}"`);
   }
 
   // ---- 8. itemName에 구매옵션 반영 ----

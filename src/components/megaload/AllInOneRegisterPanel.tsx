@@ -202,6 +202,11 @@ interface Row {
    * 보였다(실제로는 등록 시 사용됨). 이제 행 상태로 들고 미리보기·편집에 그대로 반영한다.
    */
   reviewImages: ScannedImageFile[];
+  /**
+   * 로컬 에이전트(도우미 GPU)가 뽑아 온 **쿠팡 연관검색어** 후보.
+   * 검색어 태그 20칸을 채우는 1순위 재료다. 비어 있으면 생성기 키워드 + 조합 폴백으로만 채운다.
+   */
+  tagCandidates?: string[];
   /** 대표컷이 CLIP(AI) 판단으로 선택/재정렬됐는지(뱃지 표시용) */
   mainAiPicked: boolean;
   usingRegen: boolean;
@@ -1845,6 +1850,111 @@ export default function AllInOneRegisterPanel() {
     }));
   };
 
+  // ── 검색어 태그 20개 채우기(로컬 에이전트) ────────────────────────
+  // 쿠팡 검색어 태그는 상품명 밖의 검색어를 알고리즘에 넣는 유일한 통로인데, 생성기 키워드가
+  // 상품명과 겹쳐 6/20 에서 멈추는 카드가 흔했다 — 남는 14칸은 그냥 버리는 노출이다.
+  // 그 칸을 **사람이 실제로 치는 쿠팡 연관검색어**로 채운다. 뽑는 주체는 도우미(로컬 GPU)라
+  // 호출 비용이 0 이고, 도우미가 꺼져 있으면 조합 폴백(buildSearchTags 의 pad)이 20 을 맞춘다.
+  type TagJob = { batchId: string; status: 'pending' | 'done' | 'error'; message?: string };
+  const [tagJobs, setTagJobs] = useState<Record<string, TagJob>>({});
+
+  /** 이 카드가 **실제로 등록할** 태그. 카드 표시와 등록 payload 가 같은 함수를 본다. */
+  const tagsOf = useCallback((r: Row): string[] => buildSearchTags({
+    productName: r.edit.displayName || r.gen?.displayName || r.gen?.originalName || '',
+    categoryPath: r.edit.categoryPath || '',
+    brand: '',
+    sourceName: r.gen?.originalName || '',
+    candidates: [
+      ...(r.tagCandidates || []),                       // ① 에이전트가 뽑은 연관검색어
+      ...(r.gen?.keywords || []),                       // ② 생성기 키워드
+      ...r.edit.options.map((o) => o.value || ''),      // ③ 옵션값(용량·규격)
+    ],
+  }), []);
+
+  const requestSearchTags = useCallback(async (uids: string[]) => {
+    const targets = rows.filter((r) => uids.includes(r.uid) && r.gen && r.status !== 'success');
+    if (targets.length === 0) return;
+    const jobs = targets.map((r) => {
+      const g = r.gen!;
+      const name = r.edit.displayName || g.displayName || g.originalName;
+      return {
+        label: `${r.uid}:search_tags`,
+        taskType: 'search_tags' as const,
+        // 필드명은 도우미 llm-pull-loop.runSearchTags 가 읽는 것 그대로여야 한다.
+        input: {
+          displayName: name,
+          originalName: g.originalName,
+          categoryPath: r.edit.categoryPath || g.categoryPath || '',
+          // 상품명에 이미 있는 낱말은 태그에서 어차피 걸린다 — 모델에도 미리 알려 준다.
+          avoid: (name.match(/[가-힣a-zA-Z0-9]{2,}/g) || []).slice(0, 20),
+          count: 30,   // 규칙 필터로 절반 이하만 남는다 — 넉넉히 받는다
+        },
+      };
+    });
+    const mark = (t: TagJob) =>
+      setTagJobs((p) => { const n = { ...p }; for (const x of targets) n[x.uid] = t; return n; });
+    mark({ batchId: '', status: 'pending' });
+    try {
+      const res = await fetch('/api/megaload/products/llm-jobs/enqueue', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobs }), signal: AbortSignal.timeout(30_000),
+      });
+      const data = await res.json() as { batchId?: string; error?: string };
+      if (!res.ok || !data.batchId) throw new Error(data.error || `HTTP ${res.status}`);
+      mark({ batchId: data.batchId, status: 'pending' });
+    } catch (err) {
+      mark({ batchId: '', status: 'error', message: err instanceof Error ? err.message : '연관검색어 요청 실패' });
+    }
+  }, [rows]);
+
+  // 카드가 들어오면 **자동으로** 맡긴다 — 사람이 상품마다 버튼을 누르게 하지 않는다.
+  //   도우미가 꺼져 있으면 걸지 않는다(영영 pending 으로 남는다). 그때는 조합 폴백이 20 을 채운다.
+  const requestSearchTagsRef = useRef(requestSearchTags);
+  useEffect(() => { requestSearchTagsRef.current = requestSearchTags; }, [requestSearchTags]);
+  const tagNeedKey = rows
+    .filter((r) => r.gen && r.status !== 'success' && !r.tagCandidates?.length && !tagJobs[r.uid])
+    .map((r) => r.uid).join(',');
+  useEffect(() => {
+    if (!helperDiag?.ok || !tagNeedKey) return;
+    void requestSearchTagsRef.current(tagNeedKey.split(','));
+  }, [tagNeedKey, helperDiag?.ok]);
+
+  // 진행 중인 배치만 폴링 — 전부 done/error 가 되면 키가 비어 자동으로 멈춘다.
+  const tagBatchKey = [...new Set(
+    Object.values(tagJobs).filter((t) => t.status === 'pending' && t.batchId).map((t) => t.batchId),
+  )].sort().join(',');
+  useEffect(() => {
+    if (!tagBatchKey) return;
+    const batchIds = tagBatchKey.split(',');
+    let stopped = false;
+    const tick = async () => {
+      for (const batchId of batchIds) {
+        if (stopped) return;
+        try {
+          const res = await fetch(`/api/megaload/products/llm-jobs?batchId=${encodeURIComponent(batchId)}`, { cache: 'no-store' });
+          if (!res.ok) continue;
+          const data = await res.json() as {
+            jobs?: { label: string; status: string; result: unknown; error_message: string | null }[];
+          };
+          for (const j of data.jobs || []) {
+            if (!j.label.endsWith(':search_tags')) continue;
+            const uid = j.label.replace(/:search_tags$/, '');
+            if (j.status === 'done') {
+              const tags = (j.result as { tags?: string[] } | null)?.tags || [];
+              setRows((prev) => prev.map((r) => (r.uid === uid ? { ...r, tagCandidates: tags } : r)));
+              setTagJobs((p) => ({ ...p, [uid]: { ...(p[uid] || { batchId }), status: 'done' } }));
+            } else if (j.status === 'error') {
+              setTagJobs((p) => ({ ...p, [uid]: { batchId, status: 'error', message: j.error_message || '생성 실패' } }));
+            }
+          }
+        } catch { /* 다음 주기에 다시 */ }
+      }
+    };
+    void tick();
+    const t = setInterval(() => void tick(), 4000);
+    return () => { stopped = true; clearInterval(t); };
+  }, [tagBatchKey]);
+
   // ── 업로드 전 책임 확인 게이트 ───────────────────────────────────
   const [preUploadOpen, setPreUploadOpen] = useState(false);
   const [preUploadCount, setPreUploadCount] = useState(0);
@@ -2486,6 +2596,9 @@ export default function AllInOneRegisterPanel() {
               ? g.sourceCertifications
               : (Array.isArray(pj.certifications) ? (pj.certifications as unknown[]) : undefined),
             tags: [...new Set([...baseTags, ...optionTags])].slice(0, 20),
+            // 카드에 보이는 그 태그를 그대로 넘긴다(연관검색어 포함, 20칸). 서버가 같은 빌더로
+            // 한 번 더 거르지만 1순위 후보라 순서·내용이 유지된다 — 화면과 등록이 어긋나지 않는다.
+            searchTagsOverride: tagsOf(r),
             description: e.detail || '',
             mainImages: [], detailImages: [], reviewImages: [], infoImages: [],
             noticeMeta: meta.noticeMeta, attributeMeta: meta.attributeMeta,
@@ -3485,31 +3598,41 @@ export default function AllInOneRegisterPanel() {
               {/* 검색어 태그 — 쿠팡 검색은 카테고리·상품명·구매옵션·검색어 네 필드를 조합한다.
                   등록될 값을 그대로(같은 빌더로) 보여준다. 상품명에 안 들어간 키워드가 여기로 간다. */}
               {g && (() => {
-                const tags = buildSearchTags({
-                  productName: e.displayName || g.displayName || '',
-                  categoryPath: e.categoryPath || '',
-                  brand: '',
-                  sourceName: g.originalName || '',
-                  candidates: [...(g.keywords || []), ...e.options.map((o) => o.value || '')],
-                });
+                const tags = tagsOf(r);                       // 등록에 실리는 그 값 그대로
+                const tj = tagJobs[r.uid];
+                const fromAgent = new Set((r.tagCandidates || []).map((t) => t.replace(/\s+/g, '').toLowerCase()));
+                const agentHits = tags.filter((t) => fromAgent.has(t.replace(/\s+/g, '').toLowerCase())).length;
                 return (
                   <div>
-                    <p className="text-[11px] text-gray-600">
-                      검색어 태그 <span className="font-semibold">{tags.length}</span>
-                      <span className="text-gray-400">/20</span>
-                      <span className="ml-1 font-normal text-gray-400">— 상품명에 없는 말만 등록됩니다(중복·타사 브랜드 제외)</span>
+                    <p className="text-[11px] text-gray-600 flex flex-wrap items-center gap-x-1.5">
+                      <span>
+                        검색어 태그 <span className={`font-semibold ${tags.length >= 20 ? 'text-gray-900' : 'text-amber-600'}`}>{tags.length}</span>
+                        <span className="text-gray-400">/20</span>
+                      </span>
+                      {/* 어디서 온 태그인지 — 연관검색어인지 조합으로 채운 것인지 구분돼야 손볼 수 있다. */}
+                      {tj?.status === 'pending' && <span className="text-indigo-600">· 쿠팡 연관검색어 뽑는 중…</span>}
+                      {agentHits > 0 && <span className="text-emerald-600">· 연관검색어 {agentHits}개 반영</span>}
+                      {tj?.status === 'error' && <span className="text-amber-600">· 연관검색어 실패({tj.message})</span>}
+                      {!tj && !r.tagCandidates?.length && (
+                        <span className="text-gray-400">· 조합으로 채움{helperDiag?.ok ? '' : ' (도우미를 켜면 연관검색어로 채웁니다)'}</span>
+                      )}
+                      <button type="button" disabled={!editable || tj?.status === 'pending'}
+                        onClick={() => void requestSearchTags([r.uid])}
+                        title="도우미(내 PC GPU)가 이 상품의 쿠팡 연관검색어를 다시 뽑습니다. 비용 0."
+                        className="text-[10px] text-blue-600 underline disabled:opacity-40 disabled:no-underline">
+                        {r.tagCandidates?.length ? '다시 뽑기' : '연관검색어 뽑기'}
+                      </button>
                     </p>
-                    {tags.length > 0 ? (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {tags.map((t) => (
-                          <span key={t} className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 rounded px-1.5 py-0.5">{t}</span>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="mt-1 text-[10px] text-amber-600">
-                        태그 후보가 없습니다 — 생성 키워드가 상품명과 겹쳤거나 필터에 걸렸습니다.
-                      </p>
-                    )}
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {tags.map((t) => (
+                        <span key={t}
+                          className={`text-[10px] rounded px-1.5 py-0.5 border ${
+                            fromAgent.has(t.replace(/\s+/g, '').toLowerCase())
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                          }`}>{t}</span>
+                      ))}
+                    </div>
                   </div>
                 );
               })()}

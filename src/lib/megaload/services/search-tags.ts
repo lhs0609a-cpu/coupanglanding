@@ -10,6 +10,13 @@
  *    반대다 — 상품명은 메인 키워드 + 속성어 3~5개로 간결하게, 나머지는 태그로 보낸다.
  *    (키워드 5개 이상 나열은 스터핑으로 역효과)
  *
+ * ⭐ 20개는 **채운다**(사용자 확정 2026-09-01). 태그는 상품명 밖의 검색어를 알고리즘에 넣는
+ *    유일한 통로라, 6개만 보내면 나머지 14칸은 그냥 버리는 노출이다. 후보는 세 겹으로 온다:
+ *      ① 로컬 에이전트(도우미 GPU)가 뽑은 **쿠팡 연관검색어** — 사람이 실제로 치는 말
+ *      ② 생성기 키워드·소싱 태그·옵션값
+ *      ③ 그래도 모자라면 아래 조합 폴백(핵심어 × 일반 수식어) — 마지막 안전망
+ *    ③ 은 규칙(금지어·타사 브랜드·특수문자)을 똑같이 통과한 것만 쓴다. 채우려고 규칙을 풀지 않는다.
+ *
  * 규칙(쿠팡 공식 + 판매자 가이드):
  *   · 최대 20개
  *   · 카테고리·상품명에 이미 있는 단어는 제외(중복은 낭비 — 이미 검색 대상이다)
@@ -47,6 +54,12 @@ export interface BuildSearchTagsInput {
   candidates: (string | null | undefined)[];
   /** 상품 브랜드 — 자사 브랜드는 허용, 그 외 고유명은 후보에서 걸러진다. */
   brand?: string;
+  /**
+   * 후보가 모자랄 때 **핵심어 × 수식어**로 채울지(기본 true).
+   * 20칸을 비워 두는 것보다 안전한 조합 검색어라도 채우는 편이 노출에 이롭다는 판단.
+   * 채운 것도 다른 후보와 똑같은 규칙 검사를 통과한다.
+   */
+  pad?: boolean;
   /** 원본 상품명 — 후보에 등장한 고유명이 이 상품의 것인지 판정하는 근거. */
   sourceName?: string;
   max?: number;
@@ -57,7 +70,7 @@ export interface BuildSearchTagsInput {
  * @returns 최대 max 개(기본 20)의 태그. 규칙 위반·중복은 전부 제거된 상태.
  */
 export function buildSearchTags(input: BuildSearchTagsInput): string[] {
-  const { productName, categoryPath = '', candidates, brand = '', sourceName = '', max = 20 } = input;
+  const { productName, categoryPath = '', candidates, brand = '', sourceName = '', max = 20, pad = true } = input;
 
   // 상품명·카테고리의 단어는 이미 검색 대상 → 태그에 또 넣지 않는다.
   const covered = new Set<string>([...tokens(productName), ...tokens(categoryPath)]);
@@ -96,7 +109,64 @@ export function buildSearchTags(input: BuildSearchTagsInput): string[] {
     seen.add(key);
     out.push(s);
   }
+
+  // ── 마지막 안전망 — 20칸을 비워 두지 않는다 ────────────────────────────────
+  // 실측: 생성기 키워드가 상품명과 겹쳐 6/20 에서 멈추는 카드가 흔했다. 남는 칸은 그냥 버리는
+  // 노출이라, **핵심어 × 일반 수식어** 조합으로 채운다. 채운 것도 위와 같은 검사를 통과한다
+  // (금지어·타사 브랜드·특수문자·중복). 통과 못 하면 채우지 않는다 — 규칙이 개수보다 위다.
+  if (pad && out.length < max) {
+    for (const cand of padCandidates(categoryPath)) {
+      if (out.length >= max) break;
+      if (cand.length < 2 || cand.length > 20) continue;
+      if (!CLEAN_RE.test(cand)) continue;
+      if (BANNED_RE.test(cand) || RISK_RE.test(cand)) continue;
+      const key = squash(cand);
+      if (seen.has(key) || covered.has(key)) continue;
+      if (hasUnknownProperNoun(cand, known)) continue;
+      seen.add(key);
+      out.push(cand);
+    }
+  }
   return out;
+}
+
+/**
+ * 채움 후보 — **이 상품의 핵심어**(카테고리 최말단·상품명 첫 낱말)에 일반 수식어를 붙인다.
+ * 지어낸 고유명이 절대 섞이지 않도록 재료를 상품 자신의 말과 화이트리스트로만 한정한다.
+ * 순서 = 우선순위: 쓸모 있는 조합(용도·규격)을 앞에 둔다.
+ */
+/** 어느 카테고리에나 말이 되는 수식어 10개 — 앞뒤 두 방향으로 20칸이 정확히 찬다. */
+const PAD_COMMON = ['대용량', '세트', '선물용', '가정용', '업소용', '묶음', '대량', '실속', '휴대용', '사계절'];
+/** 식품 계열에서만 쓰는 수식어 — 안 가르면 "요리용청소기" 같은 말이 태그로 나간다. */
+const PAD_FOOD = ['한박스', '박스', '제철', '간식용', '요리용'];
+const FOOD_RE = /식품|과일|채소|정육|수산|건어물|간식|음료|커피|차류|건강|농산|축산|쌀|곡물|반찬|delicacy/i;
+
+function padCandidates(categoryPath: string): string[] {
+  // ⚠️ 핵심어는 **카테고리에서만** 뽑는다. 상품명에서 뽑으면 타사 브랜드가 그대로 실린다 —
+  //    실측 2026-09-01: "썬키스트 오렌지 대용량…" 에서 "대용량썬키스트" 가 만들어졌다.
+  //    쿠팡은 태그에 타사 브랜드명을 금지한다(계정 위험). 카테고리에는 브랜드가 없다.
+  //    같은 이유로 "소용량·미니·대형" 같은 규격어도 뺐다 — 대용량 상품에 "소용량" 태그가
+  //    붙으면 검색어와 상품이 어긋나 클릭 후 이탈만 만든다.
+  const parts = String(categoryPath || '').split(/[>/]/).map((x) => x.trim()).filter(Boolean);
+  // 최말단 하나만 쓴다 — 상위 가지("가전")를 붙이면 "대용량가전" 처럼 아무도 안 치는 말이 된다.
+  //   수식어 15개 × 앞뒤 2가지 = 30 후보라 최말단 하나로도 20칸은 넉넉히 찬다.
+  const cores = [...new Set(
+    parts.slice(-1).map((c) => c.replace(/s+/g, '')).filter((c) => c.length >= 2),
+  )];
+  if (cores.length === 0 && parts.length > 1) {
+    const up = parts[parts.length - 2].replace(/s+/g, '');
+    if (up.length >= 2) cores.push(up);
+  }
+  const outs: string[] = [];
+  // 수식어를 바깥 루프로 — 핵심어가 둘이면 "대용량X, 대용량Y, 세트X…" 로 고르게 섞인다.
+  const mods = FOOD_RE.test(categoryPath) ? [...PAD_FOOD, ...PAD_COMMON] : PAD_COMMON;
+  for (const m of mods) {
+    for (const core of cores) {
+      outs.push(`${m}${core}`);
+      outs.push(`${core}${m}`);
+    }
+  }
+  return outs;
 }
 
 /**
@@ -139,5 +209,7 @@ const ATTR_WORDS = new Set<string>([
   '약산성', '무첨가', '무설탕', '저염', '저당', '고단백', '식이섬유', '통', '거친', '부드러운',
   // 용도
   '요리', '요리용', '반찬', '간식', '간식용', '아침', '식사', '캠핑', '등산', '운동', '헬스', '홈트',
+  // 채움 조합(padCandidates)이 쓰는 일반어 — 여기 없으면 제 조합이 '낯선 고유명'으로 걸린다.
+  '박스', '한박스', '실속', '아이', '어른', '대량', '제철',
   '청소', '세척', '수납', '정리', '인테리어', '주방', '욕실', '거실', '침실', '차량', '차량용',
 ]);

@@ -1,7 +1,7 @@
 /**
  * LLM 풀(pull) 루프 — 로컬 GPU(Ollama)로 텍스트 재생성/재매칭 잡 처리.
  *
- * claim_llm_jobs(RPC) → task_type 별 처리(노출상품명/상세글/옵션수량/카테고리) → result(jsonb) 기록.
+ * claim_llm_jobs(RPC) → task_type 별 처리(노출상품명/상세글/옵션수량/카테고리/검색어태그) → result(jsonb) 기록.
  * 썸네일 pull-loop(이미지)와 동형이며, 엔진만 Ollama generate/embed 로 교체.
  * 의존성: local-llm(ollama HTTP) + ai-prompts(기존 프롬프트 빌더) + category-embed-matcher.
  */
@@ -46,6 +46,60 @@ function safeJson(text) {
   const m = String(text).match(/\{[\s\S]*\}/);
   if (m) { try { return JSON.parse(m[0]); } catch { /* ignore */ } }
   return null;
+}
+
+/**
+ * 쿠팡 **연관검색어** 뽑기 — 검색어 태그 20칸을 채우는 재료.
+ * ---------------------------------------------------------------------------
+ * 왜 로컬인가: 태그는 상품마다 20개씩 필요하다. 서버 LLM 으로 돌리면 상품당 호출이 하나 더
+ * 붙는데, 이 일은 "사람이 검색창에 치는 말"을 아는 정도면 충분해 로컬 모델로 족하다(비용 0).
+ *
+ * ⚠️ 여기서 만든 말이 그대로 등록되지는 않는다. 웹의 buildSearchTags 가 금지어·타사 브랜드·
+ *    상품명 중복·특수문자를 다시 거른다 —— 그러니 넉넉히(요청 수의 1.5배) 뽑아 보낸다.
+ *    거르고 나면 절반 이하만 남는 일이 흔하다.
+ */
+async function runSearchTags(model, input) {
+  const name = String(input.displayName || input.originalName || '').trim();
+  const cat = String(input.categoryPath || '').trim();
+  const leaf = cat.split('>').pop()?.trim() || cat;
+  const want = Math.min(40, Math.max(10, Number(input.count) || 30));
+  const avoid = Array.isArray(input.avoid) ? input.avoid.filter(Boolean).slice(0, 30).join(', ') : '';
+  const system = '너는 쿠팡 상품 등록 담당자다. 사람들이 쿠팡 검색창에 실제로 치는 말만 쓴다. JSON 만 출력한다.';
+  const prompt = [
+    `상품명: ${name}`,
+    cat ? `카테고리: ${cat}` : '',
+    '',
+    `이 상품을 사려는 사람이 쿠팡 검색창에 칠 법한 말을 ${want}개 뽑아라.`,
+    '',
+    '규칙:',
+    '- 한글 위주(숫자·단위 허용), 2~15자, 특수문자·따옴표 금지',
+    `- "${leaf}" 처럼 용도·규격·대상·상황을 붙인 복합 검색어를 섞어라(예: 대용량OO, OO선물세트, 업소용OO)`,
+    avoid ? `- 다음 낱말만 단독으로 쓰지 마라(상품명에 이미 있다): ${avoid}` : '',
+    '- 다른 회사 브랜드명 금지',
+    '- 배송/최저가/특가/할인/베스트/추천/1위 같은 광고·배송어 금지',
+    '- 효능·치료·예방·면역 같은 효과 주장 금지',
+    '- 유기농·국산·국내산처럼 확인 못 하는 원산지·인증 주장 금지',
+    '',
+    'JSON 형식: {"tags":["검색어1","검색어2"]}',
+  ].filter(Boolean).join('\n');
+  const { text } = await generate({
+    model, prompt, system, format: 'json',
+    options: { temperature: 0.6, num_ctx: 2048 },
+  });
+  const j = safeJson(text) || {};
+  const raw = Array.isArray(j.tags) ? j.tags : Array.isArray(j.keywords) ? j.keywords : [];
+  const seen = new Set();
+  const tags = [];
+  for (const t of raw) {
+    const s = String(t || '').replace(/["'\\]/g, '').replace(/\s+/g, ' ').trim();
+    if (s.length < 2 || s.length > 20) continue;
+    const key = s.replace(/\s+/g, '').toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(s);
+  }
+  if (!tags.length) throw new Error('빈 검색어 결과');
+  return { tags: tags.slice(0, 40) };
 }
 
 async function runDisplayName(model, input) {
@@ -220,6 +274,9 @@ export async function runLlmPullLoop({
         } else if (job.task_type === 'content') {
           if (!model) throw new Error('설치된 Ollama 모델이 없습니다.');
           result = await withGpu('llm', () => runContent(model, input));
+        } else if (job.task_type === 'search_tags') {
+          if (!model) throw new Error('설치된 Ollama 모델이 없습니다.');
+          result = await withGpu('llm', () => runSearchTags(model, input));
         } else if (job.task_type === 'category') {
           result = await withGpu('llm', () => runCategory(input));
         } else {

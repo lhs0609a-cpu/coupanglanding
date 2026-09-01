@@ -161,6 +161,8 @@ interface BatchProduct {
   sourcePrice: number;
   categoryCode: string;
   tags: string[];
+  /** 검수 화면에서 확정한 검색어 태그(로컬 에이전트의 쿠팡 연관검색어 포함) — 1순위 후보. */
+  searchTagsOverride?: string[];
   description: string;
   mainImages: string[];
   detailImages: string[];
