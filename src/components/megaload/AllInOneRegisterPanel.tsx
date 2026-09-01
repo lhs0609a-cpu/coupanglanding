@@ -1867,7 +1867,12 @@ export default function AllInOneRegisterPanel() {
     candidates: [
       ...(r.tagCandidates || []),                       // ① 에이전트가 뽑은 연관검색어
       ...(r.gen?.keywords || []),                       // ② 생성기 키워드
-      ...r.edit.options.map((o) => o.value || ''),      // ③ 옵션값(용량·규격)
+    ],
+    // 옵션값·속성값은 쿠팡이 이미 검색에 태운다 — 태그로 또 쓰면 20칸 중 하나를 버린다.
+    //   (등록 경로와 같은 판단이어야 카드에 보이는 태그와 실제 등록분이 어긋나지 않는다)
+    alreadySearchable: [
+      ...r.edit.options.map((o) => o.value || ''),
+      ...Object.values(r.edit.attributeValues || {}),
     ],
   }), []);
 

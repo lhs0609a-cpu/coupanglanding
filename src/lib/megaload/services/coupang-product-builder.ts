@@ -738,8 +738,11 @@ export function buildCoupangProductPayload(
       ...(searchTagsOverride || []),                                 // 검수 화면에서 확정(연관검색어)
       ...(seoKeywords || []),                                        // 생성기 키워드
       ...(product.productJson.tags || []),                           // 소싱 태그
-      ...(extractedBuyOptions || []).map((o) => String(o.value || '')), // 옵션값(색상·용량 등)
     ],
+    // ⚠️ 구매옵션값은 **후보가 아니라 제외 대상**이다. 쿠팡 검색은 카테고리·상품명·구매옵션·
+    //    검색어 네 필드를 함께 보므로, 옵션에 이미 있는 말을 태그로 또 쓰면 20칸 중 하나를
+    //    버리는 셈이 된다(예전엔 옵션값을 후보로 넣고 있었다).
+    alreadySearchable: (extractedBuyOptions || []).map((o) => String(o.value || '')),
   });
   console.log(`[payload-builder] 검색어 태그 ${searchTags.length}/20개: ${searchTags.join(', ')}`);
   if (searchTags.length < 20) {
