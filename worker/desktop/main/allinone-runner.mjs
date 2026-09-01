@@ -327,7 +327,18 @@ export async function startGeneration({
 
   // 엔진 자동 기동 — ollama 는 없으면 자동 설치·기동·모델 다운로드까지.
   send('allinone:log', '엔진 준비 중 — ollama(텍스트 생성)…');
-  const ollamaTask = Promise.resolve(services?.ollama?.start());
+  // ⚠️ 엔진 관리자가 아예 없으면(services 배선 누락) 아래 optional chaining 은 **조용히 통과**한다.
+  //    그러면 엔진을 한 번도 올리지 않은 채 자식을 띄우고, 사람은 자식이 뱉는 "텍스트 엔진 미응답"
+  //    만 보게 된다 — 원인이 전혀 다른데 같은 화면이 나온다. 여기서 갈라 말한다.
+  if (!services?.ollama) {
+    const reason = 'AI 엔진 관리자가 없습니다 — 도우미를 껐다 켜 주세요(그래도 같으면 도우미를 다시 설치해야 합니다).';
+    send('allinone:log', '❌ ' + reason);
+    onDone?.(-1, reason);
+    freeEngines();
+    send('allinone:done', { code: -1, reason });
+    return false;
+  }
+  const ollamaTask = Promise.resolve(services.ollama.start());
   // ⚠️ 엔진이 실패해도 원본명 조회는 끝까지 기다린다 — 안 그러면 그 작업이 배경에 남아
   //    다음 실행과 겹친다(같은 폴더에 동시 쓰기). 실패 판정은 그 뒤에 한다.
   const [ollamaRes] = await Promise.allSettled([ollamaTask, titlesTask]);
@@ -351,6 +362,20 @@ export async function startGeneration({
   //   도우미가 띄운 ollama 는 위에서 남은 VRAM 만큼 슬롯을 열어 뒀다.
   const slots = serverParallelHint(services?.ollama);
   const genConcurrency = Math.max(1, Math.min(profile.concurrency, slots));
+
+  // ⚠️ 여기까지 오는 사이에 엔진이 내려갈 수 있다 — 슬롯을 늘리려 서버를 인수하거나(재기동),
+  //    유휴 반납이 겹치거나, ComfyUI 스왑이 끼어드는 구간이 앞에 있다. 자식 프로세스는 시작하자마자
+  //    엔진을 찾으므로, **띄우기 직전에** 한 번 더 확인하고 필요하면 다시 올린다.
+  //    (자식 쪽도 이제 기다리지만, 여기서 올려 두면 그 대기 자체가 없다.)
+  try {
+    if (services?.ollama && !(await services.ollama.isUp())) {
+      send('allinone:log', '엔진이 잠시 내려가 있어 다시 올립니다 — 텍스트 생성 준비…');
+      await services.ollama.start();
+    }
+  } catch (engineErr) {
+    // 여기서 실패해도 곧바로 접지 않는다 — 자식이 90초를 더 기다리고, 그래도 안 되면 사유를 남긴다.
+    send('allinone:log', `⚠️ 엔진 재확인 실패(계속 진행): ${String(engineErr?.message || engineErr).slice(0, 120)}`);
+  }
   const recogConcurrency = Math.max(1, Math.min(profile.recogConcurrency, slots));
   send('allinone:log',
     `[속도] 동시 처리 — 텍스트 상품 ${genConcurrency}개 · 이미지인식 ${recogConcurrency}개 (엔진 슬롯 ${slots}개)`);

@@ -192,8 +192,33 @@ async function main() {
   if (cli.margin && !marginLevel) { console.error(`❌ 알 수 없는 --margin 값: ${cli.margin} (사용: -3~+3, c1~c3, a1~a3, default)`); process.exit(1); }
   const marginBrackets = marginLevel && marginLevel !== 'default' ? presetBrackets(marginLevel) : undefined;
 
-  // 0) ollama 확인
-  if (!(await isUp())) { console.error('❌ ollama 미응답 (http://127.0.0.1:11434) — ollama serve 후 다시 실행'); process.exit(1); }
+  // ── 0) 텍스트 엔진(ollama) 대기 ────────────────────────────────────────────
+  //   예전엔 **딱 한 번** 확인하고 아니면 즉시 죽었다. 그런데 이 프로세스를 띄우는 쪽(도우미)이
+  //   바로 앞에서 엔진을 기동·재기동한다 — 포트가 풀리고 다시 잡히는 몇 초, 유휴 반납 직후의
+  //   재기동, 슬롯을 늘리려 서버를 인수하는 순간이 전부 "지금은 미응답"이다.
+  //   그 찰나에 걸리면 100개짜리 작업이 시작도 못 하고 끝났고, 화면에는 사용자가 실행할 수도
+  //   없는 명령("serve 후 다시 실행")만 남았다 — 엔진은 도우미가 관리하기 때문이다.
+  //   → 잠깐 기다린다. 그동안 무엇을 기다리는지 말한다. 그래도 안 오면 그때 사유를 적고 멈춘다.
+  {
+    const waitMs = Math.max(0, Number(cli['engine-wait'] ?? 90_000));
+    const deadline = Date.now() + waitMs;
+    let up = await isUp();
+    let announced = false;
+    while (!up && Date.now() < deadline) {
+      if (!announced) {
+        announced = true;
+        console.log(`[${ts()}] 텍스트 엔진이 아직 응답하지 않습니다 — 기동을 기다립니다(최대 ${Math.round(waitMs / 1000)}초).`);
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+      up = await isUp();
+    }
+    if (!up) {
+      console.error('❌ ollama 미응답 (http://127.0.0.1:11434) — 텍스트 엔진이 기동하지 않았습니다.'
+        + ' 도우미를 껐다 켜면 엔진을 다시 올립니다. 그래도 같으면 다른 프로그램이 11434 포트를 쓰고 있는지 확인하세요.');
+      process.exit(1);
+    }
+    if (announced) console.log(`[${ts()}] 텍스트 엔진 응답 확인 — 계속합니다.`);
+  }
 
   // 1) 폴더 스캔
   console.log(`[${ts()}] 폴더 스캔: ${path.resolve(folder)}`);
