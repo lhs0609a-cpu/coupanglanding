@@ -55,6 +55,9 @@ export async function POST(request: NextRequest) {
   const notReady = rows.filter((r) => r.detail_status !== 'done');
 
   const products = ready.map((r) => ({
+    // 카탈로그 줄 id — 화면이 "고른 것 중 무엇이 진행되고 무엇이 빠졌나"를 대사하는 데 쓴다.
+    // 도우미(writeProductFolder)는 명시한 필드만 읽으므로 추가돼도 무시된다.
+    id: r.id,
     productNo: r.product_no,
     originProductNo: r.origin_product_no || '',
     url: r.url,

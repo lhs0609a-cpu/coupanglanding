@@ -1281,6 +1281,7 @@ export default function AllInOneRegisterPanel() {
         } as unknown as FileSystemFileHandle,
       });
 
+      manifestAtRef.current = mf.generatedAt ? new Date(mf.generatedAt).getTime() : 0;
       const recs = mf.records as GenRecord[];
       // 누끼가 아직 도는 중인 상품 수 — 등록 게이트와 안내 배너가 이 값을 본다.
       setThumbPendingCount(recs.filter((r) => r?.thumbPending).length);
@@ -1377,6 +1378,12 @@ export default function AllInOneRegisterPanel() {
 
   // 자동 로드(도우미 완료 시)와 업로드 생성이 공유하는 "한 번만" 가드.
   const autoLoadedRef = useRef(false);
+  /**
+   * 방금 실어 온 결과가 **언제 만들어진 것인가**(도우미 manifest 의 생성 시각, ms).
+   * 이 화면은 "도우미가 마지막으로 생성한 폴더"를 읽을 뿐이라, 그게 이번 판인지 지난 판인지
+   * 스스로는 모른다 —— 지난 판 카드를 이번 것으로 알고 다시 등록하면 같은 상품이 두 번 올라간다.
+   */
+  const manifestAtRef = useRef(0);
 
   // ── 웹에서 폴더 올려 생성 (앱 안 열고 웹에서 전부) ──────────────────────
   // 브라우저는 폴더 경로를 안 주므로, 폴더 "내용"을 도우미로 업로드해 도우미가 생성한다.
@@ -1515,6 +1522,18 @@ export default function AllInOneRegisterPanel() {
     const timing = consumeRunTiming();
     handleLoadFromHelper()
       .then((built) => {
+        // ⚠️ 실어 온 게 **이번 판**인지 본다. 도우미 폴더는 판이 바뀌어도 마지막 것을 가리키므로,
+        //    이번 판의 생성이 아직 안 끝났으면 지난 판 카드가 그대로 올라온다(실측: 토마토를
+        //    걸었는데 오렌지가 떴다). 카드를 감추지는 않는다 — 감추면 "빈 화면"이 되어 더 헷갈린다.
+        //    대신 **이건 지난 판이다**라고 크게 말하고, 다시 불러올 길을 준다.
+        if (timing && manifestAtRef.current > 0 && manifestAtRef.current < timing.startedAt) {
+          setError(
+            `⚠️ 지금 보이는 카드는 ${new Date(manifestAtRef.current).toLocaleString('ko-KR')} 에 만들어진 `
+            + '**지난 판** 결과입니다 — 이번에 고른 상품의 생성이 아직 끝나지 않았습니다. '
+            + '이미 등록한 상품일 수 있으니 그대로 올리지 마시고, 생성이 끝난 뒤 '
+            + '“도우미 결과 다시 불러오기”를 눌러 주세요.',
+          );
+        }
         // 카드가 실제로 뜬 이 순간까지가 "누르고 나서 검수까지"다.
         if (timing && built.length > 0) setRunReport({ timing, arrivedAt: Date.now() });
         if (!handoff || built.length === 0) return;
@@ -1539,10 +1558,59 @@ export default function AllInOneRegisterPanel() {
     setOpenMain((p) => ({ ...p, [uid]: opening }));
     setRows((prev) => [...prev]); // 위에서 채운 objectUrl 을 화면에 반영
   };
+  /**
+   * 이 컷을 **대표**로 삼는다(★). 대표는 갤러리의 0번이므로 선택 목록의 맨 앞으로도 옮긴다 —
+   * 안 그러면 대표만 바뀌고 쿠팡에 올라가는 0번은 그대로인, 화면과 결과가 어긋나는 상태가 된다.
+   */
   const selectMain = async (uid: string, idx: number, img: ScannedImageFile) => {
     if (!img.objectUrl) await ensureObjectUrl(img);
-    setRows((prev) => prev.map((r) => (r.uid === uid ? { ...r, selectedMainIdx: idx } : r)));
+    setRows((prev) => prev.map((r) => {
+      if (r.uid !== uid) return r;
+      const name = r.mainImages[idx]?.name;
+      if (!name) return r;
+      // 아직 손으로 고른 적이 없으면(pickedMain=null) 자동 선택을 유지한다 — 대표만 바뀐다.
+      const pickedMain = r.pickedMain
+        ? [name, ...r.pickedMain.filter((n) => n !== name)].slice(0, GALLERY_MAX)
+        : null;
+      return { ...r, selectedMainIdx: idx, pickedMain };
+    }));
   };
+
+  // ── 갤러리(대표 1 + 서브 9) 직접 고르기 ──────────────────────────────────
+  // 예전엔 "빼기(×)"만 있었다. 25장 중 5장만 쓰려면 20번을 눌러야 했고, 무엇이 실제로 올라가는지도
+  // 카드에서 셀 수 없었다. 이제 **고른 것만 올라간다** — 대표는 ★, 서브는 타일 클릭으로 고른다.
+  /** 이 카드가 지금 올리기로 돼 있는 파일명 집합(선택한 적이 없으면 자동 기본값). */
+  const pickedSetOf = (r: Row) => new Set(pickedMainNames(r));
+  const toggleMainPick = (uid: string, name: string) =>
+    setRows((prev) => prev.map((r) => {
+      if (r.uid !== uid) return r;
+      const mainName = r.mainImages[r.selectedMainIdx]?.name;
+      if (!name || name === mainName) return r;      // 대표는 뺄 수 없다(다른 걸 ★로 먼저 정한다)
+      const cur = pickedSetOf(r);
+      if (cur.has(name)) cur.delete(name);
+      else if (cur.size >= GALLERY_MAX) return r;    // 쿠팡 한도 10장 — 넘겨 고르면 어차피 잘린다
+      else cur.add(name);
+      // 순서는 **카드에 보이는 순서** 그대로, 대표만 맨 앞. 사용자가 본 대로 올라가야 한다.
+      const ordered = [
+        ...(mainName ? [mainName] : []),
+        ...r.mainImages.filter((m) => m.name !== mainName && cur.has(m.name)).map((m) => m.name),
+      ];
+      return { ...r, pickedMain: ordered };
+    }));
+  /** 고르지 않은 후보를 한 번에 뺀다. 되살리기(+)로 언제든 돌아올 수 있으므로 파일은 지우지 않는다. */
+  const removeUnpickedMain = (uid: string) =>
+    setRows((prev) => prev.map((r) => {
+      if (r.uid !== uid) return r;
+      const keep = pickedSetOf(r);
+      const kept = r.mainImages.filter((m) => keep.has(m.name));
+      if (kept.length === 0 || kept.length === r.mainImages.length) return r;
+      // 누끼(regen)는 목록 앞쪽에 모여 있다 — 남은 것 중 몇 장이 누끼인지 다시 센다(뱃지 판정용).
+      const regenNames = new Set(r.mainImages.slice(0, r.regenCount).map((m) => m.name));
+      const regenCount = kept.filter((m) => regenNames.has(m.name)).length;
+      const mainName = r.mainImages[r.selectedMainIdx]?.name;
+      const selectedMainIdx = Math.max(0, kept.findIndex((m) => m.name === mainName));
+      return { ...r, mainImages: kept, regenCount, selectedMainIdx, pickedMain: kept.map((m) => m.name) };
+    }));
   // 상세 편집 토글 — 펼칠 때 상세·리뷰 이미지 썸네일 URL 을 보장(스캐너가 lazy 로 읽으므로).
   //   리뷰컷도 채워야 미리보기가 "실제 등록될 모습"(리뷰컷 우선 교차)과 같아진다.
   const toggleDetail = async (uid: string, detailImages: ScannedImageFile[], reviewImages: ScannedImageFile[] = []) => {
@@ -2380,27 +2448,14 @@ export default function AllInOneRegisterPanel() {
           //      대표 외에 남긴 후보는 전부 서브로 올라가고, 뺀 건 안 올라간다. 순서도 카드 순서 그대로.
           //    ①②③ 우선순위는 이제 **후보가 10장을 넘어 잘라내야 할 때만** 쓴다(뭘 살릴지의 기준).
           //    쿠팡 10장 한도라 그 이상은 물리적으로 못 올린다 — 카드 버튼의 "서브 N장"이 실제 장수다.
-          const GALLERY_MAX = 10;
-          const chosen = r.mainImages[r.selectedMainIdx];
-          const reviewNames = new Set((r.reviewImages || []).map((x) => x.name));
-          const seenSub = new Set<string>(chosen?.name ? [chosen.name] : []);
-          const rest = r.mainImages
-            .map((img, i) => ({ img, i }))
-            .filter(({ img, i }) => {
-              if (i === r.selectedMainIdx) return false;
-              if (!img?.name || seenSub.has(img.name)) return false;  // 파일명 중복 제거
-              seenSub.add(img.name);
-              return true;
-            });
-          // 살릴 9장 고르기: 리뷰 실사(0) → 누끼(1) → 업체 원본(2). 9장 이하면 전부 살아남는다.
-          const subRank = ({ img, i }: { img: ScannedImageFile; i: number }) =>
-            (reviewNames.has(img.name) ? 0 : i < r.regenCount ? 1 : 2);
-          const keepIdx = new Set(
-            [...rest].sort((a, b) => subRank(a) - subRank(b) || a.i - b.i)
-              .slice(0, GALLERY_MAX - 1).map(({ i }) => i),
-          );
-          const subs = rest.filter(({ i }) => keepIdx.has(i)).map(({ img }) => img);
-          const mainOrdered = chosen ? [chosen, ...subs] : [];
+          //    ★ 사용자가 카드에서 고른 것이 있으면 **그게 곧 갤러리**다(pickedMainNames).
+          //      아무것도 안 골랐으면 예전과 같은 자동 기본값(대표 + 추천 상위 9장)이 나온다 —
+          //      화면·등록이 같은 함수를 보므로 "카드엔 6장인데 8장이 올라갔다" 가 생기지 않는다.
+          const galleryNames = pickedMainNames(r);
+          const mainByName = new Map(r.mainImages.map((m) => [m.name, m]));
+          const mainOrdered = galleryNames
+            .map((n) => mainByName.get(n))
+            .filter((x): x is ScannedImageFile => !!x);
           const mainUrls = (await uploadScannedImages(mainOrdered, GALLERY_MAX, wm)).filter(Boolean);
           // 본문 교차 이미지는 리뷰컷만(detailUrls 비움).
           // ⚠️ 소싱처 상세컷("상품 상세정보" 섹션)은 **쓰지 않는다**(사용자 확정) — 멤버십·적립 배너가
@@ -3231,21 +3286,65 @@ export default function AllInOneRegisterPanel() {
                   <button type="button" disabled={!editable}
                     onClick={() => toggleMainPicker(r.uid, r.mainImages)}
                     className="text-xs text-gray-600 border border-gray-200 rounded px-2 py-1 disabled:opacity-40">
-                    {/* 서브 장수를 같이 보여준다 — 등록 결과(대표1+서브N)가 카드와 어긋나면 바로 보이게. */}
-                    대표컷 변경 ({r.selectedMainIdx + 1}/{r.mainImages.length}) · 서브 {Math.min(r.mainImages.length - 1, 9)}장 {openMain[r.uid] ? '▴' : '▾'}
+                    {/* 서브 장수는 **고른 수**다 — 등록 결과(대표1+서브N)와 카드가 어긋나지 않게. */}
+                    이미지 고르기 ({pickedMainNames(r).length}/{r.mainImages.length}) · 서브 {Math.max(0, pickedMainNames(r).length - 1)}장 {openMain[r.uid] ? '▴' : '▾'}
                   </button>
                   {openMain[r.uid] && (() => {
                     const addableMain = addableMainImages(r);
+                    // 지금 올라갈 목록 — 화면·등록이 같은 함수를 본다(pickedMainNames).
+                    const pickedNames = pickedMainNames(r);
+                    const pickedSet = new Set(pickedNames);
+                    const mainName = r.mainImages[r.selectedMainIdx]?.name;
+                    const unpicked = r.mainImages.filter((m) => !pickedSet.has(m.name));
+                    const atCap = pickedSet.size >= GALLERY_MAX;
                     return (
                     <>
+                      {/* 무엇이 올라가는지 한 줄로 못박고, 나머지를 한 번에 치울 길을 준다.
+                          예전엔 빼기(×)만 있어서 25장 중 5장만 쓰려면 20번을 눌러야 했다. */}
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+                        <span>
+                          올릴 이미지 <b className="text-gray-900">{pickedNames.length}</b>/{GALLERY_MAX}장
+                          <span className="text-gray-400"> (대표 1 + 서브 {Math.max(0, pickedNames.length - 1)})</span>
+                        </span>
+                        <span className="text-gray-400">· 타일을 눌러 고르고, ★ 로 대표를 정합니다</span>
+                        <span className="flex-1" />
+                        {editable && unpicked.length > 0 && (
+                          <button type="button"
+                            onClick={() => removeUnpickedMain(r.uid)}
+                            title="고르지 않은 후보를 목록에서 뺍니다. 파일은 지우지 않으므로 아래 되살리기로 언제든 돌아옵니다."
+                            className="text-[11px] border border-red-200 text-red-700 hover:bg-red-50 rounded px-2 py-0.5">
+                            선택 안 한 {unpicked.length}장 삭제
+                          </button>
+                        )}
+                        {editable && unpicked.length > 0 && !atCap && (
+                          <button type="button"
+                            onClick={() => setRows((prev) => prev.map((x) => (x.uid === r.uid
+                              ? { ...x, pickedMain: x.mainImages.slice(0, GALLERY_MAX).map((m) => m.name) }
+                              : x)))}
+                            title={`앞에서부터 ${GALLERY_MAX}장까지 고릅니다.`}
+                            className="text-[11px] border border-gray-200 text-gray-600 hover:bg-gray-50 rounded px-2 py-0.5">
+                            전부 고르기
+                          </button>
+                        )}
+                      </div>
                       {/* 후보 전량 노출 — 예전엔 overflow-x-auto 한 줄이라 25장 중 6장만 보이고
                           나머지는 가로 스크롤 뒤에 숨었다(대표를 고르려면 후보가 다 보여야 한다). */}
                       <div className="mt-1 flex flex-wrap gap-1.5 pb-1">
-                        {r.mainImages.map((img, i) => (
+                        {r.mainImages.map((img, i) => {
+                          const isMain = i === r.selectedMainIdx;
+                          const isPicked = pickedSet.has(img.name);
+                          // 한도가 찼는데 안 골라 둔 컷 — 왜 안 눌리는지 말해 준다(조용히 무시하지 않는다).
+                          const capBlocked = !isPicked && atCap;
+                          return (
                           <div key={`${img.name}-${i}`} role="button" tabIndex={editable ? 0 : -1}
-                            onClick={() => editable && selectMain(r.uid, i, img)}
-                            title={i < r.regenCount ? `누끼 가공본 · ${img.name}` : img.name}
-                            className={`relative flex-none w-14 h-14 rounded-md overflow-hidden border-2 ${editable ? 'cursor-pointer' : ''} ${i === r.selectedMainIdx ? 'border-[#E31837]' : 'border-transparent hover:border-gray-300'}`}>
+                            onClick={() => editable && !capBlocked && toggleMainPick(r.uid, img.name)}
+                            title={capBlocked
+                              ? `쿠팡 한도 ${GALLERY_MAX}장을 이미 채웠습니다 — 다른 컷을 빼야 넣을 수 있습니다.`
+                              : isMain ? `대표컷 · ${img.name}`
+                                : `${isPicked ? '올립니다(서브)' : '안 올립니다'} · ${i < r.regenCount ? '누끼 가공본 · ' : ''}${img.name}`}
+                            className={`relative flex-none w-14 h-14 rounded-md overflow-hidden border-2 ${editable && !capBlocked ? 'cursor-pointer' : ''} ${
+                              isMain ? 'border-[#E31837]' : isPicked ? 'border-blue-400' : 'border-transparent hover:border-gray-300'
+                            } ${isPicked ? '' : 'opacity-40 grayscale'}`}>
                             {img.objectUrl
                               ? <img src={img.objectUrl} alt="" className="w-full h-full object-cover bg-gray-100" />
                               : <div className="w-full h-full bg-gray-100" />}
@@ -3255,17 +3354,27 @@ export default function AllInOneRegisterPanel() {
                             {i >= r.regenCount && r.reviewImages.some((rv) => rv.name === img.name) && (
                               <span className="absolute bottom-0 inset-x-0 bg-sky-600/85 text-white text-[9px] leading-tight text-center">리뷰</span>
                             )}
-                            {i === r.selectedMainIdx && (
+                            {/* ★ = 대표 지정. 예전엔 타일 클릭이 곧 대표라 "여러 장 고르기"를 할 자리가 없었다. */}
+                            {isMain ? (
                               <span className="absolute top-0 left-0 bg-[#E31837] text-white text-[9px] leading-none px-1 py-0.5 rounded-br">★대표</span>
+                            ) : editable && (
+                              <button type="button" title="이 컷을 대표로"
+                                onClick={(ev) => { ev.stopPropagation(); void selectMain(r.uid, i, img); }}
+                                className="absolute top-0 left-0 bg-black/45 hover:bg-[#E31837] text-white text-[10px] leading-none w-4 h-4 rounded-br flex items-center justify-center">★</button>
                             )}
-                            {/* 이 후보를 서브이미지에서 제외(대표 외 후보는 서브이미지로 등록됨) */}
+                            {/* 고른 것에만 체크 — 흑백/컬러만으로는 "고른 것"이 헷갈린다. */}
+                            {isPicked && !isMain && (
+                              <span className="absolute bottom-0 right-0 bg-blue-500 text-white text-[9px] leading-none w-4 h-4 rounded-tl flex items-center justify-center">✓</span>
+                            )}
+                            {/* 후보 목록에서 완전히 빼기(되살리기로 복구 가능) */}
                             {editable && r.mainImages.length > 1 && (
-                              <button type="button" title="서브이미지에서 제외"
+                              <button type="button" title="후보에서 빼기(되살릴 수 있습니다)"
                                 onClick={(ev) => { ev.stopPropagation(); removeMainImage(r.uid, img.name); }}
                                 className="absolute top-0 right-0 bg-red-500 text-white rounded-bl w-4 h-4 text-[10px] leading-none flex items-center justify-center">×</button>
                             )}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                       {/* 뺀 대표 후보 되살리기 */}
                       {addableMain.length > 0 && (

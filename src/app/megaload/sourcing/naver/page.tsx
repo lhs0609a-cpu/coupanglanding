@@ -103,6 +103,20 @@ export default function NaverSourcingCatalogPage() {
   // 올인원으로 가져오기 — 고른 것만 내 PC 로 내려받아 폴더를 만든다.
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   /**
+   * 내가 **이미 올린** 상품 — 채널상품번호 → 첫 등록 시각(ISO).
+   * ---------------------------------------------------------------------------
+   * 이 카탈로그는 셀러 여럿이 함께 보는 공용 목록이라, "내가 올린 것"은 화면에서만 갈라 줄 수
+   * 있다. 표시가 없으면 같은 상품을 몇 번이고 다시 가져와 생성까지 돌린 뒤(=시간·GPU 소모)
+   * 등록 단계에서야 알게 된다. 열쇠는 이미 있다 —— 카탈로그의 product_no 가 도우미 폴더명
+   * product_<번호> 를 거쳐 그대로 등록 기록의 productCode 가 된다.
+   * ⚠️ 아는 것은 "메가로드로 올린 기록"뿐이다. 윙에서 직접 올린 건 모르므로 **막지 않는다**.
+   */
+  const [registeredAt, setRegisteredAt] = useState<Record<string, string>>({});
+  /** 이미 올린 것을 이 페이지에서 가린다(서버 목록은 그대로 — 페이지 번호가 어긋나지 않게). */
+  const [hideRegistered, setHideRegistered] = useState(false);
+  /** "그대로 가져오기"를 고른 뒤엔 같은 경고를 다시 띄우지 않는다(사람이 이미 정했다). */
+  const [dupDismissed, setDupDismissed] = useState(false);
+  /**
    * 관리자만 카탈로그에서 줄을 지울 수 있다.
    * 수집이 완벽하지 않아 잘못 들어온 상품이 생긴다(딸기에 감귤이 섞였다 — 2026-08-26).
    * 지울 길이 없으면 셀러 목록이 계속 오염된 채로 간다. 실제 차단은 서버가 한다.
@@ -209,6 +223,28 @@ export default function NaverSourcingCatalogPage() {
   }, [page, q, sort, onlyDetail, catPath]);
 
   useEffect(() => { load(); }, [load]);
+
+  /**
+   * 이 페이지에 뜬 상품 중 내가 이미 올린 것을 표시한다.
+   * 페이지 단위(60개)라 요청이 가볍고, 실패해도 조용히 넘어간다 — 표시가 없을 뿐 소싱은 그대로 된다.
+   */
+  useEffect(() => {
+    const codes = products.map((p) => p.product_no).filter(Boolean);
+    if (codes.length === 0) { setRegisteredAt({}); return; }
+    let cancelled = false;
+    fetch('/api/megaload/products/bulk-register/registered-codes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ productCodes: codes }),
+    })
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled && d && typeof d.registeredAt === 'object') setRegisteredAt(d.registeredAt || {}); })
+      .catch(() => { /* 표시가 없을 뿐이다 — 소싱을 막지 않는다 */ });
+    return () => { cancelled = true; };
+  }, [products]);
+
+  // 목록이 바뀌면 경고를 다시 살린다 — 앞 페이지에서 "그대로"라고 한 것이 다음 페이지까지 가면 안 된다.
+  useEffect(() => { setDupDismissed(false); }, [page, catPath, q]);
 
   /** 고른 줄을 카탈로그에서 지운다(관리자). 되돌릴 수 없으므로 개수를 보여 주고 한 번 묻는다. */
   const removePicked = useCallback(async () => {
@@ -332,7 +368,15 @@ export default function NaverSourcingCatalogPage() {
       //      사람을 기다리게 하지 않는다).
       //   ② 생성 정상 종료: 누끼할 대표컷이 없으면(과일·음식은 누끼를 아예 건너뛴다)
       //      ①의 신호가 나오지 않는다 — 그때는 종료가 곧 준비 완료다.
-      const ready = !!g && !g.error && (g.reviewReady || (!g.running && g.code === 0));
+      // ⚠️ 도우미의 생성 상태는 **이전 판이 끝난 뒤에도 완료 상태로 남아 있다**(running=false,
+      //    code=0, reviewReady=true). 그걸 그대로 믿으면, 새 판을 걸자마자 —— 도우미가 아직 새
+      //    생성을 시작하기도 전에 —— 옛 완료 신호를 보고 검수 화면으로 넘어간다. 그리고 그 화면은
+      //    "도우미가 마지막으로 생성한 폴더"를 읽으므로 **이전 판 결과**가 뜬다.
+      //    실측 2026-09-01: 토마토 3개를 걸었는데 직전 판의 오렌지 카드가 떴다.
+      //    → 이번 판이 시작된 뒤에 켜진 생성만 이번 것으로 친다(시계 오차 10초는 봐준다).
+      const runStartedAt = runMarks.current.importStartedAt || runMarks.current.startedAt;
+      const isThisRun = !!g?.startedAt && (!runStartedAt || g.startedAt >= runStartedAt - 10_000);
+      const ready = isThisRun && !!g && !g.error && (g.reviewReady || (!g.running && g.code === 0));
       if (ready && startedHereRef.current && !navigatedRef.current) {
         navigatedRef.current = true;
         // 이번 판이 실제로 얼마나 걸렸는지 넘긴다 — 검수 화면이 총합·단계별·100개 환산을 적는다.
@@ -423,56 +467,78 @@ export default function NaverSourcingCatalogPage() {
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
 
+      // ── 고른 것 대사(對査) ──────────────────────────────────────────────
+      // "5개를 체크했는데 3개만 올라온다" 는 신고의 정체는 여기다. 단계마다 조용히 거르는 자리가
+      // 있었고(상세 미확보 / 마켓·윈도 / 카탈로그에서 지워진 줄), 화면은 그중 일부만 말했다.
+      // 이제 **고른 수 = 진행 + 대기 + 제외** 가 맞아떨어지게 세고, 그 결과를 반드시 남긴다.
+      const readyIds = ((j.products ?? []) as { id?: string }[]).map((p) => p?.id).filter(Boolean) as string[];
+      const skippedIds = ((j.skipped ?? []) as { id: string }[]).map((x) => x.id);
+      // 상세를 못 뽑는 주소는 큐에 넣지 않는다. 넣으면 도우미가 재시도 6회 × 캡차 대기까지
+      // 매달렸다가 실패하고, 30분 뒤 서버가 되살려 같은 실패를 무한 반복한다(실측 2026-08-20).
+      const byId = new Map(products.map((p) => [p.id, p]));
+      const queueIds = skippedIds.filter((id) => {
+        const p = byId.get(id);
+        return !p || isDetailExtractable(p.url);   // 다른 페이지에서 고른 건 서버가 판정한다
+      });
+      const blocked = skippedIds.length - queueIds.length;
+      // 고른 뒤 카탈로그에서 지워진 줄 — export 가 아예 못 찾은 것들이다. 예전엔 흔적도 없이 사라졌다.
+      const gone = Math.max(0, picked.size - readyIds.length - skippedIds.length);
+      const notes: string[] = [];
+      if (blocked > 0) notes.push(`${blocked}개는 네이버 마켓·쇼핑윈도 상품이라 상세를 가져올 수 없어 제외`);
+      if (gone > 0) notes.push(`${gone}개는 카탈로그에서 사라져(삭제됨) 제외`);
+
       // ★ 상세가 없는 건 막다른 길이 아니다 — **자동으로 요청을 걸어 둔다.**
       //   셀러 PC 가 직접 네이버를 열면 셀러마다 로그인·캡차·429 를 겪으므로, 요청만 남기고
-      //   실제 추출은 관리자 도우미가 대신한다. 셀러는 기다렸다 다시 누르면 된다.
-      if (j.skipped?.length) {
-        // ★ 상세를 못 뽑는 주소는 큐에 넣지 않는다. 넣으면 도우미가 재시도 6회 × 캡차 대기까지
-        //   매달렸다가 실패하고, 30분 뒤 서버가 되살려 같은 실패를 무한 반복한다(실측 2026-08-20).
-        const byId = new Map(products.map((p) => [p.id, p]));
-        const skippedIds = j.skipped.map((x: { id: string }) => x.id) as string[];
-        const ids = skippedIds.filter((id) => {
-          const p = byId.get(id);
-          return !p || isDetailExtractable(p.url);   // 다른 페이지에서 고른 건 서버가 판정한다
-        });
-        const blocked = skippedIds.length - ids.length;
-        const blockedNote = blocked
-          ? `${blocked}개는 네이버 마켓·쇼핑윈도 상품이라 상세를 가져올 수 없어 제외했습니다.`
-          : '';
-        let queued = 0;
+      //   실제 추출은 관리자 도우미가 대신한다.
+      let queued = 0;
+      if (queueIds.length) {
         try {
           const qr = await fetch('/api/megaload/naver-sourcing/products/queue', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids }),
+            body: JSON.stringify({ ids: queueIds }),
           });
           const qj = await qr.json();
           queued = qr.ok ? (qj.requested ?? 0) : 0;
         } catch { /* 요청 등록 실패는 치명적이지 않다 */ }
-        if (queued) {
-          // ★ "준비되면 다시 눌러 가져오세요" 는 나쁜 안내였다 — 사용자가 언제 될지 모르는 걸
-          //   감으로 재시도해야 했다. 기다렸다 **자동으로 이어간다**.
-          //   ⏱ 실측(2026-08-21, 9건): 요청→확보까지 12·52·56·61·76·81·81·93·93초 = 보통 1~1분 반.
-          setImpNote(blockedNote || null);
-          setWaitCount(queued);
-          setWaitStartedAt(Date.now());
-          setPendingIds(ids);
-          // 큐 자동 처리는 60초 주기다 — 요청하자마자 걸리면 아무 일 없이 1분이 흐른다. 깨운다.
-          kickQueue(helper.ep);
-          // 가져갈 사람이 없으면 8분을 기다릴 이유가 없다 — 걸자마자 확인해서 바로 말한다.
-          void checkQueueWorker();
-        } else if (blockedNote) {
-          // 고른 게 전부 미지원이면 기다릴 것도 없다 — "잠시 후 다시" 는 거짓 안내가 된다.
-          setImpNote(blockedNote);
-        } else {
-          setImpNote(`${j.skipped.length}개는 아직 상세가 없습니다 — 잠시 후 다시 시도해 주세요.`);
-        }
       }
-      if (!j.products?.length) {
-        // 가져올 게 없어도 요청은 걸렸다 — 그 사실을 에러로 덮지 않는다.
+
+      if (queued > 0) {
+        // ⚠️ 준비된 것만 **먼저 보내지 않는다**. 예전엔 이미 상세가 있는 3개를 즉시 가져와 생성까지
+        //    끝내고 검수 화면으로 넘어갔는데, 화면이 넘어가는 순간 이 페이지에서 돌던 나머지
+        //    2개의 대기가 통째로 죽었다 —— 고른 5개 중 3개만 올라가고 2개는 흔적도 없었다.
+        //    전부 준비되면 함께 간다(급하면 아래 대기 패널의 "준비된 것만 지금" 으로 빠져나간다).
+        const all = [...readyIds, ...queueIds];
+        setWaitCount(all.length);
+        setWaitReady(readyIds.length);
+        setWaitStartedAt(Date.now());
+        setPendingIds(all);
+        setImpNote([
+          `고른 ${picked.size}개 중 ${queued}개는 상세가 없어 지금 요청을 걸었습니다 — 준비되면 ${all.length}개를 함께 가져옵니다.`,
+          ...notes,
+        ].join(' · '));
+        // 큐 자동 처리는 60초 주기다 — 요청하자마자 걸리면 아무 일 없이 1분이 흐른다. 깨운다.
+        kickQueue(helper.ep);
+        // 가져갈 사람이 없으면 8분을 기다릴 이유가 없다 — 걸자마자 확인해서 바로 말한다.
+        void checkQueueWorker();
         setImporting(false);
         return;
       }
+
+      if (!j.products?.length) {
+        // 가져올 게 없어도 이유는 남긴다 — 아무 일도 안 난 것처럼 보이는 게 제일 나쁘다.
+        setImpNote([
+          `고른 ${picked.size}개 중 가져올 수 있는 것이 없습니다.`,
+          ...notes,
+          ...(skippedIds.length && !queueIds.length ? [] : queueIds.length ? ['상세 요청 등록에 실패했습니다 — 잠시 후 다시 시도해 주세요'] : []),
+        ].join(' · '));
+        setImporting(false);
+        return;
+      }
+      // 빠진 게 있으면 **진행 전에** 말한다 — 끝나고 카드 수를 세어 알아채게 하지 않는다.
+      setImpNote(readyIds.length < picked.size
+        ? [`고른 ${picked.size}개 중 ${readyIds.length}개로 진행합니다`, ...notes].join(' — ')
+        : null);
       // 올인원 생성까지 이어가는 게 이 버튼의 목적이다 — 기본값에 기대지 않고 명시한다.
       runMarks.current.importStartedAt = Date.now();   // 0단계 없이 바로 1단계
       const r = await startImport(helper.ep, j.products, undefined, true);
@@ -496,6 +562,66 @@ export default function NaverSourcingCatalogPage() {
    *    1분에 한 번으로 늦춘다 — 5초 × 96회로 세면 백그라운드에서는 8분이 아니라 한 시간이
    *    넘는다. 실측 2026-08-21: 27분이 지나도 포기가 안 걸린 채 "곧 됩니다"만 떠 있었다.
    */
+  /**
+   * 준비된 것을 들고 1단계(가져오기)로 넘어간다. dropped>0 이면 못 채운 만큼을 말한다.
+   * 대기 감시(아래 effect)와 "준비된 것만 지금 가져오기" 버튼이 같이 쓴다 —— 길이 둘로 갈리면
+   * 한쪽만 고쳐지고 다른 쪽은 옛 동작으로 남는다.
+   */
+  const proceedImport = useCallback(async (
+    products: Parameters<typeof startImport>[1], dropped: number,
+  ) => {
+    setPendingIds([]);
+    setWaitStartedAt(0);
+    setWaitReady(0);
+    noteBlock(null);
+    const helper = await findHelper();
+    if (!helper) { setImpNote('상세가 준비됐는데 도우미를 찾지 못했습니다 — 도우미를 실행한 뒤 다시 눌러 주세요.'); return; }
+    setImpNote(dropped > 0
+      ? `${dropped}개는 아직 준비되지 않아 빼고 ${products.length}개로 진행합니다 — 나머지는 준비된 뒤 다시 가져와 주세요.`
+      : null);
+    setImporting(true);
+    // 0단계(상세 준비)가 여기서 끝났다 — 그 길이를 확정하고 1단계 시계를 켠다.
+    if (runMarks.current.startedAt) {
+      runMarks.current.detailWaitMs = Date.now() - runMarks.current.startedAt;
+      runMarks.current.importStartedAt = Date.now();
+    }
+    startedHereRef.current = true;   // 이어서 시작한 것도 이 화면의 작업이다
+    navigatedRef.current = false;
+    etaBaseRef.current = null;
+    setEtaMs(null);
+    const r = await startImport(helper.ep, products, undefined, true);
+    setImp({ running: true, total: r.total ?? products.length, done: 0, ok: 0, failed: 0, current: '', rootDir: r.rootDir ?? '', stopped: null, at: Date.now(), gen: null });
+    setPicked(new Set());
+    load(); loadCategories();   // 상세가 확보됐으니 '상세 확보' 개수가 바뀐다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [load, loadCategories]);
+
+  /**
+   * 기다리지 않고 **지금 준비된 것만** 가져간다.
+   * 기본은 전부 함께 가는 것이다(그래야 고른 수와 올라간 수가 같다). 다만 8분을 못 기다릴
+   * 사정도 있으므로 길을 하나 열어 두되, **몇 개를 두고 가는지 반드시 말한다**.
+   */
+  const importReadyNow = useCallback(async () => {
+    const all = pendingIds;
+    if (!all.length) return;
+    try {
+      const res = await fetch('/api/megaload/naver-sourcing/products/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: all }),
+      });
+      const j = await res.json();
+      const ready = (j.products ?? []) as Parameters<typeof startImport>[1];
+      if (!res.ok || !ready.length) {
+        setImpNote('아직 준비된 상품이 하나도 없습니다 — 조금만 더 기다려 주세요.');
+        return;
+      }
+      await proceedImport(ready, all.length - ready.length);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }, [pendingIds, proceedImport]);
+
   useEffect(() => {
     if (!pendingIds.length) return;
     let alive = true;
@@ -504,32 +630,6 @@ export default function NaverSourcingCatalogPage() {
     const limitMs = waitLimitMs(all.length);
     const deadline = Date.now() + limitMs;
     let checks = 0;
-
-    /** 준비된 것을 들고 1단계(가져오기)로 넘어간다. dropped>0 이면 못 채운 만큼을 말한다. */
-    const proceed = async (products: Parameters<typeof startImport>[1], dropped: number) => {
-      setPendingIds([]);
-      setWaitStartedAt(0);
-      setWaitReady(0);
-      noteBlock(null);
-      const helper = await findHelper();
-      if (!helper) { setImpNote('상세가 준비됐는데 도우미를 찾지 못했습니다 — 도우미를 실행한 뒤 다시 눌러 주세요.'); return; }
-      setImpNote(dropped > 0
-        ? `${dropped}개는 아직 준비되지 않아 빼고 ${products.length}개로 진행합니다 — 나머지는 준비된 뒤 다시 가져와 주세요.`
-        : null);
-      setImporting(true);
-      // 0단계(상세 준비)가 여기서 끝났다 — 그 길이를 확정하고 1단계 시계를 켠다.
-      if (runMarks.current.startedAt) {
-        runMarks.current.detailWaitMs = Date.now() - runMarks.current.startedAt;
-        runMarks.current.importStartedAt = Date.now();
-      }
-      startedHereRef.current = true;   // 이어서 시작한 것도 이 화면의 작업이다
-      navigatedRef.current = false;
-      etaBaseRef.current = null;
-      setEtaMs(null);
-      const r = await startImport(helper.ep, products, undefined, true);
-      setImp({ running: true, total: r.total ?? products.length, done: 0, ok: 0, failed: 0, current: '', rootDir: r.rootDir ?? '', stopped: null, at: Date.now(), gen: null });
-      load(); loadCategories();   // 상세가 확보됐으니 '상세 확보' 개수가 바뀐다
-    };
 
     const t = setInterval(async () => {
       // 처리할 도우미가 준비돼 있나 — 15초에 한 번. 막혀 있으면 그 사실을 화면에 띄운다.
@@ -553,7 +653,7 @@ export default function NaverSourcingCatalogPage() {
       //   100개를 골랐는데 1개로 생성이 시작되고 99개는 조용히 사라졌다. 전부 기다린다.
       if (ready && ready.length >= all.length) {
         clearInterval(t);
-        await proceed(ready, 0);
+        await proceedImport(ready, 0);
         return;
       }
 
@@ -561,7 +661,7 @@ export default function NaverSourcingCatalogPage() {
       // 단, 그때까지 준비된 게 있으면 **버리지 않고** 그것만이라도 들고 간다.
       if (Date.now() > deadline) {
         clearInterval(t);
-        if (ready && ready.length > 0) { await proceed(ready, all.length - ready.length); return; }
+        if (ready && ready.length > 0) { await proceedImport(ready, all.length - ready.length); return; }
         setPendingIds([]);
         setWaitStartedAt(0);
         setWaitReady(0);
@@ -580,9 +680,15 @@ export default function NaverSourcingCatalogPage() {
 
   const pageSize = 60;
   const lastPage = Math.max(1, Math.ceil(total / pageSize));
+  // 이미 올린 것 숨기기는 **이 페이지 안에서만** 걸러진다(서버 페이지네이션이라 그 이상은 못 한다).
+  const visible = hideRegistered ? products.filter((p) => registeredAt[p.product_no] === undefined) : products;
+  const registeredHere = products.filter((p) => registeredAt[p.product_no] !== undefined).length;
   // 이 페이지에서 실제로 등록까지 갈 수 있는 것 / 막힌 것 — 숫자를 먼저 보여 준다.
-  const pickableCount = products.filter(isPickable).length;
-  const blockedCount = products.length - pickableCount;
+  // 전체 선택에서는 이미 올린 것을 뺀다 — 한 번 누르고 그대로 진행하면 같은 상품이 둘로 올라간다.
+  //   (개별 체크는 그대로 둔다 — 다시 올릴 이유가 있는 사람까지 막을 일은 아니다)
+  const selectTargets = visible.filter((p) => isPickable(p) && registeredAt[p.product_no] === undefined);
+  const pickableCount = selectTargets.length;
+  const blockedCount = visible.filter((p) => !isPickable(p)).length;
 
   /**
    * 고른 것 중 **상세가 아직 없는 것**이 몇 개인가 — 누르기 **전에** 알려주려고 센다.
@@ -595,6 +701,8 @@ export default function NaverSourcingCatalogPage() {
   const pickedHere = products.filter((p) => picked.has(p.id));
   const notReadyHere = pickedHere.filter((p) => p.detail_status !== 'done');
   const readyHere = pickedHere.length - notReadyHere.length;
+  /** 고른 것 중 이미 올린 것 — 막지 않고, 누르기 전에 말한다. */
+  const dupPicked = pickedHere.filter((p) => registeredAt[p.product_no] !== undefined);
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -713,6 +821,18 @@ export default function NaverSourcingCatalogPage() {
           상세까지 받은 것만
         </label>
 
+        <label
+          className="text-xs text-gray-600 inline-flex items-center gap-2 pb-2"
+          title="내 쿠팡 계정에 이미 올린 상품을 이 페이지에서 가립니다(서버 목록·페이지 번호는 그대로)."
+        >
+          <input
+            type="checkbox"
+            checked={hideRegistered}
+            onChange={(e) => setHideRegistered(e.target.checked)}
+          />
+          이미 올린 것 숨기기{registeredHere > 0 ? ` (${registeredHere})` : ''}
+        </label>
+
         <span className="ml-auto text-sm text-gray-500 pb-2">
           전체 <b className="text-gray-900">{total.toLocaleString()}</b>개
         </span>
@@ -723,17 +843,16 @@ export default function NaverSourcingCatalogPage() {
       <div className="rounded-xl border border-gray-200 bg-white p-4 mb-4 flex items-center gap-3 flex-wrap">
         <button
           onClick={() => setPicked((prev) => {
-            // 상세를 못 뽑는 상품은 전체 선택에서도 빠진다 — 넣어 봐야 등록되지 않는다.
-            const targets = products.filter(isPickable);
-            const all = targets.length > 0 && targets.every((x) => prev.has(x.id));
+            // 상세를 못 뽑는 상품·이미 올린 상품은 전체 선택에서 빠진다(selectTargets).
+            const all = selectTargets.length > 0 && selectTargets.every((x) => prev.has(x.id));
             const next = new Set(prev);
-            for (const x of targets) { if (all) next.delete(x.id); else next.add(x.id); }
+            for (const x of selectTargets) { if (all) next.delete(x.id); else next.add(x.id); }
             return next;
           })}
           disabled={!pickableCount}
           className="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40"
         >
-          {pickableCount > 0 && products.filter(isPickable).every((x) => picked.has(x.id))
+          {pickableCount > 0 && selectTargets.every((x) => picked.has(x.id))
             ? '이 페이지 선택 해제'
             : `이 페이지 전체 선택 (${pickableCount}개)`}
         </button>
@@ -817,6 +936,42 @@ export default function NaverSourcingCatalogPage() {
             </button>
           </div>
         )}
+        {/* ── 이미 올린 상품을 골랐다 ─────────────────────────────────────────
+            막지 않는다. 다시 올릴 이유가 있는 사람이 있고(가격·상세 갈아엎기), 여기서 아는 것은
+            "메가로드로 올린 기록"뿐이라 단정할 수도 없다. 대신 **누르기 전에** 말한다. */}
+        {dupPicked.length > 0 && !dupDismissed && !importing && !imp?.running && !pendingIds.length && (
+          <div className="w-full rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 flex items-center gap-2 flex-wrap">
+            <AlertTriangle className="w-4 h-4 flex-none" />
+            <span>
+              고른 것 중 <b>{dupPicked.length}개</b>는 <b>내 쿠팡 계정에 이미 올린 상품</b>입니다 —
+              그대로 진행하면 같은 상품이 둘로 올라갑니다.
+            </span>
+            <span className="flex-1" />
+            <button
+              onClick={() => setPicked((prev) => {
+                const next = new Set(prev);
+                for (const p of dupPicked) next.delete(p.id);
+                return next;
+              })}
+              className="px-2.5 py-1 rounded-md border border-blue-300 bg-white text-blue-900 font-medium hover:bg-blue-100"
+            >
+              {dupPicked.length}개 빼기
+            </button>
+            <button
+              onClick={() => setDupDismissed(true)}
+              title="알고도 다시 올립니다 — 이 페이지에서는 다시 묻지 않습니다."
+              className="px-2.5 py-1 rounded-md border border-blue-300 bg-white text-blue-900 font-medium hover:bg-blue-100"
+            >
+              그대로 가져오기
+            </button>
+          </div>
+        )}
+        {registeredHere > 0 && !hideRegistered && (
+          <span className="w-full text-xs text-gray-600 border-t border-gray-100 pt-2 mt-1">
+            이 페이지의 <b>{registeredHere}개</b>는 내가 이미 올린 상품이라 <b>전체 선택에서 뺐습니다</b> —
+            다시 올리려면 카드에서 직접 고르면 됩니다.
+          </span>
+        )}
         {blockedCount > 0 && (
           <span className="w-full text-xs text-gray-600 border-t border-gray-100 pt-2 mt-1">
             이 페이지의 <b>{blockedCount}개</b>는 네이버 마켓·쇼핑윈도 상품이라 아직 상세를 가져올 수
@@ -871,6 +1026,17 @@ export default function NaverSourcingCatalogPage() {
               <span>예상 <b className="tabular-nums">{fmtDur(typicalMs)}</b></span>
               <span className="text-amber-700">상세 준비는 분당 약 {DETAIL_RATE_PER_MIN}개까지입니다(네이버 보호 한도)</span>
               {!waitBlock && <span className="text-amber-700">준비되는 즉시 가져오기·생성으로 이어집니다</span>}
+              <span className="flex-1" />
+              {/* 다 기다리는 게 기본이지만, 급하면 여기로 빠져나간다 — 두고 가는 수를 버튼에 적는다. */}
+              {waitReady > 0 && waitReady < waitCount && (
+                <button
+                  onClick={() => void importReadyNow()}
+                  title="지금 준비된 것만 가져옵니다. 나머지는 이번 판에 안 들어갑니다."
+                  className="px-2.5 py-1 rounded-md border border-amber-300 bg-white text-amber-900 font-medium hover:bg-amber-100"
+                >
+                  준비된 {waitReady}개만 지금 가져오기 ({waitCount - waitReady}개 두고)
+                </button>
+              )}
             </div>
 
             {/* 기다려도 소용없는 이유를 **알면** 말한다. 모르면 아무 말도 하지 않는다. */}
@@ -1032,9 +1198,11 @@ export default function NaverSourcingCatalogPage() {
       ) : (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {products.map((p) => {
+            {visible.map((p) => {
               const pickable = isPickable(p);
               const storeType = naverStoreType(p.url);
+              // 이미 올린 상품 — 값이 있으면 등록 시각(빈 문자열이면 시각을 모르는 옛 기록).
+              const regAt = registeredAt[p.product_no];
               return (
               <div
                 key={p.id}
@@ -1043,7 +1211,11 @@ export default function NaverSourcingCatalogPage() {
                 <div className="relative aspect-square bg-gray-100">
                   <label
                     className={`absolute top-2 left-2 z-10 bg-white/90 rounded p-1 ${pickable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
-                    title={pickable ? undefined : `${STORE_TYPE_LABEL[storeType]} 상품은 아직 상세를 가져올 수 없습니다.`}
+                    title={!pickable
+                      ? `${STORE_TYPE_LABEL[storeType]} 상품은 아직 상세를 가져올 수 없습니다.`
+                      : regAt !== undefined
+                        ? '내 쿠팡 계정에 이미 올린 상품입니다 — 골라도 되지만 같은 상품이 둘로 올라갑니다.'
+                        : undefined}
                   >
                     <input
                       type="checkbox"
@@ -1082,6 +1254,16 @@ export default function NaverSourcingCatalogPage() {
                       <ExternalLink className="w-3.5 h-3.5" />
                     </a>
                   </div>
+                  {/* ★ 내가 이미 올린 상품 — 가져오기 전에 알아야 헛돈다(가져오기·생성·검수를 다 돈 뒤에야
+                      알게 되던 자리다). 막지는 않는다 — 다시 올릴 이유가 있는 사람이 있다. */}
+                  {regAt !== undefined && (
+                    <span
+                      className="mt-1.5 mr-1 inline-block text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200"
+                      title="메가로드로 등록한 기록 기준입니다. 윙에서 직접 올린 상품은 여기에 안 잡힙니다."
+                    >
+                      이미 올림{regAt ? ` · ${regAt.slice(0, 10)}` : ''}
+                    </span>
+                  )}
                   {p.detail_status === 'done' && (
                     <span className="mt-1.5 inline-block text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
                       상세 확보
@@ -1112,6 +1294,20 @@ export default function NaverSourcingCatalogPage() {
               );
             })}
           </div>
+
+          {visible.length === 0 && (
+            <div className="rounded-xl border border-gray-200 bg-white p-8 text-center">
+              <p className="text-sm text-gray-700">
+                이 페이지의 <b>{products.length}개</b>는 모두 내가 이미 올린 상품이라 가렸습니다.
+              </p>
+              <button
+                onClick={() => setHideRegistered(false)}
+                className="mt-2 px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
+              >
+                숨기기 끄고 보기
+              </button>
+            </div>
+          )}
 
           {lastPage > 1 && (
             <div className="flex items-center justify-center gap-2 mt-6">
