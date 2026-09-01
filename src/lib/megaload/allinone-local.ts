@@ -63,10 +63,35 @@ export function classifyHelperLink(
   return workers.some((w) => w.worker_id !== TOKEN_ONLY_WORKER_ID) ? 'online' : 'monitor-only';
 }
 
+/**
+ * 이번 판의 실측 — run-folder 가 남긴 _allinone.timing.json.
+ * 예전엔 단계별 시간이 도우미 콘솔에만 찍히고 사라져서, "빨라졌다/느려졌다"를 말로만 다퉜다.
+ * 구버전 도우미가 만든 폴더에는 없다(옵셔널).
+ */
+export interface AllinoneTiming {
+  products: number;
+  totalMs: number;
+  perProductMs: number;
+  per100Ms: number;
+  phase: { recogMs: number; textMs: number; thumbMs: number; otherMs: number };
+  vision: {
+    calls: number; cells: number; sheetMs: number; vlmMs: number;
+    compact: number; verbose: number; timeouts: number; failed: number;
+  };
+  settings: {
+    overlap: boolean; model: string; visionModel: string | null;
+    genConcurrency: number; recogConcurrency: number;
+    cell: number; maxCells: number; deferThumb: boolean; recogHits: number;
+  };
+  summary: { ok: number; needsReview: number; failed: number };
+}
+
 export interface AllinoneManifest {
   /** 도우미가 생성을 끝낸 폴더의 절대경로(표시용). */
   folder: string;
   generatedAt: string;
+  /** 이번 판의 실측(구버전 도우미면 없다). */
+  timing?: AllinoneTiming | null;
   /** _allinone.generated.jsonl 의 레코드들(형태는 패널의 GenRecord 와 동일). */
   records: unknown[];
 }

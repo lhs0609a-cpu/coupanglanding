@@ -23,6 +23,7 @@ import {
 import {
   MARGIN_PRESETS, applyMarginPreset, calculateSellingPrice, type MarginPresetLevel,
 } from '@/lib/megaload/services/margin-pricing';
+import type { AllinoneTiming } from '@/lib/megaload/allinone-local';
 import {
   diagnoseLocalHelper, discoverLocalEndpoint, fetchLocalManifest,
   fetchLocalList, classifyLocalImages, productDirOf, localFileUrl, fetchLocalFile,
@@ -1287,6 +1288,7 @@ export default function AllInOneRegisterPanel() {
       });
 
       manifestAtRef.current = mf.generatedAt ? new Date(mf.generatedAt).getTime() : 0;
+      setRunTiming(mf.timing ?? null);
       const recs = mf.records as GenRecord[];
       // 누끼가 아직 도는 중인 상품 수 — 등록 게이트와 안내 배너가 이 값을 본다.
       setThumbPendingCount(recs.filter((r) => r?.thumbPending).length);
@@ -1389,6 +1391,12 @@ export default function AllInOneRegisterPanel() {
    * 스스로는 모른다 —— 지난 판 카드를 이번 것으로 알고 다시 등록하면 같은 상품이 두 번 올라간다.
    */
   const manifestAtRef = useRef(0);
+  /**
+   * 도우미가 남긴 **이번 판 실측**(단계별 시간·비전 구간).
+   * 예전 리포트는 "웹이 버튼을 누른 순간 ~ 카드가 뜬 순간"의 벽시계뿐이라, 느렸을 때
+   * 어디가 느렸는지(인식/텍스트/누끼)를 알 수 없었다 — 개선을 숫자로 확인할 수가 없었다.
+   */
+  const [runTiming, setRunTiming] = useState<AllinoneTiming | null>(null);
 
   // ── 웹에서 폴더 올려 생성 (앱 안 열고 웹에서 전부) ──────────────────────
   // 브라우저는 폴더 경로를 안 주므로, 폴더 "내용"을 도우미로 업로드해 도우미가 생성한다.
@@ -1949,7 +1957,15 @@ export default function AllInOneRegisterPanel() {
               setRows((prev) => prev.map((r) => (r.uid === uid ? { ...r, tagCandidates: tags } : r)));
               setTagJobs((p) => ({ ...p, [uid]: { ...(p[uid] || { batchId }), status: 'done' } }));
             } else if (j.status === 'error') {
-              setTagJobs((p) => ({ ...p, [uid]: { batchId, status: 'error', message: j.error_message || '생성 실패' } }));
+              // 구버전 도우미는 이 일감을 모른다 — 집어 가서 실패시킨다("알 수 없는 task_type").
+              //   원문을 그대로 보여 주면 사람은 고장으로 읽지만, 실제로 할 일은 도우미 업데이트뿐이고
+              //   태그 20칸은 사전으로 이미 차 있다. 그러니 **할 일**을 적는다.
+              const raw = j.error_message || '생성 실패';
+              const stale = /task_type/i.test(raw);
+              setTagJobs((p) => ({
+                ...p,
+                [uid]: { batchId, status: 'error', message: stale ? '도우미 업데이트 필요' : raw },
+              }));
             }
           }
         } catch { /* 다음 주기에 다시 */ }
@@ -2836,6 +2852,53 @@ export default function AllInOneRegisterPanel() {
               <span className="flex-1" />
               <button type="button" onClick={() => setRunReport(null)} className="text-gray-400 hover:text-gray-600">닫기</button>
             </div>
+
+            {/* ── 생성 단계 실측 ────────────────────────────────────────────
+                위 숫자는 "누르고 나서 카드가 뜰 때까지"의 벽시계다. 느렸을 때 **어디가**
+                느렸는지는 도우미가 잰 이 값만 안다(인식/텍스트/누끼). 없으면(구버전 도우미)
+                줄 자체를 띄우지 않는다 — 빈칸을 보여 주는 것보다 낫다. */}
+            {runTiming && (() => {
+              const rt = runTiming;
+              const goal = 12_000;   // 목표: 상품당 12초(100개 20분)
+              const ok = rt.perProductMs <= goal;
+              const vs = rt.vision;
+              return (
+                <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 space-y-1">
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs">
+                    <span className="font-semibold text-gray-800">생성 실측</span>
+                    <span className={ok ? 'text-emerald-700' : 'text-amber-700'}>
+                      상품당 <b className="tabular-nums">{fmtDur(rt.perProductMs)}</b>
+                      <span className="text-gray-400"> · 100개 환산 </span>
+                      <b className="tabular-nums">{fmtDur(rt.per100Ms)}</b>
+                      <span className="text-gray-400"> (목표 20분)</span>
+                    </span>
+                    <span className="flex-1" />
+                    <span className="text-gray-500 tabular-nums">
+                      인식 {fmtDur(rt.phase.recogMs)} · 텍스트 {fmtDur(rt.phase.textMs)}
+                      {rt.phase.thumbMs > 0 && <> · 누끼 {fmtDur(rt.phase.thumbMs)}</>}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-500">
+                    <span>비전 {vs.calls}콜 · {vs.cells}칸 (격자 {fmtDur(vs.sheetMs)} + 모델 {fmtDur(vs.vlmMs)})</span>
+                    {vs.verbose > 0 && <span className="text-amber-600">재질문 {vs.verbose}회</span>}
+                    {vs.timeouts > 0 && <span className="text-red-600">상한초과 {vs.timeouts}회</span>}
+                    {rt.settings.recogHits > 0 && <span className="text-emerald-600">인식 캐시 {rt.settings.recogHits}건</span>}
+                    <span className="text-gray-400">
+                      동시 텍스트 {rt.settings.genConcurrency} · 인식 {rt.settings.recogConcurrency}
+                      {rt.settings.overlap ? ' · 겹치기 ON' : ''}
+                      {rt.settings.deferThumb ? ' · 누끼 지연' : ''}
+                    </span>
+                  </div>
+                  {!ok && (
+                    <p className="text-[11px] text-amber-700 leading-snug">
+                      {rt.phase.recogMs > rt.phase.textMs
+                        ? '인식(사진 판정)이 가장 큽니다 — 도우미 GPU 여유가 있으면 겹치기가 켜집니다. 같은 폴더를 다시 돌리면 인식 캐시로 이 구간이 빠집니다.'
+                        : '텍스트 생성이 가장 큽니다 — 이 구간은 GPU 처리량 상한에 걸려 있어, 동시 개수를 올려도 더 빨라지지 않습니다.'}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
             {t.detailWaitMs > 0 && (
               <p className="text-[11px] text-gray-500 leading-snug">
                 <b>상세 준비</b>는 아직 자료를 안 받아 둔 상품에만 붙습니다 —
@@ -3617,7 +3680,11 @@ export default function AllInOneRegisterPanel() {
                       {/* 어디서 온 태그인지 — 연관검색어인지 조합으로 채운 것인지 구분돼야 손볼 수 있다. */}
                       {tj?.status === 'pending' && <span className="text-indigo-600">· 쿠팡 연관검색어 뽑는 중…</span>}
                       {agentHits > 0 && <span className="text-emerald-600">· 연관검색어 {agentHits}개 반영</span>}
-                      {tj?.status === 'error' && <span className="text-amber-600">· 연관검색어 실패({tj.message})</span>}
+                      {tj?.status === 'error' && (
+                        <span className="text-amber-600" title="태그 20칸은 카테고리 사전으로 이미 차 있습니다 — 등록은 그대로 됩니다.">
+                          · 연관검색어 {tj.message} (사전으로 채움)
+                        </span>
+                      )}
                       {!tj && !r.tagCandidates?.length && (
                         <span className="text-gray-400">· 조합으로 채움{helperDiag?.ok ? '' : ' (도우미를 켜면 연관검색어로 채웁니다)'}</span>
                       )}

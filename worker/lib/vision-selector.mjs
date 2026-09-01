@@ -32,13 +32,28 @@ import { basename } from 'node:path';
 //   → 의미 판정은 VLM, **기하 판정은 sharp(image-metrics)** 로 나눈다.
 //      image-metrics 의 cropped 게이트(피사체가 2개 이상 변에 닿음)·해상도·초점을 그대로 쓴다.
 //   sharp 미탑재면 null 을 돌려주고 호출부는 기존 VLM 선택을 그대로 쓴다(회귀 0).
+/**
+ * 측정 결과 캐시(경로 → 지표).
+ * 한 상품 안에서 measureCandidates 는 두 번 불린다 — ① 격자에 넣을 대표 후보를 고를 때
+ * ② VLM 이 통과시킨 후보의 기하 심사. 같은 사진을 두 번 재는 건 순수 낭비다(sharp 디코딩).
+ * 실행 중 사진은 바뀌지 않으므로 경로로 캐시해도 안전하다. 상한을 둬 100개 배치에서도 안 붓는다.
+ */
+const _metCache = new Map();
+const MET_CACHE_MAX = 4000;
+
 async function measureCandidates(paths, { onLog } = {}) {
   const out = new Map();
   // ⚡ 측정은 순수 CPU(sharp) 라 서로 기다릴 이유가 없다 — 후보 20여 장이면 순차는 체감된다.
   //    결과는 경로별로 Map 에 넣으므로 완료 순서와 무관하다(판정 결과 동일).
   const measured = await Promise.all(paths.map(async (p) => {
-    try { return { p, met: await measureImage(p) }; }
-    catch { return { p, met: null }; }
+    const hit = _metCache.get(p);
+    if (hit !== undefined) return { p, met: hit };
+    try {
+      const met = await measureImage(p);
+      if (_metCache.size >= MET_CACHE_MAX) _metCache.clear();   // 단순 상한(정확도에 무관)
+      _metCache.set(p, met);
+      return { p, met };
+    } catch { return { p, met: null }; }
   }));
   let depsFailed = false;
   for (const { p, met } of measured) {
@@ -100,6 +115,24 @@ const CELL = Math.max(96, Number(process.env.MEGALOAD_VISION_CELL) || 176);
 const GAP = 8;
 const RED = '#E31837';
 
+/**
+ * 비전 단계 실측 누적치.
+ * ---------------------------------------------------------------------------
+ * 왜 남기나: 여기가 파이프라인에서 가장 비싼 구간인데, 지금까지 "인식 11.2초" 같은 값은
+ * 사람이 한 번 재 보고 문서에 적은 것뿐이었다. 코드가 스스로 재지 않으면 다음 개선이
+ * 빨라졌는지 느려졌는지 말로만 다투게 된다(설계도 §5 의 검증 항목).
+ *   sheetMs = 격자 만드는 CPU 시간(sharp), vlmMs = 모델이 보는 시간(GPU), 둘은 성격이 다르다.
+ *   compact/verbose = 압축 판정으로 끝났나, 표준 스키마로 다시 물었나(재질문은 6초짜리다).
+ */
+const _stats = {
+  calls: 0, cells: 0, sheetMs: 0, vlmMs: 0,
+  compact: 0, verbose: 0, timeouts: 0, failed: 0,
+};
+export function visionStats() { return { ..._stats }; }
+export function resetVisionStats() {
+  for (const k of Object.keys(_stats)) _stats[k] = 0;
+}
+
 /** 단일 이미지를 흰배경 셀 버퍼로(contain 리사이즈). 실패 시 null. */
 async function cellBuffer(sharp, imgPath, cell = CELL) {
   try {
@@ -138,6 +171,7 @@ function numberBadge(sharp, n, cell = CELL) {
  * @returns {Promise<{b64:string, usedPaths:string[], cols:number}|null>}
  */
 export async function buildContactSheet(paths, { max = 24, cell = CELL, maxCols = 4 } = {}) {
+  const t0 = Date.now();
   const sharp = await ensureSharp();
   const src = (paths || []).filter(Boolean).slice(0, max);
   if (src.length === 0) return null;
@@ -170,7 +204,9 @@ export async function buildContactSheet(paths, { max = 24, cell = CELL, maxCols 
     .jpeg({ quality: 84 })
     .toBuffer();
 
-  return { b64: sheet.toString('base64'), usedPaths: cells.map((c) => c.path), cols };
+  _stats.sheetMs += Date.now() - t0;
+  _stats.cells += cells.length;
+  return { b64: sheet.toString('base64'), usedPaths: cells.map((c) => c.path), cols, px: W * H };
 }
 
 const VALID_TYPES = new Set(['product', 'texture', 'lifestyle', 'logo_text', 'delivery', 'review_ss', 'person', 'other']);
@@ -229,18 +265,24 @@ export async function judgeImages(paths, { model, onLog, purpose = 'main', timeo
   };
 
   const ask = async (prompt, numPredict) => {
+    const t0 = Date.now();
     try {
       const res = await generateVision({
         model, system: JUDGE_SYSTEM, prompt, images: [sheet.b64],
         format: 'json', options: { num_predict: numPredict }, timeoutMs,
       });
+      _stats.vlmMs += Date.now() - t0;
+      _stats.calls += 1;
       return parseJsonLoose(res.text);
     } catch (e) {
+      _stats.vlmMs += Date.now() - t0;
+      _stats.calls += 1;
       // 상한 초과는 "이 PC 가 느린 것"이라 실패와 구분해 알린다 — 사용자가 원인을 알아야
       // GPU 없는 PC 라는 걸 인지하고 기대치를 조정할 수 있다.
       const timedOut = e?.name === 'TimeoutError' || e?.name === 'AbortError';
       // 상한 초과는 "이 PC 에선 비전이 못 돈다"는 신호다 — 호출부가 상품마다 같은 시간을
       //   또 태우지 않도록(회로차단) 알려준다. 실패(undefined)만으로는 원인을 구분 못 한다.
+      if (timedOut) _stats.timeouts += 1; else _stats.failed += 1;
       if (timedOut) onTimeout?.();
       onLog?.(timedOut
         ? `[비전] 판정이 ${Math.round((timeoutMs || 0) / 1000)}초를 넘어 중단 — 이 상품은 기본 방식으로 처리합니다(GPU 가속이 없으면 정상).`
@@ -267,12 +309,13 @@ export async function judgeImages(paths, { model, onLog, purpose = 'main', timeo
       if (!type) { byIdx.clear(); break; }   // 하나라도 못 읽으면 압축 판정 전체를 버린다
       byIdx.set(i + 1, { type, product: type === 'product' });
     }
-    if (byIdx.size === n) declaredBest = Number(compact.bestMain ?? compact.best);
+    if (byIdx.size === n) { declaredBest = Number(compact.bestMain ?? compact.best); _stats.compact += 1; }
   }
 
   // ── 2차(폴백): 압축 판정이 불완전하면 현행 스키마로 다시 묻는다 ──────────
   //   여기까지 오면 예전과 완전히 같은 프롬프트·같은 파싱이라 결과도 예전과 같다.
   if (byIdx.size !== n) {
+    _stats.verbose += 1;
     if (codes) onLog?.(`[비전] 압축 판정 불완전(${codes.length}/${n}칸) — 표준 형식으로 재확인`);
     const j = await ask(
       judgeBody + `출력은 JSON만: {"cells":[{"i":1,"type":"product","product":true},...(1~${n} 전부)],"bestMain":<번호>}`,
@@ -368,10 +411,25 @@ export async function visionCurateProduct({ mainPool = [], detailPool = [], revi
   //   A/B 로 확인한 뒤에만 낮춘다 — 상한을 넘는 컷은 "미판정"이 되기 때문이다(아래 보존 처리).
   const MAX_CELLS = Math.max(4, Number(process.env.MEGALOAD_VISION_CELLS) || 24);
   const mainBudget = detail.length ? Math.max(2, Math.round(MAX_CELLS * 0.58)) : MAX_CELLS;
-  const mainForJudge = (preferred.length ? [...preferred, ...others] : main).slice(0, mainBudget);
+
+  // ⚡ 기하 심사(measureCandidates)는 어차피 아래에서 부른다 — 그 점수를 **여기서 먼저** 써서
+  //    격자에 넣을 대표 후보를 고른다(추가 비용 0, sharp CPU 라 GPU 와 겹쳐 돈다).
+  //    예전엔 상한에 걸려 잘려 나가는 컷이 **파일명 순서**로 정해졌다. 대표가 될 만한 컷이
+  //    뒤쪽에 있으면 심사조차 못 받았다(격자에 없으면 VLM 은 존재 자체를 모른다).
+  //    계열 우선순위(과일=원본 / 공산품=누끼본)는 그대로 지킨다 — 그 안에서만 점수로 줄 세운다.
+  const metricsForPick = main.length > mainBudget ? await measureCandidates(main, { onLog }) : null;
+  const rank = (p) => {
+    const m = metricsForPick?.get(p);
+    if (!m) return 0;
+    // 잘린 컷·업체 스튜디오컷은 대표로 못 쓰거나 위험하다 → 뒤로 민다(버리지는 않는다).
+    return (m.score || 0) - (m.cropped ? 40 : 0) - (m.studio ? 15 : 0);
+  };
+  const byRank = (arr) => (metricsForPick ? [...arr].sort((a, b) => rank(b) - rank(a)) : arr);
+  const ordered = preferred.length ? [...byRank(preferred), ...byRank(others)] : byRank(main);
+  const mainForJudge = ordered.slice(0, mainBudget);
   if (main.length > mainForJudge.length) {
     onLog?.(`[비전] 대표 후보 ${main.length}장 → ${mainForJudge.length}장으로 정리`
-      + `(${isFresh ? '원본' : '누끼본'} 우선, 상세컷 심사 칸 확보)`);
+      + `(${isFresh ? '원본' : '누끼본'} 우선${metricsForPick ? ' · 기하 점수 순' : ''}, 상세컷 심사 칸 확보)`);
   }
 
   // 격자 1: 대표 후보 + 상세컷 함께(대표는 상세컷으로도 승격 가능하므로 한 판에 심사).

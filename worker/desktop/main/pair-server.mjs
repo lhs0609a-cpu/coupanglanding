@@ -39,6 +39,8 @@ const MIME = {
   '.webp': 'image/webp', '.gif': 'image/gif',
 };
 const GEN_FILE = '_allinone.generated.jsonl';
+/** 이번 판의 실측(단계별 시간·비전 구간). run-folder 가 끝날 때 남긴다. */
+const TIMING_FILE = '_allinone.timing.json';
 
 /**
  * 요청 경로가 정말 root 안인지 — 경로 탈출(../ 등) 차단.
@@ -487,8 +489,12 @@ export async function startPairServer({
             .map((l) => { try { return JSON.parse(l); } catch { return null; } })
             .filter(Boolean);
           const st = await stat(join(folder, GEN_FILE));
+          // 이번 판의 **실측**(run-folder 가 남긴 _allinone.timing.json). 없으면 조용히 생략한다
+          //   — 구버전 도우미로 만든 폴더도 그대로 열려야 한다.
+          let timing = null;
+          try { timing = JSON.parse(await readFile(join(folder, TIMING_FILE), 'utf8')); } catch { /* 없으면 없는 대로 */ }
           res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ folder, generatedAt: st.mtime.toISOString(), records }));
+          return res.end(JSON.stringify({ folder, generatedAt: st.mtime.toISOString(), records, timing }));
         } catch (e) {
           res.writeHead(404, { ...cors, 'Content-Type': 'application/json' });
           return res.end(JSON.stringify({ error: `${GEN_FILE} 를 읽을 수 없습니다: ${e.message}`, folder }));

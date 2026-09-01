@@ -45,6 +45,7 @@ import { scanFolder } from './lib/folder-scanner.mjs';
 import { generateBatch } from './lib/ai-batch.mjs';
 import { resolveMarginLevel, presetBrackets } from './lib/margin-mini.mjs';
 import { makeThumbnailProcessor } from './lib/thumbnail-batch.mjs';
+import { visionStats } from './lib/vision-selector.mjs';
 import { buildReviewHtml } from './lib/review-html.mjs';
 import { selectBestMainImage, curateDetailImages, curateReviewImages } from './lib/image-selector.mjs';
 import { visionCurateProduct } from './lib/vision-selector.mjs';
@@ -427,8 +428,10 @@ async function main() {
 
   // 인식 실행 계획: 동시(overlap) / 순차 / 생략
   let recogPromise = Promise.resolve();
+  const recogT0 = Date.now();
   if (!cli['no-image-ai']) {
-    recogPromise = runRecognition().catch((e) => {
+    recogPromise = runRecognition().then(() => { phaseMs.recog = Date.now() - recogT0; }).catch((e) => {
+      phaseMs.recog = Date.now() - recogT0;
       // 인식이 죽어도 생성은 계속 — 사진은 원본/첫컷으로 폴백.
       console.log(`[${ts()}] ⚠️ 이미지인식 실패(원본 사진 유지): ${e.message}`);
       for (const p of products) {
@@ -736,6 +739,50 @@ async function main() {
       + ` · 대표가공 ${m(phaseMs.thumb)}분(${pct(phaseMs.thumb)}%)`
       + ` · 나머지(인식합류·저장 등) ${m(Math.max(0, total - phaseMs.text - phaseMs.thumb))}분`);
   }
+  // ── 실측을 파일로 남긴다 ──────────────────────────────────────────────
+  //   콘솔에만 찍으면 창을 닫는 순간 사라진다. 웹 검수 화면이 "이번 판이 몇 초 걸렸고
+  //   100개면 얼마인지"를 **실측으로** 말할 수 있어야, 다음 개선이 진짜인지 판정된다.
+  try {
+    const total = Date.now() - runT0;
+    const n = Math.max(1, products.length);
+    const vs = visionStats();
+    const timing = {
+      v: 1,
+      startedAt: runT0,
+      endedAt: Date.now(),
+      products: products.length,
+      totalMs: total,
+      perProductMs: Math.round(total / n),
+      per100Ms: Math.round((total / n) * 100),
+      phase: {
+        recogMs: phaseMs.recog,
+        textMs: phaseMs.text,
+        thumbMs: phaseMs.thumb,
+        // 나머지 = 스캔·저장·엔진 적재 등. 겹쳐 돈 구간이 있으므로 음수가 되지 않게 자른다.
+        otherMs: Math.max(0, total - phaseMs.text - phaseMs.thumb),
+      },
+      vision: vs,            // calls/cells/sheetMs/vlmMs/compact/verbose/timeouts/failed
+      settings: {
+        overlap, model, visionModel: visionReady ? visionModel : null,
+        genConcurrency: Number(cli.concurrency) || 1,
+        recogConcurrency,
+        cell: Number(process.env.MEGALOAD_VISION_CELL) || 176,
+        maxCells: Number(process.env.MEGALOAD_VISION_CELLS) || 24,
+        deferThumb: !!cli['defer-thumb'],
+        recogHits,
+      },
+      summary: { ok: summary.ok, needsReview: summary.needsReview, failed: summary.failed || 0 },
+    };
+    writeFileSync(outPrefix + '.timing.json', JSON.stringify(timing, null, 2), 'utf8');
+    const s = (v) => (v / 1000).toFixed(1);
+    console.log(`실측: 상품당 ${s(timing.perProductMs)}초 · 100개 환산 ${(timing.per100Ms / 60000).toFixed(1)}분`
+      + ` | 인식 ${s(phaseMs.recog)}초(격자 ${s(vs.sheetMs)} + 모델 ${s(vs.vlmMs)}, ${vs.calls}콜/${vs.cells}칸`
+      + `${vs.verbose ? `, 재질문 ${vs.verbose}` : ''}${vs.timeouts ? `, 상한초과 ${vs.timeouts}` : ''})`
+      + ` · 텍스트 ${s(phaseMs.text)}초 · 누끼 ${s(phaseMs.thumb)}초`);
+  } catch (e) {
+    console.log(`[경고] 실측 기록 실패(생성에는 영향 없음): ${e.message}`);
+  }
+
   console.log(`레코드: ${outJsonl}`);
   console.log(`검수화면: ${outHtml}  ← 브라우저로 열어 검수/승인`);
 
