@@ -576,8 +576,14 @@ export default function NaverSourcingCatalogPage() {
     noteBlock(null);
     const helper = await findHelper();
     if (!helper) { setImpNote('상세가 준비됐는데 도우미를 찾지 못했습니다 — 도우미를 실행한 뒤 다시 눌러 주세요.'); return; }
+    // ⚠️ **왜** 준비되지 않았는지까지 말한다. 이유를 빼면 사람은 "고르면 늘 절반만 온다"로만
+    //    받아들이고 원인을 못 찾는다 — 가장 흔한 사유는 관리자 도우미가 네이버에 로그인돼 있지
+    //    않아 상세를 못 뽑는 것이고, 그건 고칠 수 있는 문제다(모르면 영영 절반만 온다).
     setImpNote(dropped > 0
-      ? `${dropped}개는 아직 준비되지 않아 빼고 ${products.length}개로 진행합니다 — 나머지는 준비된 뒤 다시 가져와 주세요.`
+      ? `${dropped}개는 아직 준비되지 않아 빼고 ${products.length}개로 진행합니다.`
+        + (waitBlockRef.current
+          ? ` 준비되지 않은 이유: ${waitBlockRef.current}`
+          : ' 나머지는 준비된 뒤 다시 가져와 주세요.')
       : null);
     setImporting(true);
     // 0단계(상세 준비)가 여기서 끝났다 — 그 길이를 확정하고 1단계 시계를 켠다.
