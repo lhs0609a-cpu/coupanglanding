@@ -477,7 +477,7 @@ async function extract7z(archive, destDir, onProgress) {
  */
 function extractTarGz(archive, destDir) {
   return new Promise((resolve, reject) => {
-    const p = spawn('tar', ['-xzf', archive, '-C', destDir]);
+    const p = spawn('tar', ['-xzf', archive, '-C', destDir], { windowsHide: true });
     let err = '';
     p.stderr?.on('data', (d) => (err += d));
     p.on('error', reject);

@@ -231,7 +231,10 @@ export class OllamaManager {
       + `동시 ${want}개로 다시 띄웁니다(텍스트 생성이 약 2배 빨라집니다).`);
     try {
       const { execFile } = await import('node:child_process');
-      const kill = (cmd, args) => new Promise((res) => execFile(cmd, args, () => res()));
+      // ⚠️ windowsHide 를 빠뜨리면 **검은 콘솔 창이 깜빡인다**. Electron 메인에는 콘솔이 없어서
+      //    taskkill 같은 콘솔 프로그램을 띄울 때마다 윈도가 창을 새로 만든다(실측 2026-09-02:
+      //    화면 한가운데 터미널이 떴다 꺼졌다를 반복).
+      const kill = (cmd, args) => new Promise((res) => execFile(cmd, args, { windowsHide: true }, () => res()));
       if (process.platform === 'win32') await kill('taskkill', ['/IM', 'ollama.exe', '/F']);
       else await kill('pkill', ['-f', 'ollama serve']);
       // 포트가 풀릴 때까지 잠깐 — 곧바로 띄우면 EADDRINUSE 로 우리 것도 못 뜬다.
@@ -373,6 +376,14 @@ export class OllamaManager {
    *   무력화되므로, 반납할 때만큼은 포트를 쥔 쪽까지 함께 내린다.
    *   (트레이 앱 'ollama app.exe' 를 먼저 죽인다. 그놈이 살아 있으면 serve 를 다시 띄운다.)
    */
+  /**
+   * 외부 ollama 를 내렸는데 **또 살아난** 횟수. 트레이 앱(ollama app.exe)이 자동 실행이면
+   * 내려도 곧바로 다시 뜬다 — 그걸 60초마다 영원히 쫓아다니면 그 자체가 사고다
+   * (실측 2026-09-02: 유휴 정리가 1분마다 돌며 프로세스를 계속 죽이고 있었다).
+   * 몇 번 해 보고 안 되면 **포기하고 한 번만 말한다.** 다음 실행 때 다시 0 이 된다.
+   */
+  static FOREIGN_GIVEUP = 3;
+
   async stop({ includeForeign = false } = {}) {
     const pid = this.proc?.pid;
     this.proc = null;
@@ -384,6 +395,9 @@ export class OllamaManager {
       }
     }
     if (!includeForeign) return;
+    // 몇 번 해 봐도 되살아나면 그만둔다 — 여기서 물러서지 않으면 1분마다 남의 프로세스를
+    //   죽이는 일을 끝없이 반복하게 된다(그동안 사용자는 화면이 깜빡이는 것만 본다).
+    if ((this._foreignGiveUp || 0) >= OllamaManager.FOREIGN_GIVEUP) return;
 
     // 우리 것을 내렸는데도 포트가 살아 있으면 = 다른 설치본이 쥐고 있다는 뜻이다.
     await sleep(600);
@@ -391,7 +405,8 @@ export class OllamaManager {
     this.onLog('[유휴] 이 PC 에 따로 설치된 ollama 가 포트를 쥐고 있어 함께 내립니다 — 그러지 않으면 메모리가 돌아오지 않습니다.');
     try {
       const { execFile } = await import('node:child_process');
-      const kill = (cmd, args) => new Promise((res) => execFile(cmd, args, () => res()));
+      // ⚠️ windowsHide 필수 — 없으면 kill 한 번에 검은 콘솔 창이 하나씩 깜빡인다(위 주석 참고).
+      const kill = (cmd, args) => new Promise((res) => execFile(cmd, args, { windowsHide: true }, () => res()));
       if (process.platform === 'win32') {
         await kill('taskkill', ['/IM', 'ollama app.exe', '/T', '/F']);
         await kill('taskkill', ['/IM', 'ollama.exe', '/T', '/F']);
@@ -400,6 +415,16 @@ export class OllamaManager {
       }
       for (let i = 0; i < 10 && (await this.isUp()); i++) await sleep(300);
     } catch { /* 실패해도 다음 유휴 때 다시 시도한다 */ }
-    if (await this.isUp()) this.onLog('[유휴] 외부 ollama 를 내리지 못했습니다 — 메모리 반납이 일부만 됩니다.');
+    if (await this.isUp()) {
+      this._foreignGiveUp = (this._foreignGiveUp || 0) + 1;
+      if (this._foreignGiveUp >= OllamaManager.FOREIGN_GIVEUP) {
+        this.onLog('[유휴] 이 PC 에 설치된 ollama 가 자동으로 다시 실행됩니다 — 메모리 반납을 그만둡니다.'
+          + ' (ollama 트레이 앱의 "시작 시 실행"을 끄면 메모리가 온전히 돌아옵니다)');
+      } else {
+        this.onLog('[유휴] 외부 ollama 를 내리지 못했습니다 — 메모리 반납이 일부만 됩니다.');
+      }
+    } else {
+      this._foreignGiveUp = 0;   // 성공했으면 다시 센다
+    }
   }
 }

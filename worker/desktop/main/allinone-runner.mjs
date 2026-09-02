@@ -448,6 +448,8 @@ export async function startGeneration({
       ELECTRON_RUN_AS_NODE: '1',
       MEGALOAD_HF_CACHE: join(paths.userData, 'hf-cache'),
     },
+    // 콘솔 창을 만들지 않는다 — 자식이 늘어날수록 화면에 검은 창이 스치는 사고가 난다.
+    windowsHide: true,
   });
 
   // 실패 사유를 잃지 않도록 최근 로그·에러 라인을 버퍼링해 둔다.
