@@ -17,6 +17,13 @@ async function refresh() {
     : nv.persistent ? '✅ 로그인됨 (앱을 껐다 켜도, 재부팅해도 유지)'
     : '✅ 로그인됨 — 유지 처리 중…';
   $('sm-naver-login').disabled = !!nv.waiting || !!nv.loggedIn;
+  // 위쪽 빨간 버튼도 같은 상태를 따라간다 — 예전엔 이 버튼만 늘 활성이라, 이미 창이 떠 있는
+  //   동안 눌러도 아무 일이 없었다(사람에겐 "버튼이 고장난 것"으로 보인다).
+  const needBtn = $('sm-need-login-btn');
+  if (needBtn) {
+    needBtn.disabled = !!nv.waiting;
+    needBtn.textContent = nv.waiting ? '로그인 창에서 진행해 주세요…' : '지금 네이버 로그인';
+  }
   $('sm-naver-logout').disabled = !nv.loggedIn;
   // 자동 로그인 — 계정이 저장돼 있으면 세션이 끊겨도 알아서 다시 로그인한다.
   const cd = s.naverCredential || {};
@@ -43,7 +50,15 @@ $('sm-verify').onclick = async () => {
   const v = await api.invoke('stock-monitor:verify');
   $('sm-conn').textContent = v.valid ? '✅ 연결됨' : '❌ ' + (v.error || '실패');
 };
-$('sm-naver-login').onclick = async () => { await api.invoke('stock-monitor:naver-login'); await refresh(); };
+$('sm-naver-login').onclick = async () => {
+  try {
+    const r = await api.invoke('stock-monitor:naver-login');
+    if (r && r.busy) logLine('로그인 창이 이미 열려 있습니다 — 그 창에서 로그인해 주세요.');
+  } catch (e) {
+    logLine('로그인 창을 열지 못했습니다: ' + (e && e.message ? e.message : e));
+  }
+  await refresh();
+};
 $('sm-naver-logout').onclick = async () => { await api.invoke('stock-monitor:naver-logout'); await refresh(); };
 $('sm-cred-save').onclick = async () => {
   const id = $('sm-nid').value.trim();
@@ -59,7 +74,20 @@ $('sm-cred-save').onclick = async () => {
   }
   await refresh();
 };
-$('sm-need-login-btn').onclick = async () => { await api.invoke('stock-monitor:naver-login'); await refresh(); };
+// 누른 결과를 **반드시** 한 줄 남긴다 — 아무 반응이 없으면 사람은 버튼이 죽은 줄 안다.
+$('sm-need-login-btn').onclick = async () => {
+  const btn = $('sm-need-login-btn');
+  btn.disabled = true;
+  try {
+    const r = await api.invoke('stock-monitor:naver-login');
+    if (r && r.loggedIn) logLine('이미 네이버에 로그인되어 있습니다.');
+    else if (r && r.busy) logLine('로그인 창이 이미 열려 있습니다 — 그 창에서 로그인해 주세요.');
+    else logLine('네이버 로그인 창을 엽니다 — 창에서 로그인해 주세요.');
+  } catch (e) {
+    logLine('로그인 창을 열지 못했습니다: ' + (e && e.message ? e.message : e));
+  }
+  await refresh();
+};
 $('sm-cred-clear').onclick = async () => {
   await api.invoke('stock-monitor:naver-cred-clear');
   logLine('저장된 네이버 계정을 지웠습니다.');

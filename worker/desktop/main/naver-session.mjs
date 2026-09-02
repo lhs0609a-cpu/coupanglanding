@@ -201,6 +201,13 @@ export async function clearLogin() {
 // 크롬 창에서 **사람이 직접** 로그인한다. 저장된 계정이 있으면 ensureChromeLogin 이 먼저
 // 자동으로 시도하고, 그게 막힐 때만 사람을 부른다.
 let _loginBusy = false;
+/** 그 대기가 언제 시작됐나 — 멈춰 버린 대기를 털어내는 근거. */
+let _loginBusyAt = 0;
+/**
+ * 대기를 스스로 포기하는 한도. ensureChromeLogin 은 사람을 최대 10분 기다리는데,
+ * 그 앞에 게이트 쿨다운 대기가 더 붙을 수 있어 넉넉히 잡는다.
+ */
+const LOGIN_BUSY_MAX_MS = 12 * 60_000;
 
 export function isLoginWindowOpen() {
   return _loginBusy;
@@ -216,8 +223,29 @@ export async function openLoginWindow({ onLog = () => {} } = {}) {
     onLog('이미 네이버에 로그인되어 있습니다.');
     return { ok: true, already: true, loggedIn: true };
   }
-  if (_loginBusy) return { ok: true, already: true };
+  // ⚠️ 여기가 "버튼을 눌러도 아무 일도 안 난다"의 정체였다(실측 2026-09-02).
+  //    앞선 시도가 아직 돌고 있으면 **조용히 반환**했다 — 창도 안 뜨고, 로그 한 줄도 없고,
+  //    화면도 그대로다. 그 대기는 사람을 최대 10분 기다리므로, 그 10분 내내 버튼이 죽은 것처럼
+  //    보였다. 게다가 크롬 창을 닫아 버리면 대기는 계속 도는데 사람은 되돌릴 방법이 없었다.
+  //    → ① 정말 진행 중이면 **그렇다고 말하고** 창을 앞으로 끌어온다.
+  //       ② 크롬이 없거나 한도를 넘긴 대기는 **멈춘 것으로 보고 털어낸 뒤 새로 시작**한다.
+  if (_loginBusy) {
+    const stuckMs = Date.now() - _loginBusyAt;
+    let alive = false;
+    try { alive = await chromeRunning(); } catch { alive = false; }
+    if (alive && stuckMs < LOGIN_BUSY_MAX_MS) {
+      onLog('로그인 창이 이미 열려 있습니다 — 그 창에서 로그인해 주세요.'
+        + ' (창이 안 보이면 작업표시줄에서 크롬 창을 확인하세요)');
+      // ⚠️ 여기서 새 탭을 열지는 않는다 — 클릭마다 빈 탭이 쌓인다. 안내만 정확히 남긴다.
+      return { ok: true, already: true, busy: true };
+    }
+    onLog(alive
+      ? '앞선 로그인 대기가 너무 오래됐습니다 — 처음부터 다시 시작합니다.'
+      : '앞선 로그인 대기가 남아 있었지만 브라우저가 닫혀 있습니다 — 처음부터 다시 시작합니다.');
+    _loginBusy = false;
+  }
   _loginBusy = true;
+  _loginBusyAt = Date.now();
 
   void (async () => {
     try {
@@ -234,6 +262,7 @@ export async function openLoginWindow({ onLog = () => {} } = {}) {
       onLog('로그인에 실패했습니다: ' + (e?.message || e));
     } finally {
       _loginBusy = false;
+      _loginBusyAt = 0;
     }
   })();
 
