@@ -97,7 +97,17 @@ export default function NaverSourcingCatalogPage() {
   const [q, setQ] = useState('');
   const [queryInput, setQueryInput] = useState('');
   const [sort, setSort] = useState<Sort>('recent');
-  const [onlyDetail, setOnlyDetail] = useState(false);
+  /**
+   * 목록을 **바로 가져올 수 있는 것**(상세 확보분)으로만 좁힐지. 기본 켜짐.
+   * ---------------------------------------------------------------------------
+   * 왜 기본값을 바꿨나: 카탈로그에는 목록만 수집된 상품이 훨씬 많다(상세는 요청된 것만 뽑는다).
+   * 그런데 화면은 둘을 같은 카드로 보여 줬고, 사람은 당연히 "여기 있는 건 가져갈 수 있는 것"으로
+   * 읽는다. 10개를 고르면 5개만 오는 일이 그래서 생겼다 — 나머지는 그 자리에서 상세를 요청하고
+   * 기다려야 하는 것들이었다.
+   * ⚠️ 그렇다고 상세 없는 줄을 **카탈로그에서 빼지는 않는다.** 그러면 목록이 텅 비어 고를 것이
+   *    사라진다(발견이 이 화면의 존재 이유다). 기본 화면만 좁히고, 끄면 전부 보인다.
+   */
+  const [onlyDetail, setOnlyDetail] = useState(true);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   // 올인원으로 가져오기 — 고른 것만 내 PC 로 내려받아 폴더를 만든다.
@@ -824,7 +834,8 @@ export default function NaverSourcingCatalogPage() {
             checked={onlyDetail}
             onChange={(e) => { setPage(1); setOnlyDetail(e.target.checked); }}
           />
-          상세까지 받은 것만
+          바로 가져올 수 있는 것만
+          <span className="text-gray-400">(상세 확보)</span>
         </label>
 
         <label
@@ -1196,10 +1207,30 @@ export default function NaverSourcingCatalogPage() {
         </div>
       ) : products.length === 0 ? (
         <div className="rounded-xl border border-gray-200 bg-white p-10 text-center">
-          <p className="text-gray-700 font-medium">아직 수집된 상품이 없습니다.</p>
-          <p className="text-sm text-gray-500 mt-1">
-            관리자가 <b>네이버 소싱</b> 화면에서 카테고리를 수집하면 여기에 쌓입니다.
-          </p>
+          {/* ⚠️ 필터 때문에 빈 것을 "수집된 상품이 없다"고 하면 거짓말이 된다 —
+              목록은 쌓여 있는데 상세만 아직 없는 상태다. 갈라서 말한다. */}
+          {onlyDetail ? (
+            <>
+              <p className="text-gray-700 font-medium">바로 가져올 수 있는 상품이 아직 없습니다.</p>
+              <p className="text-sm text-gray-500 mt-1 leading-relaxed">
+                목록은 수집돼 있지만 <b>상세(옵션·상세글·고시정보)</b>가 아직 안 뽑힌 상태입니다.
+                상세는 <b>고른 뒤 요청</b>하면 뽑히고, 준비되는 대로 이어서 가져옵니다.
+              </p>
+              <button
+                onClick={() => { setPage(1); setOnlyDetail(false); }}
+                className="mt-3 px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                전체 보기 (상세 없는 것 포함)
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-gray-700 font-medium">아직 수집된 상품이 없습니다.</p>
+              <p className="text-sm text-gray-500 mt-1">
+                관리자가 <b>네이버 소싱</b> 화면에서 카테고리를 수집하면 여기에 쌓입니다.
+              </p>
+            </>
+          )}
         </div>
       ) : (
         <>
