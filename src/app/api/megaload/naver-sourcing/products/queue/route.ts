@@ -14,7 +14,9 @@ export const dynamic = 'force-dynamic';
  *   추출은 관리자 도우미가 대신한다 — 네이버를 두드리는 IP 는 계속 하나뿐이다.
  *
  * POST : 셀러가 고른 상품 중 상세 없는 것을 requested 로 올린다(쿠키 인증, 로그인한 누구나).
- * GET  : 관리자 도우미가 다음에 뽑을 것을 가져간다(Bearer 인증, 관리자만).
+ * GET  : 도우미가 다음에 뽑을 것을 가져간다(Bearer 인증).
+ *         · 관리자  — 큐 전체. 지금까지와 같다(미수집분 미리채움 idle=1 도 관리자만).
+ *         · 셀러    — **자기가 요청한 것만.** 자기 IP·자기 로그인으로 자기 것을 뽑는다.
  */
 
 /** 도우미가 한 번에 가져갈 작업 수 — 너무 많이 쥐면 앱이 꺼졌을 때 그만큼 멈춘 채로 남는다. */
@@ -72,8 +74,23 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * GET — 관리자 도우미가 다음 작업을 가져간다.
+ * GET — 도우미가 다음 작업을 가져간다.
  * 가져가는 즉시 running 으로 바꿔 다른 실행이 같은 걸 또 뽑지 않게 한다.
+ *
+ * ── 왜 셀러에게도 열었나 (2026-09-02) ──────────────────────────────────────
+ * 원래는 관리자 도우미 한 대만 뽑았다. "셀러 PC 가 직접 네이버를 열면 셀러마다 로그인·캡차를
+ * 겪는다"는 이유였고, 그 판단 자체는 지금도 옳다. 그런데 대가가 컸다 — **그 한 대가 멈추면
+ * 셀러 전원이 멈춘다.** 실측 2026-09-02: 관리자 도우미가 네이버에 로그인돼 있지 않아
+ * 요청이 쌓인 채 8분 대기 후 만료 → 셀러는 10개를 골라도 매번 5개만 받았다. 처리량도
+ * 그 한 대의 분당 12건이 전부였다.
+ *
+ * 그래서 **막지 않되, 강요하지도 않는다**:
+ *   · 셀러 도우미는 네이버에 로그인돼 있을 때만 큐를 돈다(도우미 쪽 게이트). 로그인이 없으면
+ *     예전 그대로 — 관리자 큐를 기다린다. 셀러에게 네이버 계정을 요구하지 않는다.
+ *   · 셀러는 **자기가 요청한 것만** 가져간다. 남의 요청을 남의 IP 로 대신 뽑을 이유가 없고,
+ *     그렇게 두면 한 사람의 IP 가 전체 트래픽을 뒤집어쓴다.
+ *   · 미수집분 미리채움(idle=1)은 계속 관리자만 — 아무도 원하지 않는 상품까지 뽑는 일은
+ *     한 곳에서만 판단한다(v0.5.4 에서 끈 그 동작이다).
  */
 export async function GET(request: NextRequest) {
   const accessToken = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();
@@ -92,12 +109,22 @@ export async function GET(request: NextRequest) {
 
   const service = await createServiceClient();
   const { data: profile } = await service.from('profiles').select('role').eq('id', user.id).single();
-  if (profile?.role !== 'admin') return NextResponse.json({ error: '관리자만 가져갈 수 있습니다.' }, { status: 403 });
+  const isAdmin = profile?.role === 'admin';
+
+  // 셀러는 **자기 요청분**만 집는다 → 자기 megaload_user_id 가 필요하다.
+  //   계정이 아직 없으면(신규) 가져갈 것도 없다 — 빈 손으로 돌려보낸다(에러가 아니다).
+  let myUserId: string | null = null;
+  if (!isAdmin) {
+    const { data: me } = await service
+      .from('megaload_users').select('id').eq('profile_id', user.id).maybeSingle();
+    myUserId = (me as { id?: string } | null)?.id ?? null;
+    if (!myUserId) return NextResponse.json({ jobs: [] });
+  }
 
   const { searchParams } = new URL(request.url);
   const limit = Math.min(CLAIM_LIMIT, Math.max(1, Number(searchParams.get('limit') || '3')));
-  // 미수집분까지 채울지 — 셀러 요청이 없을 때 놀지 않게 하는 옵션(기본은 요청만).
-  const includeIdle = searchParams.get('idle') === '1';
+  // 미수집분까지 채울지 — 아무도 원하지 않는 상품까지 뽑는 판단이라 **관리자만** 할 수 있다.
+  const includeIdle = isAdmin && searchParams.get('idle') === '1';
 
   // ★ running 이 오래 묶여 있으면 도우미가 중간에 꺼진 것이다 — 30분 지나면 다시 집는다.
   const stale = new Date(Date.now() - 30 * 60 * 1000).toISOString();
@@ -107,10 +134,14 @@ export async function GET(request: NextRequest) {
     .lt('detail_at', stale);
 
   const statuses = includeIdle ? ['requested', 'none'] : ['requested'];
-  const { data: rows, error } = await service
+  let q = service
     .from('sh_naver_sourcing_products')
     .select('id, product_no, url, title')
-    .in('detail_status', statuses)
+    .in('detail_status', statuses);
+  // 셀러: 내가 요청한 것만. (같은 상품을 여러 명이 요청하면 detail_requested_by 는 마지막
+  //   요청자다 — 그때는 그 사람의 도우미가 집고, 나머지는 결과를 같이 받는다. 상품은 공용이다.)
+  if (!isAdmin) q = q.eq('detail_requested_by', myUserId);
+  const { data: rows, error } = await q
     // 못 뽑는 주소가 앞자리를 차지하지 않게 넉넉히 뽑아서 거른다(아래에서 limit 까지만 넘긴다).
     .order('detail_request_count', { ascending: false })
     .order('detail_requested_at', { ascending: true, nullsFirst: false })

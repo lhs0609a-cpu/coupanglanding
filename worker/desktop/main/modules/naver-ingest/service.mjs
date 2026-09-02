@@ -1193,8 +1193,38 @@ async function drainQueue(p, root, want, seed = []) {
 /** 크롬 없음 안내는 한 번만 — 60초마다 같은 줄이 쌓이면 진짜 로그가 안 보인다. */
 let noChromeWarned = false;
 
+/** 셀러 도우미가 "로그인이 없어 쉰다"는 안내는 한 번만 — 60초마다 같은 줄을 쌓지 않는다. */
+let noLoginWarned = false;
+
 async function queueTick() {
   if (queueBusy || detail.running || collection.running) return;   // 사람이 시킨 일이 우선이다
+
+  /**
+   * ★ 셀러 도우미도 **자기 요청은 자기 IP 로** 뽑는다(2026-09-02).
+   * ---------------------------------------------------------------------------
+   * 원래는 관리자 도우미 한 대만 뽑았다. 그 한 대가 멈추면 셀러 전원이 멈췄고, 처리량도
+   * 그 한 대의 분당 12건이 전부였다(실측: 10개를 골라도 매번 5개만 왔다).
+   * 이제 서버가 셀러에게도 **자기가 요청한 것만** 내준다.
+   *
+   * ⚠️ 다만 **이미 로그인돼 있을 때만** 돈다. 여기서 자동 로그인을 돌리면 셀러마다 로그인
+   *    시도가 붙고, 캡차는 정확히 그 시도에 붙는다(실측: 하루 4번) — 이 프로젝트가 계속
+   *    피해 온 것이다. 로그인이 없으면 조용히 쉬고, 예전처럼 관리자 큐가 대신 뽑는다.
+   *    즉 셀러에게 네이버 계정을 **요구하지 않는다.** 해 둔 사람만 자기 IP 를 쓴다.
+   */
+  if (!isAdmin()) {
+    let loggedIn = false;
+    try { loggedIn = !!(await loginState())?.loggedIn; } catch { loggedIn = false; }
+    if (!loggedIn) {
+      if (!noLoginWarned) {
+        noLoginWarned = true;
+        pushLog('네이버 로그인이 없어 상세 준비를 쉽니다 — 로그인해 두시면 고르신 상품의 상세를 '
+          + '이 PC 에서 직접 준비합니다(더 빨리 옵니다). 안 하셔도 관리자 쪽에서 준비됩니다.');
+      }
+      return;
+    }
+    noLoginWarned = false;
+  }
+
   // 이 워커는 기본으로 켜져 무인으로 돈다 — 크롬이 없으면 조용히 쉰다(에러를 매분 찍지 않는다).
   if (!isChromeAvailable()) {
     if (!noChromeWarned) {
@@ -1214,7 +1244,9 @@ async function queueTick() {
     if (!seed.length) return;
 
     // 로그인이 끊겨 있으면 되살린다(창을 잡기 전에 — 안 그러면 창 1개 설정에서 교착).
-    await ensureNaverLogin().catch(() => null);
+    //   ⚠️ 관리자에서만 한다. 셀러 경로는 위 게이트를 이미 통과했으므로 로그인이 살아 있고,
+    //      여기서 굳이 로그인 흐름을 타면 캡차를 자초한다(셀러 PC 에서 캡차는 막다른 길이다).
+    if (isAdmin()) await ensureNaverLogin().catch(() => null);
     if (!p.running) await p.start();
     const root = ensureRoot(join(deps.userDataDir || '.', 'naver-sourcing'));
     pushLog(`셀러 요청 상세를 처리합니다 — 창 ${want}개 동시, 큐가 빌 때까지.`);

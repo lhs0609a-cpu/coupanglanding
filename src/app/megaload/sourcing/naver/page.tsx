@@ -190,11 +190,17 @@ export default function NaverSourcingCatalogPage() {
       const st = await fetchStatus(helper.ep);
       if (!st || st === 'unsupported') { noteBlock(null); return; }
       if (!st.account) {
-        noteBlock('이 PC 도우미에 메가로드 계정이 로그인돼 있지 않습니다 — 상세는 로그인된 관리자 도우미만 가져갑니다. 도우미 창에서 로그인해 주세요.');
+        noteBlock('이 PC 도우미에 메가로드 계정이 로그인돼 있지 않습니다 — 도우미 창에서 로그인해 주세요.');
         return;
       }
-      if (st.isAdmin && !st.naverLogin?.loggedIn) {
-        noteBlock('이 PC 도우미가 네이버에 로그인돼 있지 않습니다 — 자동 로그인이 안 되면 상세를 못 가져옵니다. 도우미에서 네이버 로그인을 확인해 주세요.');
+      // ⚠️ 예전엔 "상세는 관리자 도우미만 가져간다"고 적었는데, 이제 사실이 아니다(2026-09-02).
+      //    네이버에 로그인해 둔 도우미는 **자기가 요청한 것을 자기 IP 로** 직접 뽑는다.
+      //    로그인이 없으면 관리자 큐가 대신 뽑는다 — 그때는 그 도우미 사정에 달렸으므로,
+      //    "이 PC 에서 하면 더 빠르다"는 사실을 알려 준다(강요하지는 않는다).
+      if (!st.naverLogin?.loggedIn) {
+        noteBlock(st.isAdmin
+          ? '이 PC 도우미가 네이버에 로그인돼 있지 않습니다 — 자동 로그인이 안 되면 상세를 못 가져옵니다. 도우미에서 네이버 로그인을 확인해 주세요.'
+          : '이 PC 도우미에 네이버 로그인이 없어, 상세를 관리자 쪽에서 준비하는 중입니다(그쪽 사정에 따라 늦어질 수 있습니다). 도우미에서 네이버에 로그인해 두시면 고르신 상품을 이 PC 가 직접 준비합니다 — 훨씬 빠릅니다.');
         return;
       }
       noteBlock(null);
