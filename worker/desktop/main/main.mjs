@@ -22,6 +22,7 @@ import { WorkerRunner } from './worker-runner.mjs';
 import { AdRunner } from './ad-runner.mjs';
 import { startPairServer } from './pair-server.mjs';
 import { startGeneration, setEngineGate, isGenerating } from './allinone-runner.mjs';
+import * as ollamaAutostart from './ollama-autostart.mjs';
 import * as bootstrap from './bootstrap.mjs';
 import { setupAutoUpdate, checkForUpdatesNow } from './auto-update.mjs';
 import { loadModules } from './shell/registry.mjs';
@@ -386,9 +387,22 @@ function updateTray() {
   for (const fn of trayContribs) {
     try { moduleItems.push(...(fn(ctx) || [])); } catch { /* skip */ }
   }
+  // 우리가 ollama 자동 실행을 꺼 둔 동안에만 되돌리기를 보여준다 — 남이 설정한 것을
+  //   우리가 만들어 내지도, 안 끈 것을 껐다고 말하지도 않는다.
+  const autostartItems = ollamaAutostart.isDisabledByUs(store)
+    ? [{
+      label: 'ollama 자동 실행 되돌리기',
+      click: () => {
+        ollamaAutostart.restore(store, { onLog: (m) => send('thumbnail-gpu:comfy-log', m) })
+          .then(() => updateTray())
+          .catch(() => { /* 실패 사유는 위 로그로 나간다 */ });
+      },
+    }]
+    : [];
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '창 열기', click: () => { win.show(); } },
     ...(moduleItems.length ? [{ type: 'separator' }, ...moduleItems] : []),
+    ...(autostartItems.length ? [{ type: 'separator' }, ...autostartItems] : []),
     { type: 'separator' },
     { label: '종료', click: () => { app.isQuitting = true; app.quit(); } },
   ]));
@@ -586,6 +600,20 @@ app.whenReady().then(async () => {
    */
   const sweep = setInterval(() => { try { scheduleEngineRelease(); } catch { /* ignore */ } }, 60_000);
   sweep.unref?.();
+
+  /**
+   * ★ ollama 트레이 앱의 "시작 시 실행"을 끈다(원래 값은 보관 — 트레이 메뉴로 되돌릴 수 있다).
+   *   왜 여기서: 이 PC 에 ollama 가 따로 설치돼 있으면 로그인 때 트레이 앱이 뜨고, 도우미가
+   *   유휴 반납으로 엔진을 내리는 즉시 포트를 물려받아 모델을 다시 올린다(실측 1초 미만).
+   *   그러면 반납이 무력화되고, 우리는 1분마다 남의 프로세스를 죽이는 싸움을 하게 된다.
+   *   ⚠️ 사용자에게 "설정에서 꺼 주세요"라고 부탁하지 않는다 — 그 부탁을 실행하는 사람은 거의
+   *      없고, 못 지키면 도우미가 계속 이상하게 동작한다. 우리가 끄고, 되돌릴 길을 준다.
+   *   엔진은 필요할 때 도우미가 띄우므로 기능은 하나도 줄지 않는다.
+   */
+  ollamaAutostart.disable(store, {
+    onLog: (m) => send('thumbnail-gpu:comfy-log', m),
+  }).then((r) => { if (r.changed) updateTray(); }).catch(() => { /* 실패해도 앱 동작에는 영향 없다 */ });
+
   autoStartIfReady();
 }).catch((e) => {
   // 시작 중 예외가 나면 조용히 죽지 않고 원인을 보여준다(= "아무것도 안 뜸" 방지/진단).
