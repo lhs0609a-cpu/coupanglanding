@@ -24,6 +24,8 @@ import {
   MARGIN_PRESETS, applyMarginPreset, calculateSellingPrice, type MarginPresetLevel,
 } from '@/lib/megaload/services/margin-pricing';
 import type { AllinoneTiming } from '@/lib/megaload/allinone-local';
+// 마지막 생성이 어떻게 끝났는지(실패 사유)를 도우미에게 묻는다 — 0건일 때 이유를 말하기 위해.
+import { fetchImportState } from '@/lib/megaload/naver-ingest-local';
 import {
   diagnoseLocalHelper, discoverLocalEndpoint, fetchLocalManifest,
   fetchLocalList, classifyLocalImages, productDirOf, localFileUrl, fetchLocalFile,
@@ -1263,6 +1265,23 @@ export default function AllInOneRegisterPanel() {
   // 이미지도 shim(handle.getFile→fetchLocalFile)으로 감싸 기존 등록 업로드 경로를 그대로 재사용한다.
   // → Storage 선업로드 없음(승인분만 등록 때 올라감), 폴더 재선택 없음.
   // 반환값은 방금 만든 카드 목록 — 무인 자동등록이 "몇 건 실렸는지"를 상태 갱신을 기다리지 않고 알아야 한다.
+  /**
+   * 마지막 생성이 실패로 끝났으면 그 사유를 가져온다. 실패가 아니면 null 로 지운다.
+   * 도우미가 구버전이거나 응답이 없으면 조용히 넘어간다 — 진단이 안 되는 것뿐, 화면은 그대로 돈다.
+   */
+  const probeLastGenFailure = useCallback(async (ep: LocalEndpoint) => {
+    try {
+      const st = await fetchImportState(ep);
+      const g = st?.gen ?? null;
+      if (!g || g.running) { setLastGenFail(null); return; }
+      // error 가 사유의 원본이다. 없으면 종료코드로라도 말한다(0 이 아니면 비정상 종료).
+      const why = g.error || (g.code != null && g.code !== 0 ? `생성이 비정상 종료됐습니다(코드 ${g.code})` : null);
+      setLastGenFail(why || (st?.stopped && st.failed > 0 ? `가져오기 ${st.failed}건 실패 — ${st.stopped}` : null));
+    } catch {
+      setLastGenFail(null);
+    }
+  }, []);
+
   const handleLoadFromHelper = useCallback(async (): Promise<Row[]> => {
     setError('');
     setScanning(true);
@@ -1289,6 +1308,9 @@ export default function AllInOneRegisterPanel() {
 
       manifestAtRef.current = mf.generatedAt ? new Date(mf.generatedAt).getTime() : 0;
       setRunTiming(mf.timing ?? null);
+      // 결과가 0건이면 "왜 없는지"를 도우미에게 물어 둔다(아래 안내 문구가 이 값을 쓴다).
+      if ((mf.records || []).length === 0) void probeLastGenFailure(ep as LocalEndpoint);
+      else setLastGenFail(null);
       const recs = mf.records as GenRecord[];
       // 누끼가 아직 도는 중인 상품 수 — 등록 게이트와 안내 배너가 이 값을 본다.
       setThumbPendingCount(recs.filter((r) => r?.thumbPending).length);
@@ -1391,6 +1413,15 @@ export default function AllInOneRegisterPanel() {
    * 스스로는 모른다 —— 지난 판 카드를 이번 것으로 알고 다시 등록하면 같은 상품이 두 번 올라간다.
    */
   const manifestAtRef = useRef(0);
+  /**
+   * 도우미가 알려 준 **마지막 생성의 결말**(실패 사유·중단 사유).
+   * ---------------------------------------------------------------------------
+   * 0건일 때 화면은 지금까지 "올인원 생성을 먼저 완료하세요"라고만 했다. 그런데 실제로 가장
+   * 흔한 경우는 **생성을 돌렸는데 실패한 것**이다(예: 텍스트 엔진이 안 떠서 중단). 그때 이
+   * 문구는 사실이 아니고, 사람은 멀쩡히 돌린 작업을 "안 돌렸다"는 말과 함께 돌려받는다.
+   * 도우미는 사유를 알고 있다(gen.error / stopped) — 물어서 그대로 옮긴다.
+   */
+  const [lastGenFail, setLastGenFail] = useState<string | null>(null);
   /**
    * 도우미가 남긴 **이번 판 실측**(단계별 시간·비전 구간).
    * 예전 리포트는 "웹이 버튼을 누른 순간 ~ 카드가 뜬 순간"의 벽시계뿐이라, 느렸을 때
@@ -3817,6 +3848,22 @@ export default function AllInOneRegisterPanel() {
           );
         })}
       </div>
+
+      {/* ⚠️ 0건인데 **생성이 실패해서** 0건인 경우가 가장 흔하다. 그때 "생성을 먼저 완료하세요"는
+          사실이 아니다 — 사람은 멀쩡히 돌린 작업을 "안 돌렸다"는 말과 함께 돌려받는다.
+          도우미가 아는 사유를 그대로 옮긴다. */}
+      {rows.length === 0 && !scanning && lastGenFail && (
+        <div className="rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 space-y-1">
+          <p className="text-sm font-bold text-red-800">
+            마지막 생성이 끝까지 가지 못했습니다 — 그래서 카드가 0건입니다.
+          </p>
+          <p className="text-sm text-red-700 leading-snug break-words">{lastGenFail}</p>
+          <p className="text-[11px] text-red-600 leading-snug">
+            가져오기(폴더 만들기)는 됐을 수 있습니다 — 원인을 고친 뒤 도우미의 <b>올인원 생성</b>에서
+            같은 폴더를 다시 돌리면 처음부터 받을 필요가 없습니다.
+          </p>
+        </div>
+      )}
 
       {rows.length === 0 && !scanning && (
         <div className="text-center text-sm text-gray-400 py-16 border-2 border-dashed border-gray-200 rounded-xl">
