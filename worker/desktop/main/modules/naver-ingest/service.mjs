@@ -149,7 +149,21 @@ export function initService({ store, send, userDataDir, getAccount, getToken, we
   //
   //   그래서 기본은 **요청된 것만** 뽑는다. 서버 라우트 주석("기본은 요청만")과도 이제 맞는다.
   //   미리채움이 필요하면 setQueueWorker({ on:true, idle:true }) 로 관리자가 명시적으로 켠다.
-  const qw = store?.get('naverIngestQueueWorker', null) || { on: true, idle: false };
+  /**
+   * 큐 워커 기본값. idle=true 면 **요청이 없을 때 미수집분까지 채운다**.
+   * ---------------------------------------------------------------------------
+   * v0.5.4 에서 이걸 껐다 — 836개 카테고리 전체를 미리 뽑느라 70분 동안 네이버를 두드렸고,
+   * 그게 419 를 불러 정작 셀러가 요청한 상품이 뒤로 밀렸기 때문이다. 그 판단은 그때 옳았다.
+   * 이제 다시 켠다(사용자 확정 2026-09-02) — 전제가 바뀌었다:
+   *   · 서버 큐가 **요청분을 먼저** 준다(detail_request_count DESC → requested_at ASC).
+   *     미리채움은 남는 시간에만 얹히므로, 요청한 상품이 뒤로 밀리지 않는다.
+   *   · 셀러 요청은 셀러 IP 가 나눠 가져간다(v0.5.9) — 관리자 도우미가 미리채움에 쓸 여유가 생겼다.
+   *   · 무엇보다 **셀러 화면에는 상세가 확보된 것만 보인다.** 미리 채워 두지 않으면 카탈로그가
+   *     비어 보인다 — 고를 것이 없는 카탈로그는 존재 이유가 없다.
+   * ⚠️ 서버가 idle=1 을 **관리자에게만** 허용하므로, 셀러 도우미에 이 값이 켜져 있어도
+   *    자기 요청분만 가져간다(남의 몫을 미리 뽑지 않는다).
+   */
+  const qw = store?.get('naverIngestQueueWorker', null) || { on: true, idle: true };
   if (qw.on) {
     queueOpts = { idle: !!qw.idle };
     queueTimer = setInterval(() => { queueTick().catch(() => {}); }, QUEUE_POLL_MS);

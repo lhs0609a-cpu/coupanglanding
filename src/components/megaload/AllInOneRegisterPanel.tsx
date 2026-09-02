@@ -894,6 +894,31 @@ export default function AllInOneRegisterPanel() {
 
   const approvedCount = rows.filter((r) => r.approved && r.status !== 'success').length;
 
+  /**
+   * 지금 이대로 등록되는가 — **사유별로** 센다.
+   * ---------------------------------------------------------------------------
+   * 카드가 떴다고 등록되는 게 아니다. 쿠팡이 무조건 요구하는 값(카테고리·판매가·대표이미지)과
+   * 우리가 막는 값(상품명에서 못 뽑아 직접 입력해야 하는 필수옵션)이 갖춰져야 한다.
+   * 지금까지 그 사실은 **등록 버튼을 누른 뒤 빨간 줄**로만 알 수 있었다 — 100개를 돌려 놓고
+   * 그제야 "몇 개는 손봐야 한다"를 알게 되니, 무엇을 얼마나 손대야 하는지 가늠할 수가 없었다.
+   * 여기서 미리, 사유별로 묶어 보여 준다.
+   */
+  const readiness = (() => {
+    const pending = rows.filter((r) => r.gen && r.status !== 'success');
+    const noCategory: Row[] = [], lowPrice: Row[] = [], noImage: Row[] = [], needOption: Row[] = [];
+    let ready = 0;
+    for (const r of pending) {
+      const e = r.edit;
+      let bad = false;
+      if (!e.categoryCode) { noCategory.push(r); bad = true; }
+      if (e.sellingPrice == null || e.sellingPrice < 100) { lowPrice.push(r); bad = true; }
+      if (r.mainImages.length === 0) { noImage.push(r); bad = true; }
+      if (unresolvedOptionInput(e, optionPreviews.get(r.uid)).length > 0) { needOption.push(r); bad = true; }
+      if (!bad) ready += 1;
+    }
+    return { total: pending.length, ready, noCategory, lowPrice, noImage, needOption };
+  })();
+
   // ── 인증(KC) 미리보기 ────────────────────────────────────────────
   // 등록 payload 와 같은 grounding 함수를 서버에서 돌려, "이 인증번호가 어느
   // 쿠팡 인증 항목으로 들어가는지"를 검수 단계에서 미리 보여준다.
@@ -3374,6 +3399,50 @@ export default function AllInOneRegisterPanel() {
             );
           })}
           <span className="text-[11px] text-gray-400 ml-1">전 카드 판매가 일괄 적용 · 정가는 판매가×1.5(할인배지)</span>
+        </div>
+      )}
+
+      {/* ── 등록 준비 상태 ────────────────────────────────────────────────
+          "지금 이대로 몇 개가 올라가고, 몇 개는 손이 필요한가"를 누르기 **전에** 말한다. */}
+      {rows.length > 0 && readiness.total > 0 && (
+        <div className={`rounded-xl border-2 px-4 py-3 space-y-1.5 ${
+          readiness.ready === readiness.total ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50'
+        }`}>
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className={`text-sm font-bold ${readiness.ready === readiness.total ? 'text-emerald-800' : 'text-amber-900'}`}>
+              {readiness.ready === readiness.total
+                ? `✅ ${readiness.total}개 전부 지금 이대로 등록됩니다`
+                : `바로 등록 가능 ${readiness.ready}개 · 손봐야 하는 것 ${readiness.total - readiness.ready}개`}
+            </span>
+          </div>
+          {readiness.ready !== readiness.total && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-amber-900">
+              {readiness.needOption.length > 0 && (
+                <span>옵션 직접 입력 <b>{readiness.needOption.length}</b>개
+                  <span className="text-amber-700"> — 상품명에 용량·수량이 없어 값을 못 뽑았습니다(빨간 칸)</span>
+                </span>
+              )}
+              {readiness.noCategory.length > 0 && (
+                <span>카테고리 없음 <b>{readiness.noCategory.length}</b>개
+                  <span className="text-amber-700"> — 카드에서 📁 로 고르세요</span>
+                </span>
+              )}
+              {readiness.lowPrice.length > 0 && (
+                <span>판매가 미입력·100원 미만 <b>{readiness.lowPrice.length}</b>개</span>
+              )}
+              {readiness.noImage.length > 0 && (
+                <span>대표이미지 없음 <b>{readiness.noImage.length}</b>개
+                  <span className="text-amber-700"> — 이 건은 등록할 수 없습니다</span>
+                </span>
+              )}
+            </div>
+          )}
+          {readiness.ready !== readiness.total && (
+            <p className="text-[11px] text-amber-700 leading-snug">
+              손봐야 하는 것을 그대로 두고 <b>승인분 등록</b>을 누르면 그 카드는 빠집니다 —
+              지금 고쳐 두시면 이번 판에 함께 올라갑니다.
+            </p>
+          )}
         </div>
       )}
 

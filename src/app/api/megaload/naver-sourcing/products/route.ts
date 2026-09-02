@@ -62,6 +62,8 @@ export async function GET(request: NextRequest) {
   const category = (searchParams.get('category') || '').trim();
   const path = (searchParams.get('path') || '').trim();     // 카테고리 트리에서 고른 이름 경로
   const onlyDetail = searchParams.get('detail') === '1';
+  // 관리자 진단용 — 걸러진 줄까지 전부 본다(정리·집계에 필요하다).
+  const showAll = searchParams.get('all') === '1';
   const sort = searchParams.get('sort') || 'recent';   // recent | price | review
 
   const service = await createServiceClient();
@@ -101,6 +103,22 @@ export async function GET(request: NextRequest) {
     query = query.or(`category_path.eq.${path},category_path.like.${path}${PATH_SEP}*`);
   }
   if (onlyDetail) query = query.eq('detail_status', 'done');
+
+  /**
+   * ★ 끝내 등록까지 갈 수 없는 줄은 **셀러에게 보이지 않게** 한다(사용자 확정 2026-09-02).
+   * ---------------------------------------------------------------------------
+   * 담는 쪽(POST)은 이미 마켓·쇼핑윈도·배너를 걸러 낸다(KEEP_UNSUPPORTED_STORES=false).
+   * 그런데 그 필터가 생기기 **전에 쌓인 줄**이 그대로 남아 있다 — 셀러 화면에는 여전히 보이고,
+   * 고르면 "상세 미지원"으로 막힌다. 보여 주고 막는 것보다 안 보여 주는 게 맞다.
+   *   · 스토어: 상세를 뽑을 수 있는 두 호스트만(smartstore·brand) — 화이트리스트가 안전하다.
+   *   · 상태: failed 는 이미 뽑아 보고 실패한 줄이다. 다시 될 일이 없으므로 뺀다.
+   * 관리자는 all=1 로 전부 본다(무엇이 왜 빠졌는지 봐야 정리할 수 있다).
+   */
+  if (!showAll) {
+    query = query
+      .or('url.ilike.%smartstore.naver.com/%,url.ilike.%brand.naver.com/%')
+      .neq('detail_status', 'failed');
+  }
 
   if (sort === 'price') query = query.order('price', { ascending: true });
   else if (sort === 'review') query = query.order('review_count', { ascending: false });
