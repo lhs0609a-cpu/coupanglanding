@@ -90,8 +90,15 @@ export async function GET(request: NextRequest) {
     // '미분류' = 트리 어느 가지에도 안 붙는 것 + 경로가 아예 없는 것.
     // 알려진 401개 경로를 not-in 으로 넘기면 URL 이 8KB 를 넘는다 → 실제로 존재하는
     // 고아 경로만 찾아서 in 으로 건다(보통 한두 개다).
-    const { data: paths } = await service
-      .from('sh_naver_sourcing_products').select('category_path').limit(20000);
+    // ★ 한 요청은 1,000행에서 잘린다(Supabase 기본 max-rows) — limit(20000) 은 그냥 무시된다.
+    //   categories/route.ts 와 같은 함정이라 같은 방식으로 끝까지 넘겨 읽는다(실측 2026-09-04).
+    const paths: { category_path: string | null }[] = [];
+    for (let from = 0; from < 20000; from += 1000) {
+      const { data: chunk } = await service
+        .from('sh_naver_sourcing_products').select('category_path').range(from, from + 999);
+      paths.push(...(chunk ?? []));
+      if ((chunk ?? []).length < 1000) break;
+    }
     const nodes = flattenTree();
     const orphans = [...new Set((paths ?? [])
       .map((r) => (r.category_path || '').trim())

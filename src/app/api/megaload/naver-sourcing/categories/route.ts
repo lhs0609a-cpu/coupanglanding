@@ -23,20 +23,32 @@ export const dynamic = 'force-dynamic';
  */
 const SCAN_LIMIT = 20000;
 
+/**
+ * ★ 한 요청이 돌려주는 최대 행 — Supabase(PostgREST) 서버 기본값이다.
+ * `.limit(20000)` 을 줘도 **1,000 에서 조용히 잘린다**(실측 2026-09-04: 표에 2,470행이
+ * 있는데 카탈로그 총계가 정확히 1,000 으로 찍혔고, 키위/참다래 341개가 13개로 보였다).
+ * 잘린 줄 수가 SCAN_LIMIT 보다 작으니 truncated 경고도 영영 안 켜졌다 — 틀린 숫자를
+ * 자신 있게 보여 주고 있었다. 그래서 range 로 페이지를 넘기며 끝까지 읽는다.
+ */
+const PAGE = 1000;
+
 export async function GET() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
 
   const service = await createServiceClient();
-  const { data, error } = await service
-    .from('sh_naver_sourcing_products')
-    .select('category_path, detail_status')
-    .limit(SCAN_LIMIT);
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  const rows = data ?? [];
+  const rows: { category_path: string | null; detail_status: string | null }[] = [];
+  for (let from = 0; from < SCAN_LIMIT; from += PAGE) {
+    const { data, error } = await service
+      .from('sh_naver_sourcing_products')
+      .select('category_path, detail_status')
+      .range(from, from + PAGE - 1);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const chunk = data ?? [];
+    rows.push(...chunk);
+    if (chunk.length < PAGE) break;      // 마지막 페이지 — 더 없다
+  }
   // 같은 경로가 수백 번 나오므로 먼저 경로별로 접는다(비교 횟수를 노드×경로로 줄인다).
   const byPath = new Map<string, { total: number; ready: number }>();
   for (const r of rows) {
