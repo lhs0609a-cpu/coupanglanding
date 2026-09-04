@@ -28,6 +28,14 @@ const rand = (min, max) => min + Math.random() * (max - min);
 
 /** 진입점 — 주소로 직접 여는 것이 허용된 **유일한** 두 곳이다(설계도 §14 규칙 1). */
 const HOME_URL = 'https://shopping.naver.com/ns/home';
+
+/**
+ * clickLink 가 같은 조건에 맞는 요소를 몇 개까지 시도해 보는가.
+ * ★ 작게 잡는 이유: 후보마다 화면에 올려 보는 왕복(450ms 대기)이 붙는다. 실패하는 경로가
+ *   느려지면 그만큼 네이버 앞에 오래 머무는 것이라 이득이 없다. 실제로 필요한 건 "숨은
+ *   동명이의 요소를 건너뛰는 것"이고, 그건 두어 개면 충분하다.
+ */
+const CLICK_CANDIDATE_MAX = 6;
 const NAVER_HOME = 'https://www.naver.com';
 
 /**
@@ -312,29 +320,29 @@ export class ChromePage {
     //    읽으면 **스크롤 전 좌표**가 나온다. 그 좌표를 누르면 엉뚱한 데를 눌러 아무 일도
     //    안 일어난다 — 형제 소분류 28칸이 전부 `no-navigation` 으로 밀린 원인이 이거였다.
     //    ① 요소를 화면에 올리고 → ② 잠깐 기다렸다가 → ③ 그때 좌표를 읽는다.
-    const finder = `(() => {
+    /**
+     * ★ 후보를 **하나만** 집으면 안 된다(실측 2026-09-03).
+     * 예전엔 `.find()` / `querySelector` 로 첫 매치 하나만 집었다. 그런데 querySelectorAll 은
+     * 선택자에 적은 순서가 아니라 **문서 순서**로 돌려준다 — 쇼핑 홈은 헤더보다 앞에 알림·
+     * 검색 레이어 마크업이 있어서, 같은 글자를 가진 숨은 요소가 먼저 잡히면 진짜 버튼은
+     * **시도조차 되지 않았다**. 증상은 zero-size·offscreen·covered 중 아무거나로 나오는데
+     * 원인은 하나다: 고른 요소가 틀렸다.
+     *   → 같은 조건에 맞는 것을 **전부** 모아, 실제로 누를 수 있는 첫 번째를 쓴다.
+     */
+    const listExpr = `(() => {
       const q = ${JSON.stringify(selectorOrText)};
       if (q.startsWith('text=')) {
         const want = q.slice(5).trim();
         // ⚠️ 예전엔 a[href] 만 뒤졌다. 그런데 쇼핑 홈의 '카테고리' 는 **button** 이라
         //   영영 못 찾았다(실측 2026-08-26: 메뉴가 안 열려 진입 자체가 실패).
         return [...document.querySelectorAll('a[href], button, [role="button"], [role="menuitem"]')]
-          .find(el => (el.innerText || el.textContent || '').replace(/\\s+/g,' ').trim() === want);
+          .filter(el => (el.innerText || el.textContent || '').replace(/\\s+/g,' ').trim() === want);
       }
-      return document.querySelector(q);
-    })()`;
+      return [...document.querySelectorAll(q)];
+    })().slice(0, ${CLICK_CANDIDATE_MAX})`;
 
-    const brought = await this.evaluateJson(`(() => {
-      const el = ${finder};
-      if (!el) return { ok: false, reason: 'not-found' };
-      el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-      return { ok: true };
-    })()`);
-    if (!brought?.ok) return { ok: false, reason: brought?.reason || 'not-found' };
-    await sleep(450);   // 부드러운 스크롤이 끝나기를 기다린다
-
-    const found = await this.evaluateJson(`(() => {
-      const el = ${finder};
+    /** 누를 수 있는가 — 크기·뷰포트·적중을 한 번에 본다. 실패 이유를 그대로 돌려준다. */
+    const geom = `((el) => {
       if (!el) return { ok: false, reason: 'not-found' };
       const r = el.getBoundingClientRect();
       if (r.width < 1 || r.height < 1) return { ok: false, reason: 'zero-size' };
@@ -357,10 +365,40 @@ export class ChromePage {
         href: el.href || '',
         text: (el.innerText || '').replace(/\\s+/g,' ').trim().slice(0, 40),
       };
-    })()`);
+    })`;
 
-    if (!found?.ok) {
-      return { ok: false, reason: found?.reason || 'not-found', coveredBy: found?.coveredBy };
+    // ① 스크롤 없이 먼저 훑는다 — 이미 화면에 보이는 후보가 있으면 왕복도 대기도 0이다.
+    const scan = await this.evaluateJson(`(() => {
+      const list = ${listExpr};
+      const out = list.map(${geom});
+      const i = out.findIndex((o) => o.ok);
+      return { n: list.length, i, pick: i >= 0 ? out[i] : null, fails: out.filter((o) => !o.ok) };
+    })()`).catch(() => null);
+
+    if (!scan || !scan.n) return { ok: false, reason: 'not-found' };
+
+    let found = scan.i >= 0 ? scan.pick : null;
+
+    // ② 아무도 화면에 없다 — 후보를 하나씩 화면에 올려 보고 다시 본다.
+    //    ⚠️ scrollIntoView 와 좌표 읽기를 **한 번에 하면 안 된다**(실측 2026-08-25):
+    //       네이버는 부드러운 스크롤을 쓰기 때문에 같은 블록에서 바로 getBoundingClientRect 를
+    //       읽으면 **스크롤 전 좌표**가 나온다. 그 좌표를 누르면 엉뚱한 데를 눌러 아무 일도
+    //       안 일어난다 — 형제 소분류 28칸이 전부 `no-navigation` 으로 밀린 원인이 이거였다.
+    //       ① 요소를 화면에 올리고 → ② 잠깐 기다렸다가 → ③ 그때 좌표를 읽는다.
+    for (let idx = 0; !found && idx < scan.n; idx++) {
+      await this.evaluate(`(() => { const el = ${listExpr}[${idx}];`
+        + ` if (el) el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }); return true; })()`)
+        .catch(() => {});
+      await sleep(450);   // 부드러운 스크롤이 끝나기를 기다린다
+      const got = await this.evaluateJson(`(() => ${geom}(${listExpr}[${idx}]))()`).catch(() => null);
+      if (got?.ok) found = got;
+      else if (got) scan.fails.push(got);
+    }
+
+    if (!found) {
+      // 이유가 여럿이면 'covered' 를 우선 알린다 — 유일하게 대처(팝업 닫기)가 있는 실패다.
+      const worst = scan.fails.find((f) => f.reason === 'covered') || scan.fails[0] || {};
+      return { ok: false, reason: worst.reason || 'not-found', coveredBy: worst.coveredBy, candidates: scan.n };
     }
 
     const before = await this.url();

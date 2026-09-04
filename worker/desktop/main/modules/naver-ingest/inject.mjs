@@ -223,11 +223,23 @@ export const loginPageStateJs = `
   const url = location.href;
   const errEl = document.querySelector('.error_message, #err_common, .error_msg, [class*="error_"]');
   const error = ((errEl && errEl.innerText) || '').replace(/\\s+/g, ' ').trim();
+  const vis = (e) => !!(e && (e.offsetWidth || e.offsetHeight));
+  const capEls = [...document.querySelectorAll('#captcha, .captcha, img[src*="captcha"], input#chptcha, [id*="captcha" i]')];
+  const idEl = document.querySelector('input#id, input[name="id"]');
+  const pwEl = document.querySelector('input#pw, input[name="pw"]');
   return {
     url: url.slice(0, 200),
     host: location.host,
     onLoginPage: location.host === 'nid.naver.com' && /nidlogin/.test(path),
-    captcha: !!document.querySelector('#captcha, .captcha, img[src*="captcha"], input#chptcha, [id*="captcha" i]'),
+    captcha: capEls.length > 0,
+    // ★ captcha 와 따로 둔다 — 네이버는 보안문자를 통과한 뒤에도 그 컨테이너를 DOM 에 숨겨서
+    //   남겨 둔다. 존재 여부만 보면 "이미 푼 캡차"를 영원히 안 풀린 것으로 읽는다.
+    captchaVisible: capEls.some(vis),
+    // 로그인 폼이 다시 눈앞에 있는가 = 우리가 채워 넣고 제출할 수 있는 상태인가.
+    hasForm: !!(idEl && pwEl),
+    pwEmpty: !!(pwEl && !pwEl.value),
+    // "다시 로그인해 주세요." — 캡차 통과 뒤 네이버가 폼으로 되돌릴 때 띄우는 문구.
+    reloginPrompt: /다시\\s*로그인/.test(text),
     // 새 기기 등록 / 2단계 인증 — 사람이 휴대폰을 봐야 넘어간다.
     needHuman: /deviceConfirm|need2|otp|push/i.test(url)
       || text.includes('새로운 기기') || text.includes('기기 등록') || text.includes('일회용 번호')

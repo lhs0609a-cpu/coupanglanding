@@ -1429,6 +1429,14 @@ const LOGIN_BACKOFF_MAX_MS = 6 * 60 * 60 * 1000; // 상한 6시간 — 그 이�
 let loginFailStreak = 0;
 let loginBackoffUntil = 0;
 
+/**
+ * 보안문자를 통과한 뒤 네이버가 로그인 화면으로 되돌릴 때, 자동으로 다시 제출해 보는 횟수.
+ * ★ 작게 잡는 이유: 되돌림이 세 번 넘게 반복되면 그건 재제출로 풀리는 문제가 아니다.
+ *   그런데도 계속 제출하면 **그 시도 자체가 다음 캡차를 부른다**(위 백오프 주석의 그 고리).
+ *   사람은 이미 창 앞에 있으므로, 상한을 넘으면 조용히 넘겨주는 편이 항상 낫다.
+ */
+const RELOGIN_MAX_TRIES = 3;
+
 /** 실패를 기록하고 다음 시도 가능 시각을 민다. */
 function noteLoginFailure(reason) {
   loginFailStreak++;
@@ -1612,6 +1620,21 @@ export async function autoLoginNow({ byHuman = false } = {}) {
         notifyHuman(ps.captcha
           ? '네이버 보안문자를 풀어주세요'
           : '네이버 추가 인증이 필요합니다');
+        /**
+         * ★ 캡차를 푼 **뒤**가 진짜 막힌 자리였다(실측 2026-09-03).
+         * 사람이 보안문자를 맞게 풀어도 네이버는 로그인을 시켜 주지 않는다. 로그인 화면으로
+         * 되돌리고 "다시 로그인해 주세요."만 띄운다 — 아이디는 남아 있고 **폼은 제출되지
+         * 않은 상태**다. 그런데 이 대기 루프는 쿠키만 봤다:
+         *     캡차 통과 → 아무도 다시 제출하지 않음 → 쿠키 영원히 안 생김 → 10분 뒤 timeout
+         * 게다가 그 타임아웃이 finish() 에서 **실패로 집계**돼 백오프가 30분→1시간→2시간으로
+         * 늘어난다. 사람이 제대로 풀어 준 것이 다음 로그인을 더 멀리 미루는 고리였다.
+         *
+         * 그래서 대기 중에 화면도 같이 본다 — 캡차가 사라지고 로그인 폼만 남아 있으면
+         * **우리가 다시 채워 넣고 제출한다.** 캡차를 푸는 게 아니라(그건 여전히 사람 몫이다),
+         * 사람이 푼 뒤에 남는 마지막 한 걸음을 대신하는 것뿐이다.
+         */
+        let resubmits = 0;
+        let cappedLogged = false;
         for (let i = 0; i < 120; i++) {
           await sleep(5000);
           const st = await loginState();
@@ -1627,6 +1650,48 @@ export async function autoLoginNow({ byHuman = false } = {}) {
             sw.keepOpen = false;                    // 다 끝났으니 탭은 정리해도 된다
             sw.status = 'idle';
             return finish({ ok: true, viaHuman: true });
+          }
+
+          // 쿠키가 아직 없다 — 화면이 어느 단계인지 본다.
+          const cur = await sw.evaluate(loginPageStateJs).catch(() => null);
+          if (!cur) continue;                       // 페이지 전환 중이면 다음 회차에 다시 본다
+
+          // 규칙 ① — 비밀번호 오류면 **여기서 끊는다**. 반복 제출은 계정 잠금이다.
+          if (cur.badCredential) {
+            clearCredentials();
+            pushLog('❌ 저장된 네이버 아이디/비밀번호가 맞지 않습니다 — 저장을 지웠습니다. '
+              + '반복 시도는 계정 잠금 위험이 있어 하지 않습니다. 계정을 다시 저장해 주세요.');
+            return finish({ ok: false, reason: 'bad-credential' });
+          }
+
+          // 규칙 ② — 아직 보안문자·2단계가 떠 있으면 사람 차례다. 건드리지 않고 기다린다.
+          if (cur.captchaVisible || cur.needHuman) continue;
+
+          // 캡차가 사라졌는데 로그인 폼이 그대로 = 네이버가 되돌려 보낸 상태. 다시 채워 제출한다.
+          if (cur.onLoginPage && cur.hasForm) {
+            if (resubmits >= RELOGIN_MAX_TRIES) {
+              // ⚠️ 상한을 넘기면 **더 두드리지 않는다** — 되돌림이 반복된다는 건 재제출로 풀리는
+              //    문제가 아니라는 뜻이고, 계속 제출하면 그게 곧 다음 캡차다. 창은 이미 떠 있으니
+              //    사람이 직접 끝내면 위 쿠키 검사가 그대로 잡는다.
+              if (!cappedLogged) {
+                cappedLogged = true;
+                pushLog('보안문자를 통과해도 네이버가 계속 로그인 화면으로 되돌립니다 — 크롬 창에서 직접 로그인해 주세요.');
+              }
+              continue;
+            }
+            resubmits++;
+            pushLog(cur.reloginPrompt
+              ? `네이버가 "다시 로그인"을 요구합니다 — 자동으로 다시 입력합니다(${resubmits}/${RELOGIN_MAX_TRIES}).`
+              : `보안문자 화면이 지나갔지만 로그인이 안 된 상태입니다 — 자동으로 다시 입력합니다(${resubmits}/${RELOGIN_MAX_TRIES}).`);
+            // 규칙 ③ — 비밀번호는 그때그때 꺼내 쓰고 즉시 버린다(첫 제출 뒤 이미 지웠다).
+            const again = await loadCredentials().catch(() => null);
+            if (!again) {
+              pushLog('저장된 계정이 없어 다시 입력하지 못했습니다 — 크롬 창에서 직접 로그인해 주세요.');
+              continue;
+            }
+            const re = await sw.evaluate(naverAutoLoginJs(again.id, again.pw)).catch(() => null);
+            again.pw = '';
+            if (!re?.ok) pushLog(`다시 입력에 실패했습니다(${re?.reason || 'unknown'}) — 크롬 창에서 직접 로그인해 주세요.`);
           }
         }
         pushLog('로그인 대기를 종료합니다(10분).');

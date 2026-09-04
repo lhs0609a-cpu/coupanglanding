@@ -132,7 +132,31 @@ async function stepInto(page, node, parentName, onLog) {
     const cat = [...document.querySelectorAll('a[href*="/ns/category/"]')]
       .map(a => ({ id: (a.href.match(/category\\/(\\d+)/)||[])[1], t: (a.innerText||'').replace(/\\s+/g,' ').trim().slice(0,20) }))
       .filter(x => x.id);
-    return { url: location.href, catAnchors: cat.length, sample: cat.slice(0, 25),
+    /**
+     * ★ '카테고리' 버튼의 **기하 상태**(실측 2026-09-03).
+     * catAnchors=0 만으로는 "메뉴가 안 열렸다"까지밖에 모른다. 왜 못 눌렀는지는
+     * clickLink 가 보는 것과 똑같은 세 가지로 갈린다 — 크기 0(zero-size), 뷰포트 밖
+     * (offscreen), 다른 것이 덮음(covered). 그 판정을 여기서 그대로 재현해 남긴다.
+     */
+    const want = '카테고리';
+    const btn = [...document.querySelectorAll('a[href], button, [role="button"], [role="menuitem"]')]
+      .find(el => (el.innerText || el.textContent || '').replace(/\\s+/g,' ').trim() === want);
+    let trigger = { found: false };
+    if (btn) {
+      const r = btn.getBoundingClientRect();
+      const x = Math.round(r.left + r.width / 2);
+      const y = Math.round(r.top + r.height / 2);
+      const sized = r.width >= 1 && r.height >= 1;
+      const inView = !(r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth);
+      const top = (sized && inView) ? document.elementFromPoint(x, y) : null;
+      trigger = {
+        found: true, tag: btn.tagName, w: Math.round(r.width), h: Math.round(r.height),
+        x, y, vw: innerWidth, vh: innerHeight, sized, inView,
+        hit: top ? (top === btn || btn.contains(top) || top.contains(btn)) : false,
+        coveredBy: top ? (top.tagName + '.' + String(top.className || '').slice(0, 40)) : 'none',
+      };
+    }
+    return { url: location.href, catAnchors: cat.length, sample: cat.slice(0, 25), trigger,
              buttons: [...document.querySelectorAll('button')].map(b => (b.innerText||'').trim().slice(0,18)).filter(Boolean).slice(0, 25) };
   })()`).catch(() => null);
   return { ok: false, error: `${node.name || node.id} 링크를 찾지 못했습니다`, sample };
@@ -165,11 +189,18 @@ export async function descendToCategory(page, catId, { onLog = () => {}, warm = 
   // 대분류 링크는 '카테고리' 메뉴를 열어야 화면에 나온다 — 없으면 그냥 넘어간다(있는 곳도 있다).
   const rootSel = `a[href*="/ns/category/${chain[0].id}"]`;
   if (!(await page.evaluate(`!!document.querySelector(${JSON.stringify(rootSel)})`).catch(() => false))) {
+    // ★ 실패 이유를 모아 둔다(실측 2026-09-03). 예전엔 결과를 통째로 버려서, 메뉴가 안 열리면
+    //   로그에 **아무 줄도 남지 않았다** — "카테고리 메뉴를 열었습니다"가 없다는 것만으로
+    //   추측해야 했다. zero-size·offscreen·covered 는 대처가 전부 다르므로 반드시 남긴다.
+    const why = [];
+    let opened = false;
     for (const trigger of ['text=카테고리', 'button[class*="ategory"]', '[class*="categoryButton"]']) {
-      const opened = await page.clickLink(trigger, { hoverMs: [400, 700], timeoutMs: 1500 }).catch(() => null);
+      const r = await page.clickLink(trigger, { hoverMs: [400, 700], timeoutMs: 1500 }).catch(() => null);
       // 메뉴 열기는 주소가 안 바뀌는 게 정상이라 no-navigation 도 성공으로 본다.
-      if (opened && (opened.ok || opened.reason === 'no-navigation')) { onLog('카테고리 메뉴를 열었습니다.'); break; }
+      if (r && (r.ok || r.reason === 'no-navigation')) { onLog('카테고리 메뉴를 열었습니다.'); opened = true; break; }
+      why.push(`${trigger} → ${r?.reason || 'error'}${r?.coveredBy ? `(${r.coveredBy})` : ''}`);
     }
+    if (!opened) onLog(`⚠️ 카테고리 메뉴를 열지 못했습니다 — ${why.join(' · ')}`);
     await sleep(1200);
   }
 
@@ -179,7 +210,20 @@ export async function descendToCategory(page, catId, { onLog = () => {}, warm = 
     const node = chain[i];
     const parentName = i > 0 ? chain[i - 1].name : null;
     const r = await stepInto(page, node, parentName, onLog);
-    if (!r.ok) { onLog(`화면 실태: ${JSON.stringify(r.sample || {}).slice(0, 600)}`); return { ok: false, error: r.error, at: node, sample: r.sample }; }
+    if (!r.ok) {
+      // ★ 트리거 진단은 **따로** 남긴다 — 아래 덤프는 600자에서 잘리는데, 잘려 나가는 쪽이
+      //   하필 원인을 담은 부분이면 로그를 남긴 의미가 없다.
+      const t = r.sample?.trigger;
+      if (t) {
+        onLog(t.found
+          ? `카테고리 버튼: ${t.tag} ${t.w}×${t.h} @(${t.x},${t.y}) 뷰포트 ${t.vw}×${t.vh}`
+            + ` · 크기 ${t.sized ? 'OK' : '0'} · 화면안 ${t.inView ? 'OK' : '아님'}`
+            + ` · 적중 ${t.hit ? 'OK' : `막힘(${t.coveredBy})`}`
+          : '카테고리 버튼: 화면에서 찾지 못했습니다(텍스트 불일치 — 네이버가 이름을 바꿨을 수 있습니다).');
+      }
+      onLog(`화면 실태: ${JSON.stringify(r.sample || {}).slice(0, 600)}`);
+      return { ok: false, error: r.error, at: node, sample: r.sample };
+    }
 
     // ★ 엉뚱한 데로 끌려갔는지 본다. 팝업을 눌러 멤버십 가입 페이지로 간 적이 있다
     //   (실측 2026-08-25). 그대로 두면 그다음 단계는 영영 링크를 못 찾는다.
