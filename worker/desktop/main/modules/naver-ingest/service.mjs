@@ -1226,8 +1226,16 @@ async function queueTick() {
    *    즉 셀러에게 네이버 계정을 **요구하지 않는다.** 해 둔 사람만 자기 IP 를 쓴다.
    */
   if (!isAdmin()) {
+    // ★ 여기서는 **마지막 확인값까지** 받아들인다(lastKnown). loginState 는 오래된 캐시를
+    //   "모름 = 로그아웃"으로 접어서 답하는데, 그 기준을 이 게이트에 그대로 쓰면 하루쯤 크롬을
+    //   안 띄운 셀러는 자기가 요청한 상세를 자기 IP 로 못 뽑게 된다(v0.5.9 가 푼 병목으로
+    //   되돌아간다). 어차피 잡이 있으면 아래에서 크롬을 띄우고, 그 순간 실측으로 바뀐다.
+    //   화면(버튼·배너)은 반대로 접힌 값을 써야 한다 — 거기서는 틀린 ✅ 가 사람을 막는다.
     let loggedIn = false;
-    try { loggedIn = !!(await loginState())?.loggedIn; } catch { loggedIn = false; }
+    try {
+      const nv = await loginState();
+      loggedIn = !!(nv?.loggedIn || nv?.lastKnown?.loggedIn);
+    } catch { loggedIn = false; }
     if (!loggedIn) {
       if (!noLoginWarned) {
         noLoginWarned = true;

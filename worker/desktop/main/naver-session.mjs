@@ -41,6 +41,37 @@ const isNaver = (domain) => /(^|\.)naver\.com$/.test(String(domain || ''));
 let _cachePath = null;
 let _cache = { loggedIn: false, hasAuth: false, persistent: false, at: 0 };
 
+/**
+ * 캐시를 "로그인됨"으로 믿어 주는 한도.
+ * ---------------------------------------------------------------------------
+ * ★ 왜 필요한가(실측 2026-09-05): `at` 은 저장만 하고 아무도 안 봤다. 그래서 이 캐시는
+ *   **만료가 없었다.** 셀러 PC 에서는 크롬이 뜰 일이 사실상 없어서(keep-alive 는 일부러 안
+ *   깨우고, 큐 워커는 요청이 걸렸을 때만 띄운다) 한 번 찍힌 "로그인됨"이 몇 주 뒤에도 그대로
+ *   나왔고, 정작 네이버 세션은 진작 죽어 있었다. 화면은 ✅ 로그인됨을 띄운 채 로그인 버튼을
+ *   잠갔고, 스마트스토어 품절 확인은 조용히 전부 실패했다.
+ *   모르는 건 모른다고 답하는 편이 항상 낫다 — 이보다 오래된 캐시는 로그아웃으로 취급한다.
+ * ★ 마지막 확인값 자체는 lastKnown 으로 계속 실어 보낸다. "지금은 모른다"와 "예전에도 아니었다"
+ *   는 다른 정보이고, 그 둘을 구분해야 하는 호출부가 있다(naver-ingest 의 셀러 큐 게이트).
+ */
+const CACHE_TRUST_MS = 6 * 60 * 60 * 1000;
+
+/** 크롬을 못 볼 때 돌려주는 답 — 한도를 넘긴 캐시는 "모름"으로 접는다. */
+function staleState(extra = {}) {
+  const ageMs = Date.now() - (_cache.at || 0);
+  const aged = !_cache.at || ageMs > CACHE_TRUST_MS;
+  return {
+    loggedIn: aged ? false : !!_cache.loggedIn,
+    hasAuth: aged ? false : !!_cache.hasAuth,
+    persistent: aged ? false : !!_cache.persistent,
+    at: _cache.at || 0,
+    stale: true,
+    aged,
+    ageMs,
+    lastKnown: { loggedIn: !!_cache.loggedIn, at: _cache.at || 0 },
+    ...extra,
+  };
+}
+
 export function initNaverSession(userDataDir) {
   // 로그인이 확인되는 순간 크롬 쪽에서 이걸 부른다 — 세션 쿠키로 남으면 크롬이 닫힐 때 사라진다.
   setLoginPersistHandler(() => persistLoginCookies());
@@ -69,15 +100,17 @@ function saveCache(st) {
  *   persistent 둘 다 만료시각이 붙어 있음. 하나라도 세션 쿠키면 크롬을 닫는 순간 깨진다 —
  *              화면엔 "유지됨"인데 재시작하면 로그아웃인 모순을 막으려고 **둘 다**를 본다.
  *   stale      크롬이 안 떠 있어 마지막 확인값을 그대로 돌려준 경우
+ *   aged       그 마지막 확인값마저 한도(CACHE_TRUST_MS)를 넘겨 접은 경우 = **모름**
+ *   lastKnown  접기 전의 마지막 확인값 그대로(모름과 아님을 구분해야 하는 호출부용)
  */
 export async function loginState() {
-  if (!chromeRunning()) return { ..._cache, stale: true };
+  if (!chromeRunning()) return staleState();
   try {
     const st = await naverCookieState();
     saveCache(st);
     return { loggedIn: st.loggedIn, hasAuth: st.hasAuth, persistent: st.persistent };
   } catch (e) {
-    return { ..._cache, stale: true, error: String(e?.message || e) };
+    return staleState({ error: String(e?.message || e) });
   }
 }
 
