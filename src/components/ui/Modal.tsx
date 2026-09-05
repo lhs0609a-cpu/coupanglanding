@@ -37,7 +37,9 @@ export default function Modal({
     <dialog
       ref={dialogRef}
       onClose={onClose}
-      className={`${maxWidth} w-full rounded-xl p-0 backdrop:bg-black/50 shadow-xl`}
+      // fixed inset-0 + m-auto h-fit → 화면 정중앙 고정 (Tailwind preflight가 margin:0으로
+      // native <dialog>의 기본 margin:auto 중앙정렬을 덮어쓰기 때문에 명시적으로 재지정)
+      className={`${maxWidth} w-[calc(100%-2rem)] fixed inset-0 m-auto h-fit max-h-[90vh] overflow-y-auto rounded-xl p-0 backdrop:bg-black/50 shadow-2xl`}
     >
       <div className="p-6">
         <div className="flex items-center justify-between mb-4">

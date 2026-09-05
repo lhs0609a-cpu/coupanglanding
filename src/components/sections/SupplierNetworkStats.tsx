@@ -131,9 +131,10 @@ export default function SupplierNetworkStats() {
           <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-sm">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-medium text-white/50">최근 6개월 매출 추이</span>
-              {typeof data.growthPct === 'number' && (
-                <span className={`text-xs font-bold ${data.growthPct >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
-                  이번 달 전월 대비 {data.growthPct >= 0 ? '+' : ''}{data.growthPct}%
+              {/* 성장세(플러스)일 때만 노출 — 감소(마이너스)는 후킹에 역효과라 숨김 */}
+              {typeof data.growthPct === 'number' && data.growthPct > 0 && (
+                <span className="text-xs font-bold text-emerald-300">
+                  이번 달 전월 대비 +{data.growthPct}%
                 </span>
               )}
             </div>

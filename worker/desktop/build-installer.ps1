@@ -31,7 +31,12 @@ try {
   Write-Host "3/4  winCodeSign 캐시 준비 (심링크 우회)..." -ForegroundColor Cyan
   $cache = Join-Path $env:LOCALAPPDATA 'electron-builder\Cache\winCodeSign'
   $cacheDir = Join-Path $cache 'winCodeSign-2.6.0'
-  if (-not (Test-Path (Join-Path $cacheDir 'windows-10'))) {
+  # ⚠️ 'windows-10' 폴더만 보고 "캐시 있음" 으로 판단하면 안 된다. 실측 2026-08-27:
+  #   그 폴더는 있는데 **rcedit-x64.exe 가 빠진** 반쪽 캐시가 남아 있어, 이 단계를 건너뛴 뒤
+  #   빌드가 "cannot execute ... rcedit-x64.exe: file does not exist" 로 4회 재시도 끝에 죽었다.
+  #   electron-builder 가 exe 의 버전정보·아이콘을 박을 때 쓰는 파일이라 없으면 무조건 실패한다.
+  #   → 실제로 쓰는 파일의 존재로 판단한다.
+  if (-not (Test-Path (Join-Path $cacheDir 'rcedit-x64.exe'))) {
     New-Item -ItemType Directory -Path $cache -Force | Out-Null
     $sevenZa = Join-Path $desktopDst 'node_modules\7zip-bin\win\x64\7za.exe'
     $arcItem = Get-ChildItem "$cache\*.7z" -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -53,7 +58,18 @@ try {
 finally { Pop-Location }
 
 $buildDistDir = Join-Path $desktopDst 'dist'
-$exe = Get-ChildItem (Join-Path $buildDistDir '*Setup*.exe') | Select-Object -First 1
+# ⚠️ dist 에는 과거 빌드 산출물(구버전·구제품명 exe)이 남아 있을 수 있다.
+#    '*Setup*.exe | Select -First 1' 은 이름 알파벳순 첫 파일(=구버전)을 집어
+#    latest.yml(신버전) 과 불일치한 exe 를 업로드 → 자동업데이트 sha512 검증 실패를 유발했다.
+#    → package.json 버전과 정확히 일치하는 산출물을 선택(폴백: 최신 수정시각).
+$pkgVer = (Get-Content (Join-Path $desktopDst 'package.json') -Raw | ConvertFrom-Json).version
+$exe = Get-ChildItem (Join-Path $buildDistDir "*Setup*$pkgVer*.exe") -ErrorAction SilentlyContinue |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if (-not $exe) {
+  $exe = Get-ChildItem (Join-Path $buildDistDir '*Setup*.exe') |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+}
+if (-not $exe) { throw "빌드 산출물(*Setup*.exe)을 찾지 못했습니다: $buildDistDir" }
 # 결과물을 Drive 의 worker/desktop/dist 로도 복사(찾기 쉽게)
 $driveDist = Join-Path $desktopSrc 'dist'
 New-Item -ItemType Directory -Path $driveDist -Force | Out-Null
@@ -66,10 +82,38 @@ Copy-Item $exe.FullName $driveDist -Force
 $repo = 'lhs0609a-cpu/coupanglanding'
 $feedTag = 'megaload-desktop-update'
 $ymlPath = Join-Path $buildDistDir 'latest.yml'
-$blockmap = Get-ChildItem (Join-Path $buildDistDir '*Setup*.exe.blockmap') -ErrorAction SilentlyContinue | Select-Object -First 1
+# blockmap 은 반드시 위에서 고른 $exe 에 종속시킨다(같은 First-1 버그로 구버전 blockmap 을 올리면
+# 차등 다운로드가 깨진다). "<exe>.blockmap" 규칙으로 정확히 매칭.
+$blockmapPath = "$($exe.FullName).blockmap"
+$blockmap = if (Test-Path $blockmapPath) { Get-Item $blockmapPath } else { $null }
 $assets = @($exe.FullName)
 if (Test-Path $ymlPath) { $assets += $ymlPath; Copy-Item $ymlPath $driveDist -Force }
 if ($blockmap) { $assets += $blockmap.FullName }
+
+# ── 발행 전 무결성 검증(자동업데이트 "손상" 사고 근본 차단) ──────────────
+#   과거: dist 에 남은 구버전 exe 를 올리고 latest.yml 은 신규 빌드 것을 올려
+#   자동업데이트가 sha512 불일치("손상")로 영구 실패한 사고 발생(2026-07-08, v0.2.40).
+#   electron 빌드는 재현 불가능하므로 latest.yml 과 exe 는 반드시 "같은 빌드" 여야 한다.
+#   여기서 latest.yml 이 서술하는 path/size/sha512 가 업로드할 $exe 와 정확히 일치하는지
+#   대조하고, 하나라도 어긋나면 업로드 전에 중단한다(깨진 피드를 릴리스에 올리지 않음).
+if (Test-Path $ymlPath) {
+  $ymlText = Get-Content $ymlPath -Raw
+  $ymlPath_name = ([regex]::Match($ymlText, '(?m)^path:\s*(.+)$')).Groups[1].Value.Trim()
+  $ymlSize = [int64]([regex]::Match($ymlText, '(?m)^\s+size:\s*(\d+)$')).Groups[1].Value
+  $ymlSha  = ([regex]::Match($ymlText, '(?m)^sha512:\s*(.+)$')).Groups[1].Value.Trim()
+  if ($ymlPath_name -ne $exe.Name) {
+    throw "무결성 실패: latest.yml path($ymlPath_name) != 업로드 exe($($exe.Name)). dist 에 구버전 산출물이 섞였을 수 있습니다. dist 를 비우고 재빌드하세요."
+  }
+  if ($ymlSize -ne $exe.Length) {
+    throw "무결성 실패: latest.yml size($ymlSize) != exe 실제크기($($exe.Length)). latest.yml 과 exe 가 서로 다른 빌드입니다. dist 를 비우고 재빌드하세요."
+  }
+  # 앱(auto-update.mjs)이 검증하는 방식과 동일하게 sha512 를 base64 로 재계산해 대조.
+  $exeSha = [Convert]::ToBase64String([System.Security.Cryptography.SHA512]::Create().ComputeHash([System.IO.File]::ReadAllBytes($exe.FullName)))
+  if ($exeSha -ne $ymlSha) {
+    throw "무결성 실패: exe 실제 sha512 가 latest.yml 과 다릅니다. 자동업데이트가 '손상'으로 거부됩니다. dist 를 비우고 재빌드하세요.`n  yml: $ymlSha`n  exe: $exeSha"
+  }
+  Write-Host "무결성 검증 통과: latest.yml <-> $($exe.Name) (size/sha512 일치)" -ForegroundColor Green
+}
 
 $published = $false
 if (-not (Test-Path $ymlPath)) {

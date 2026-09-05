@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { createServiceClient } from '@/lib/supabase/server';
 import { completeSettlement } from '@/lib/payments/complete-settlement';
+import { clawbackTrainerEarning } from '@/lib/payments/trainer-clawback';
 import { logSettlementError } from '@/lib/payments/settlement-errors';
 import { logSystemError } from '@/lib/utils/system-log';
 
@@ -129,6 +130,14 @@ export async function POST(request: NextRequest) {
                   .eq('id', tx.pt_user_id)
                   .is('payment_overdue_since', null);
               }
+
+              // 추천 커미션 환수 — 정산이 되돌려졌으니 추천인 보너스도 회수(멱등).
+              //   이미 지급된 뒤면 total_earnings 가 음수 방향으로 정정되어 다음 지급에서 상계된다.
+              await clawbackTrainerEarning(
+                serviceClient,
+                tx.monthly_report_id,
+                `결제 취소(${status})`,
+              );
             }
           }
           break;

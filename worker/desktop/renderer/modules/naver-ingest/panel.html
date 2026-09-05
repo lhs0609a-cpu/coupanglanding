@@ -1,0 +1,58 @@
+<header class="m-head">
+  <h1>네이버 소싱 <span id="ni-badge" class="badge off">정지</span></h1>
+  <p class="muted small">
+    네이버 카테고리를 훑어 상품을 수집합니다. <b>관리자 전용</b>이며, 서버는 네이버에 차단되므로
+    이 PC의 브라우저로만 수집할 수 있습니다.
+  </p>
+</header>
+
+<section class="card" id="ni-denied" style="display:none;">
+  <h2>사용 권한 없음</h2>
+  <p class="muted small" id="ni-denied-msg">관리자 계정으로 연결해야 사용할 수 있습니다.</p>
+</section>
+
+<div id="ni-body" style="display:none;">
+  <section class="card">
+    <h2>1. 동시 창</h2>
+    <p class="muted small">
+      창을 늘리면 페이지가 로딩되는 동안 다른 창이 일하므로 빨라집니다. 다만 전체 요청 속도는
+      네이버 차단을 피하려고 고정돼 있어서, <b>4개를 넘으면 처리량은 안 늘고 메모리만 더 씁니다.</b>
+    </p>
+    <div class="row wrap" style="align-items:center;gap:10px;">
+      <input id="ni-windows" type="range" min="1" max="6" step="1" style="flex:1;min-width:180px;" />
+      <b id="ni-windows-val" style="min-width:52px;text-align:center;">3개</b>
+      <button id="ni-preset-safe" class="btn-ghost">안전 1</button>
+      <button id="ni-preset-std" class="btn-ghost">표준 3</button>
+      <button id="ni-preset-max" class="btn-ghost">최대 4</button>
+    </div>
+    <p class="muted small" id="ni-windows-note"></p>
+  </section>
+
+  <section class="card">
+    <h2>2. 상태</h2>
+    <div class="stats">
+      <div><b id="ni-active">0</b><span>실행 중인 창</span></div>
+      <div><b id="ni-level">1</b><span>속도 단계</span></div>
+      <div><b id="ni-cool" class="ok">-</b><span>쿨다운</span></div>
+    </div>
+    <div id="ni-windows-list" class="muted small" style="margin-top:8px;line-height:1.9;"></div>
+    <div class="row">
+      <button id="ni-start" class="btn">창 준비</button>
+      <button id="ni-stop" class="btn-ghost" disabled>정지</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>3. 연결 확인</h2>
+    <p class="muted small">
+      상품 URL 하나로 수집 경로 전체를 점검합니다. 주소를 직접 여는 게 아니라
+      <b>네이버 안에서 링크를 클릭하는 방식</b>으로 들어갑니다.
+    </p>
+    <div class="row wrap">
+      <input id="ni-url" placeholder="https://smartstore.naver.com/스토어/products/1234567890"
+        style="flex:1;min-width:240px;padding:8px;border:1px solid var(--line);border-radius:7px;font-size:12px;" />
+      <button id="ni-test" class="btn-ghost">1건 테스트</button>
+    </div>
+    <pre id="ni-log" class="log" style="height:220px;"></pre>
+  </section>
+</div>

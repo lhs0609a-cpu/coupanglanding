@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
-import { buildCostBreakdown, calculateDeposit } from '@/lib/calculations/deposit';
-import { calculateVatOnTop } from '@/lib/calculations/vat';
+import { ensureBillableReports } from '@/lib/payments/billable-reports';
 import { kstMonthStr } from '@/lib/payments/billing-constants';
 import { createNotification } from '@/lib/utils/notifications';
 import { logSystemError } from '@/lib/utils/system-log';
@@ -55,12 +54,13 @@ export async function POST(request: Request) {
     }
 
     // 대상 PT 사용자 조회 (signed 필터 여부에 따라 분기, 스키마 추론 안정성 위해 별도 쿼리)
-    type PtRow = { id: string; profile_id: string; share_percentage: number | null };
+    // created_at 은 ensureBillableReports 의 등록월 유예 계산에 필요하다.
+    type PtRow = { id: string; profile_id: string; created_at: string; share_percentage: number | null };
     let ptUsers: PtRow[] | null = null;
     if (requireSignedContract) {
       const { data, error } = await serviceClient
         .from('pt_users')
-        .select('id, profile_id, share_percentage, contracts!inner(status)')
+        .select('id, profile_id, created_at, share_percentage, contracts!inner(status)')
         .neq('status', 'terminated')
         .eq('is_test_account', false)
         .eq('contracts.status', 'signed');
@@ -68,12 +68,13 @@ export async function POST(request: Request) {
       ptUsers = (data || []).map((d) => ({
         id: d.id,
         profile_id: d.profile_id,
+        created_at: d.created_at,
         share_percentage: d.share_percentage,
       }));
     } else {
       const { data, error } = await serviceClient
         .from('pt_users')
-        .select('id, profile_id, share_percentage')
+        .select('id, profile_id, created_at, share_percentage')
         .neq('status', 'terminated')
         .eq('is_test_account', false);
       if (error) throw error;
@@ -126,74 +127,36 @@ export async function POST(request: Request) {
           continue;
         }
 
-        // 매출 스냅샷 조회 (settlement + orders 중 큰 값 사용)
-        const { data: snap } = await serviceClient
-          .from('api_revenue_snapshots')
-          .select('total_sales, total_commission, total_shipping, total_returns, total_settlement, total_sales_orders')
-          .eq('pt_user_id', pt.id)
-          .eq('year_month', targetMonth)
-          .maybeSingle();
-
-        const effective = snap
-          ? Math.max(Number(snap.total_sales) || 0, Number((snap as { total_sales_orders?: number }).total_sales_orders) || 0)
-          : 0;
-
-        if (!snap || effective <= 0) {
-          skippedNoRevenue++;
-          continue;
-        }
-
-        const revenue = effective;
-        const sharePercentage = pt.share_percentage ?? 30;
-        const costs = buildCostBreakdown(revenue, 0); // 광고비 0
-        const depositAmount = calculateDeposit(revenue, costs, sharePercentage);
-        const vatCalc = calculateVatOnTop(depositAmount);
-
-        // 마감일 — 익월 3일 23:59 KST
-        const [ty, tm] = targetMonth.split('-').map(Number);
-        const nextMonth = tm === 12 ? 1 : tm + 1;
-        const nextYear = tm === 12 ? ty + 1 : ty;
-        const deadlineUtc = new Date(Date.UTC(nextYear, nextMonth - 1, 3, 14, 59, 59));
-
-        const { error: insertErr } = await serviceClient
-          .from('monthly_reports')
-          .insert({
-            pt_user_id: pt.id,
-            year_month: targetMonth,
-            reported_revenue: revenue,
-            calculated_deposit: depositAmount,
-            payment_status: 'reviewed',
-            admin_deposit_amount: depositAmount,
-            reviewed_at: new Date().toISOString(),
-            cost_product: costs.cost_product,
-            cost_commission: costs.cost_commission,
-            cost_advertising: costs.cost_advertising,
-            cost_returns: costs.cost_returns,
-            cost_shipping: costs.cost_shipping,
-            cost_tax: costs.cost_tax,
-            api_verified: true,
-            api_settlement_data: snap,
-            supply_amount: vatCalc.supplyAmount,
-            vat_amount: vatCalc.vatAmount,
-            total_with_vat: vatCalc.totalWithVat,
-            // input_source 제거 — CHECK 제약 회피
-            fee_payment_status: 'awaiting_payment',
-            fee_payment_deadline: deadlineUtc.toISOString(),
-            fee_surcharge_amount: 0,
-            fee_interest_amount: 0,
+        // 생성은 ensureBillableReports 단일 출처 — 정산 net(total_sales)만 청구 근거로 사용하고
+        // (주문액 미사용=과다청구 방지), 등록월 유예·중복 skip 이 내장돼 있다.
+        let ensured;
+        try {
+          ensured = await ensureBillableReports(serviceClient, {
+            id: pt.id,
+            created_at: pt.created_at as string,
+            share_percentage: pt.share_percentage ?? null,
           });
-
-        if (insertErr) {
-          if (/duplicate key|unique/i.test(insertErr.message)) {
-            skippedExisting++;
-          } else {
-            errored++;
-            console.error(`[trigger-billing] ${pt.id} insert 실패:`, insertErr.message);
-          }
+        } catch (genErr) {
+          errored++;
+          console.error(`[trigger-billing] ${pt.id} 보고서 생성 실패:`, genErr instanceof Error ? genErr.message : genErr);
           continue;
         }
 
-        created++;
+        if (ensured.created.length === 0) {
+          if (ensured.skippedExisting.length > 0) skippedExisting++;
+          else skippedNoRevenue++;
+          continue;
+        }
+
+        const { data: newReport } = await serviceClient
+          .from('monthly_reports')
+          .select('reported_revenue')
+          .eq('pt_user_id', pt.id)
+          .eq('year_month', ensured.created[ensured.created.length - 1])
+          .maybeSingle();
+        const revenue = Number(newReport?.reported_revenue) || 0;
+
+        created += ensured.created.length;
         createdUsers.push(pt.id);
 
         // 알림 발송

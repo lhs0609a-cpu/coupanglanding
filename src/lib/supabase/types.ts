@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'partner' | 'pt_user';
+export type UserRole = 'admin' | 'partner' | 'pt_user' | 'supplier';
 export type PtStatus = 'active' | 'paused' | 'terminated';
 export type PaymentStatus = 'pending' | 'submitted' | 'reviewed' | 'deposited' | 'confirmed' | 'rejected';
 export type RevenueSource = 'pt' | 'program' | 'other';
@@ -9,7 +9,7 @@ export type OnboardingStepStatus = 'pending' | 'submitted' | 'approved' | 'rejec
 export type OnboardingVerificationType = 'self_check' | 'evidence_upload' | 'auto_linked' | 'quiz';
 export type FeePaymentStatus = 'not_applicable' | 'awaiting_review' | 'awaiting_payment' | 'paid' | 'overdue' | 'suspended';
 export type NotificationType = 'report_status' | 'onboarding' | 'contract' | 'settlement' | 'system' | 'emergency' | 'violation' | 'arena' | 'fee_payment' | 'support' | 'trainer_message' | 'bug_report';
-export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'unlink_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist' | 'create_violation' | 'update_violation' | 'escalate_violation' | 'resolve_violation' | 'dismiss_violation' | 'terminate_violation' | 'issue_tax_invoice' | 'cancel_tax_invoice' | 'confirm_tax_invoice' | 'approve_manual_input' | 'reject_manual_input' | 'create_penalty' | 'resolve_penalty' | 'create_challenge' | 'update_challenge' | 'award_points' | 'suspend_program_access' | 'restore_program_access' | 'create_notice' | 'update_notice' | 'delete_notice' | 'reply_ticket' | 'close_ticket' | 'create_faq' | 'update_faq' | 'delete_faq' | 'create_screening' | 'decide_screening' | 'create_pre_registration' | 'cancel_pre_registration' | 'auto_approve_user' | 'user_signup' | 'reply_bug_report' | 'update_bug_report_status' | 'close_bug_report' | 'pt_education_update' | 'create_training_video' | 'update_training_video' | 'delete_training_video';
+export type ActivityAction = 'approve_user' | 'reject_user' | 'confirm_deposit' | 'reject_report' | 'review_report' | 'undo_deposit' | 'send_contract' | 'terminate_contract' | 'approve_onboarding' | 'reject_onboarding' | 'confirm_distribution' | 'cancel_distribution' | 'update_settings' | 'create_revenue' | 'create_expense' | 'delete_revenue' | 'delete_expense' | 'approve_trainer' | 'revoke_trainer' | 'add_trainer' | 'link_trainee' | 'unlink_trainee' | 'request_withdrawal' | 'approve_withdrawal' | 'reject_withdrawal' | 'report_incident' | 'resolve_incident' | 'escalate_incident' | 'review_incident' | 'add_blacklist' | 'remove_blacklist' | 'create_violation' | 'update_violation' | 'escalate_violation' | 'resolve_violation' | 'dismiss_violation' | 'terminate_violation' | 'issue_tax_invoice' | 'cancel_tax_invoice' | 'confirm_tax_invoice' | 'approve_manual_input' | 'reject_manual_input' | 'create_penalty' | 'resolve_penalty' | 'create_challenge' | 'update_challenge' | 'award_points' | 'suspend_program_access' | 'restore_program_access' | 'create_notice' | 'update_notice' | 'delete_notice' | 'reply_ticket' | 'close_ticket' | 'create_faq' | 'update_faq' | 'delete_faq' | 'create_screening' | 'decide_screening' | 'create_pre_registration' | 'cancel_pre_registration' | 'auto_approve_user' | 'user_signup' | 'reply_bug_report' | 'update_bug_report_status' | 'close_bug_report' | 'pt_education_update' | 'create_training_video' | 'update_training_video' | 'delete_training_video' | 'supplier_signup' | 'supplier_approved' | 'supplier_rejected';
 export type WithdrawalStatus = 'pending' | 'approved' | 'rejected';
 export type TrainerStatus = 'pending' | 'approved' | 'revoked';
 export type TrainerEarningStatus = 'pending' | 'requested' | 'deposited' | 'confirmed';
@@ -395,6 +395,10 @@ export interface TrainerTrainee {
   link_type: 'referral' | 'manual';
   effective_from: string | null;
   created_at: string;
+  /** 첫 커미션이 지급된 달('YYYY-MM'). 12개월 지급창의 앵커. null=아직 첫 지급 전 */
+  bonus_first_year_month?: string | null;
+  /** 마지막 지급 가능 월('YYYY-MM', 포함). 이 달을 넘으면 지급 중단 */
+  bonus_until_year_month?: string | null;
   // Joined fields
   trainer?: Trainer;
   trainee_pt_user?: PtUser;
@@ -411,6 +415,9 @@ export interface TrainerEarning {
   bonus_amount: number;
   payment_status: TrainerEarningStatus;
   created_at: string;
+  /** 환수 시각. null 이 아니면 이 적립은 무효(집계/지급 대상 제외) */
+  clawed_back_at?: string | null;
+  clawback_reason?: string | null;
   // Joined fields
   trainer?: Trainer;
   trainee_pt_user?: PtUser;

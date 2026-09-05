@@ -6,17 +6,133 @@
  * 이미지(대표이미지)는 별도(ComfyUI) 단계 — 여기선 텍스트만.
  */
 import { generate, parseJsonLoose } from './local-llm.mjs';
-import { pickPersona, buildTitlePrompt, buildCategoryPrompt, buildDetailPrompt, buildOptionsPrompt } from './ai-prompts.mjs';
+import { pickPersona, buildTitlePrompt, buildCategoryPrompt } from './ai-prompts.mjs';
+import { deriveOptions } from './option-mini.mjs';
+import { generatePerfectDetail } from './detail-content-gen.mjs';
 import { checkMini } from './compliance-mini.mjs';
+import { checkDisplayName, checkNameGrounded, sanitizeOptions, salvageDisplayName, stripNameFiller, hasForeignCJK } from './output-quality.mjs';
+
+/** 파싱 실패/빈 키워드 대비 — 원본명·특징에서 검색 키워드 폴백 도출 */
+function deriveKeywords(product) {
+  const toks = String(product.originalName || '')
+    .split(/[\s,/·]+/)
+    .map((t) => t.replace(/[^가-힣a-zA-Z0-9]/g, '').trim())
+    .filter((t) => t.length >= 2 && !hasForeignCJK(t));
+  const feats = (product.features || []).filter((f) => typeof f === 'string' && !hasForeignCJK(f));
+  return [...new Set([...feats, ...toks])].slice(0, 5);
+}
 
 const AVOID = (violations) =>
   violations.length ? `\n\n[재작성] 다음 표현은 법적 위반이라 절대 쓰지 말 것: ${violations.join(', ')}. 같은 의미도 우회 금지.` : '';
 
+/** 문자열 → 결정론 해시(FNV-1a). 같은 시드 = 같은 값(재현성). */
+function seedHash(s) {
+  let h = 2166136261;
+  for (const ch of String(s || 'default')) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+  return Math.abs(h);
+}
+
+/**
+ * 셀러별 노출명 유니크화 — 코어(브랜드·제품명·스펙)는 그대로 두고, 셀러 시드로 keywords 중
+ *   노출명에 아직 없는 검색어 1개를 결정론적으로 골라 꼬리에 붙인다.
+ *   여러 셀러가 같은 상품을 올려도 노출명이 겹치지 않게(아이템위너 회피) + SEO 키워드 보강.
+ *   85자 초과하면 붙이지 않는다(쿠팡 노출명 길이 가드, 최대 100자).
+ * @param {string} displayName  코어 노출명
+ * @param {string[]} keywords   SEO 키워드
+ * @param {string} seed         셀러 식별 시드(=personaSeed: `${sellerId}:${상품}`)
+ */
 const catTokens = (s) => (String(s || '').toLowerCase().match(/[가-힣a-z0-9]+/g) || []).filter((t) => t.length >= 2);
+
+/** 노출명에 붙일 속성어 개수 — 쿠팡 가이드 "메인 키워드 + 속성어 3~5개"의 상한. */
+const ATTR_COUNT = 5;
+
+/**
+ * 노출상품명 조립 — `core + 속성어 5개`.
+ * ---------------------------------------------------------------------------
+ * ⚠️ 예전엔 LLM 이 완성된 displayName 을 통째로 줬다. 그러면 속성어가 몇 개인지 셀 수 없어
+ *    "5개 고정"을 지킬 수 없고, 모델이 2개만 붙이거나 8개를 나열해도 그대로 나갔다.
+ *    → core(제품명+스펙)와 attrs(속성어 후보 8개)를 나눠 받아 **여기서 정확히 5개를 붙인다.**
+ *
+ * 어느 5개를 고르냐는 셀러 시드로 회전시킨다 — 같은 상품을 파는 셀러끼리 노출명이 완전히
+ * 같으면 아이템위너로 묶이므로, 순서를 시드로 돌려 조합을 다르게 만든다(SEO 가 아니라 회피용).
+ * 구버전 응답(displayName 만 있는 경우)도 그대로 받아들인다.
+ */
+function composeDisplayName(json, seed) {
+  const core = typeof json?.core === 'string' ? json.core.trim() : '';
+  const attrs = Array.isArray(json?.attrs)
+    ? json.attrs.filter((a) => typeof a === 'string' && a.trim() && !hasForeignCJK(a)).map((a) => a.trim())
+    : [];
+  if (!core) return typeof json?.displayName === 'string' ? json.displayName.trim() : '';
+  if (attrs.length === 0) return core;
+
+  const start = seedHash(seed) % attrs.length;
+  const picked = [];
+  const seen = new Set(catTokens(core));
+  for (let i = 0; i < attrs.length && picked.length < ATTR_COUNT; i++) {
+    const a = attrs[(start + i) % attrs.length];
+    const key = a.replace(/\s+/g, '').toLowerCase();
+    if (seen.has(key) || core.includes(a) || picked.includes(a)) continue;   // core 와 중복 금지
+    seen.add(key);
+    picked.push(a);
+  }
+  return `${core} ${picked.join(' ')}`.trim();
+}
+
+/** 테스트 전용 export — 조립 규칙(속성어 5개 고정)을 하니스가 직접 검증한다. */
+export const composeDisplayNameForTest = composeDisplayName;
+
+function diversifyBySeller(displayName, keywords, seed) {
+  const name = String(displayName || '').trim();
+  const pool = (keywords || [])
+    .filter((k) => typeof k === 'string' && k.trim())
+    .map((k) => k.trim())
+    .filter((k) => !name.includes(k) && k.length >= 2 && k.length <= 12);
+  if (pool.length === 0) return name;
+
+  // ⚠️ 길이를 채우지 않는다. 한때 55자까지 키워드를 이어붙였는데, 쿠팡 가이드는 반대다 —
+  //    상품명은 "메인 키워드 + 속성어 3~5개"로 간결하게 쓰고, 남는 검색어는 **검색어 태그
+  //    (searchTags, 최대 20개)** 로 보낸다. 키워드 5개 이상 나열은 스터핑으로 역효과이고,
+  //    상품명 길이가 랭킹을 올린다는 근거도 없다. 넘치는 키워드는 이제 태그로 등록된다.
+  //    (쿠팡 검색 = 카테고리·상품명·구매옵션·검색어 네 필드 조합)
+  //
+  //    여기서 1개만 붙이는 이유는 SEO 가 아니라 **아이템위너 회피**다 — 같은 상품을 파는
+  //    셀러끼리 노출명이 완전히 같으면 하나로 묶인다. 시드로 셀러마다 다른 1개를 고른다.
+  const MAX = 85;   // 쿠팡 한도(100) 아래 안전선
+  const pick = pool[seedHash(seed) % pool.length];
+  const out = `${name} ${pick}`.trim();
+  return out.length <= MAX ? out : name;
+}
+
+/**
+ * 원본 상품명에 "이 상품만의 정보"가 남아있는지 — 카테고리 어휘뿐이면 생성물을 믿을 수 없다.
+ *   실측: 원본명이 "혼합곡/기타곡류 혼합곡 혼합곡/기타곡류 기타곡물"(= 분류어 반복)이라
+ *   노출명도 "혼합곡 기타곡류 대용량 요리용 선물용"(품종·중량·구성 0), 상세글은 쓸 재료가
+ *   없어 프롬프트 문구를 되뇌었다. 소싱 단계에서 상품명이 깨진 신호이므로 검수를 강제한다.
+ *   ⚠️ 보수적으로 판정한다(고유 토큰 1개 이하일 때만) — 검수필요 도배를 만들지 않기 위해.
+ */
+export function originalNameIsBare(originalName, categoryPath, leaf) {
+  const own = new Set(catTokens(originalName));
+  if (own.size === 0) return true;                       // 이름 자체가 없음
+  for (const t of [...catTokens(categoryPath), ...catTokens(leaf)]) own.delete(t);
+  return own.size <= 1;
+}
+
+/**
+ * 카테고리 후보의 leaf(말단 이름) — 상세글이 "무엇에 대한 글인지" 기준이 된다.
+ *   ⚠️ 워커 인덱스의 path 는 '>' 가 아니라 공백으로 이어진 토큰 문자열이다. 예전엔
+ *      `categoryPath.split('>').pop()` 로 leaf 를 뽑아서 **경로 전체가 leaf 가 됐고**,
+ *      상세글 본문에 "식품 신선식품 과일류 과일 중에서도…" 같은 비문이 그대로 실렸다(실측).
+ */
+function leafOf(cand) {
+  if (!cand) return '';
+  if (cand.leaf) return String(cand.leaf).trim();
+  const parts = String(cand.path || '').split(/[>\s]+/).filter(Boolean);
+  return parts[parts.length - 1] || '';
+}
 
 /** LLM이 출력한 카테고리 문자열을 실제 후보 중 가장 가까운 것으로 강제 매핑(코드 보장). */
 function snapToCandidate(llmPath, candidates) {
-  if (!candidates || candidates.length === 0) return { code: null, path: llmPath, snapped: false };
+  if (!candidates || candidates.length === 0) return { code: null, path: llmPath, leaf: '', snapped: false };
   const qt = new Set(catTokens(llmPath));
   let best = null, bestScore = -1;
   for (const c of candidates) {
@@ -29,8 +145,8 @@ function snapToCandidate(llmPath, candidates) {
     if (score > bestScore) { bestScore = score; best = c; }
   }
   // 겹치는 토큰이 전혀 없으면 후보 1순위로 폴백
-  if (bestScore <= 0) return { code: candidates[0].code, path: candidates[0].path, snapped: true, weak: true };
-  return { code: best.code, path: best.path, snapped: true };
+  if (bestScore <= 0) return { code: candidates[0].code, path: candidates[0].path, leaf: leafOf(candidates[0]), snapped: true, weak: true };
+  return { code: best.code, path: best.path, leaf: leafOf(best), snapped: true };
 }
 
 /** 텍스트 1필드 생성 + 금지어 검사 + 1회 재생성 */
@@ -55,51 +171,198 @@ async function genText({ model, system, prompt, options, format, ctx }) {
  * @param {number} [o.maxDetailTokens=900]
  * @returns {Promise<Object>} 생성 결과 + 타이밍
  */
-export async function generateAllFields(product, { model, personaSeed, categoryCandidates = [], maxDetailTokens = 900 } = {}) {
+export async function generateAllFields(product, { model, personaSeed, categoryCandidates = [], maxDetailTokens = 900, categoryDecisive = false } = {}) {
   if (!model) throw new Error('[ai-generator] model 필요');
   const persona = pickPersona(personaSeed || product.originalName);
   const ctx = product.categoryPath || '';
   const t0 = Date.now();
 
-  // 1) 노출상품명/제목
-  const tp = buildTitlePrompt(product, persona);
-  const titleRaw = await genText({ model, ...tp, ctx });
-  const titleJson = parseJsonLoose(titleRaw.text) || {};
-
-  // 2) 카테고리 — 후보 path 로 프롬프트, 결과는 실제 후보 코드로 강제 매핑
+  // 1~3) 제목·카테고리·옵션은 서로 독립 → 병렬 생성.
+  //   단일 GPU 라도 ollama 가 동시요청을 배치(OLLAMA_NUM_PARALLEL)로 처리해 순차보다 총시간이 준다.
+  //   CPU 환경에서도 안전(정확도·검증 로직은 아래에서 각 결과에 그대로 적용).
   const candObjs = (categoryCandidates || []).map((c) => (typeof c === 'string' ? { code: null, path: c } : c));
-  const cp = buildCategoryPrompt(product, candObjs.map((c) => c.path));
-  const catRaw = await genText({ model, ...cp, ctx });
+  const tp = buildTitlePrompt(product, persona);
+  // ⚡ 옵션은 **LLM 을 부르지 않는다**(상품당 4콜 → 2~3콜).
+  //    이유는 option-mini 주석에 자세히 적었다: 워커가 만든 옵션은 쿠팡 등록에 쓰이지 않는다.
+  //    웹이 서버 option-preview 로 원본명에서 다시 뽑아 통째로 덮고, 등록 페이로드도
+  //    preflight-builder 가 다시 추출한다. 자리표 하나에 출력 200토큰을 태울 이유가 없다.
+  const derivedOptions = deriveOptions(product);
+  // ⚡ 카테고리 후보가 "압도적 1위" 면 LLM 을 아예 부르지 않는다(호출 4회 → 3회).
+  //    후보 매칭이 이미 확정적인데(예: '나주배' → 배 단 하나) 다시 물어보는 건 시간낭비이자
+  //    오답 유입 경로다. 확정적이지 않을 때만 LLM 이 의미로 고른다.
+  const skipCatLlm = categoryDecisive && candObjs.length > 0;
+  const emptyGen = { text: '', ms: 0, tokPerSec: null, ok: true, violations: [], retried: false };
+  const [titleRaw, catRaw] = await Promise.all([
+    genText({ model, ...tp, ctx }),
+    skipCatLlm
+      ? Promise.resolve({ ...emptyGen, text: JSON.stringify({ categoryPath: candObjs[0].path, confidence: 1 }) })
+      // ⚠️ 후보를 **카테고리 이름(leaf) 먼저** 보여준다. 인덱스 path 는 토큰 뭉치라
+      //    "가전 디지털 음향기기 이어폰 스피커 유선이어폰 헤드폰 액세서리 거치대" 처럼
+      //    정작 이게 무슨 카테고리인지(=거치대) 파묻힌다. 실측으로 LLM 이 차량용 거치대를
+      //    이어폰 액세서리 거치대로 골랐다 → 이름을 앞세우면 오선택이 준다.
+      : genText({ model, ...buildCategoryPrompt(product, candObjs.map((c) => (c.leaf ? `${c.leaf} — ${c.path}` : c.path))), ctx }),
+  ]);
+
+  // 1) 노출상품명/제목 — 파싱 실패 시 원문을 그대로 저장하지 않고 복구(원문 누출 방지)
+  const titleJson = parseJsonLoose(titleRaw.text) || {};
+  let displayName = composeDisplayName(titleJson, personaSeed || product.originalName);
+  // 홍보/주관 형용사·서술어·중복토큰을 먼저 정리(stripNameFiller 가 dedup 까지 수행) — 이것만이
+  // 문제면 살균으로 통과시켜 원본명 폴백까지 가지 않게 한다(폴백은 원본 문장을 그대로 끌고 옴).
+  if (displayName) displayName = stripNameFiller(displayName);
+  let keywords = Array.isArray(titleJson.keywords)
+    ? titleJson.keywords.filter((k) => typeof k === 'string' && k.trim() && !hasForeignCJK(k)).map((k) => k.trim())
+    : [];
+
+  // 이름 검사 = 형식(checkDisplayName) + **정체성**(checkNameGrounded).
+  //   정체성 검사가 없던 동안, 모델이 프롬프트 예시를 베껴 만든 "남의 상품 이름"이
+  //   형식만 멀쩡하다는 이유로 전부 통과했다(실측 18%). output-quality 주석 참조.
+  const nameIssues = (n) => (n
+    ? [...checkDisplayName(n).issues, ...checkNameGrounded(n, product).issues]
+    : ['빈 값']);
+
+  // ⚠️ 문장체("…재배한 기능성 쌀 입니다")·단어도배·정체성 불일치·품질미달이면 1회 재생성(엄격 지시).
+  //    예전엔 곧장 salvage→원본명 폴백이라, 원본이 설명 문장이면 문장이 그대로 노출명이 됐다.
+  if (nameIssues(displayName).length > 0) {
+    const bad = nameIssues(displayName);
+    const fixNote = `직전 결과 문제: ${bad.join(', ')}. 반드시 명사구로만(서술어·부사·조사·문장 금지), `
+      + `같은 단어 반복 금지, 50자 이상 길게, 검색되는 제품명+스펙+속성어를 나열. `
+      + `core 는 반드시 "${String(product.originalName || '').slice(0, 60)}" 에 실제로 있는 명사로 시작할 것 `
+      + `— 예시(와인·마늘·쌀/잡곡)나 다른 상품의 말을 쓰면 실패다.`;
+    try {
+      const reRaw = await genText({ model, ...buildTitlePrompt(product, persona, { fixNote }), ctx });
+      const reJson = parseJsonLoose(reRaw.text) || {};
+      const reName = stripNameFiller(composeDisplayName(reJson, personaSeed || product.originalName));
+      if (reName && nameIssues(reName).length === 0) {
+        displayName = reName;
+        const reKw = Array.isArray(reJson.keywords)
+          ? reJson.keywords.filter((k) => typeof k === 'string' && k.trim() && !hasForeignCJK(k)).map((k) => k.trim()) : [];
+        if (reKw.length) keywords = reKw;
+      }
+    } catch { /* 재생성 실패는 무시하고 아래 살균/폴백 */ }
+  }
+
+  let displaySalvaged = false;
+  let displayUngrounded = false;
+  if (nameIssues(displayName).length > 0) {
+    // ⚠️ 정체성이 깨진 경우(= 다른 상품)에는 LLM 출력에서 건져 봐야 소용없다 — 건질수록
+    //    그 "다른 상품"이 그대로 남는다. 원본 상품명으로 되돌리는 게 유일하게 안전한 값이다.
+    //    (원본명이 설명 문장이면 salvage 안의 stripNameFiller 가 명사구로 정리한다.)
+    displayUngrounded = !checkNameGrounded(displayName, product).ok;
+    displayName = displayUngrounded
+      ? salvageDisplayName(product.originalName, product.originalName)
+      : salvageDisplayName(titleJson.displayName || titleRaw.text, product.originalName);
+    displaySalvaged = true;
+    // 베낀 이름에서 뽑힌 키워드도 남의 상품 것이다 — 버리고 아래에서 다시 도출한다.
+    if (displayUngrounded) keywords = [];
+  }
+  const dnCheck = checkDisplayName(displayName);
+  if (keywords.length === 0) keywords = deriveKeywords(product);
+  // 상품명에 못 붙은 attrs(8개 중 5개만 사용)도 검색어 태그 후보로 넘긴다 — 버리지 않는다.
+  if (Array.isArray(titleJson.attrs)) {
+    for (const a of titleJson.attrs) {
+      const t = typeof a === 'string' ? a.trim() : '';
+      if (t && !displayName.includes(t) && !keywords.includes(t)) keywords.push(t);
+    }
+  }
+  // 셀러별 노출명 유니크화 — 브랜드+제품명+스펙 코어는 유지하고, 셀러 시드로 SEO 키워드 하나를
+  //   결정론적으로 꼬리에 붙인다. 같은 상품이라도 셀러마다 노출명이 겹치지 않게(아이템위너 회피)
+  //   + 검색 키워드 보강. (같은 셀러·상품은 항상 같은 결과 = 재현성 유지)
+  // ⚠️ core+attrs 스키마로 만든 이름은 이미 속성어 5개 고정 + 시드 회전이 끝났다 — 더 붙이면
+  //    5개 고정이 깨지고 스터핑이 된다. 구버전 응답(displayName 통짜)일 때만 1개 붙여 유니크화.
+  const usedNewSchema = typeof titleJson.core === 'string' && titleJson.core.trim().length > 0;
+  if (!usedNewSchema && (!displaySalvaged || checkDisplayName(displayName).ok)) {
+    displayName = diversifyBySeller(displayName, keywords, personaSeed || product.originalName);
+  }
+
+  // 2) 카테고리 — LLM 결과를 실제 후보 코드로 강제 매핑
   const catJson = parseJsonLoose(catRaw.text) || {};
   const snapped = snapToCandidate(catJson.categoryPath || catRaw.text, candObjs);
 
-  // 3) 옵션
-  const op = buildOptionsPrompt(product);
-  const optRaw = await genText({ model, ...op, ctx });
-  const optJson = parseJsonLoose(optRaw.text) || {};
-  const options = Array.isArray(optJson.options) ? optJson.options.filter((o) => o && o.name && o.value) : [];
+  // 3) 옵션 — 상품명에서 규칙으로 뽑은 값(LLM 아님). 살균은 그대로 통과시켜 형식을 맞춘다.
+  const optSan = sanitizeOptions(derivedOptions);
+  const options = optSan.options;
 
-  // 4) 상세페이지
-  const dp = buildDetailPrompt(product, persona, { maxTokens: maxDetailTokens });
-  const detailRaw = await genText({ model, ...dp, ctx });
+  // 4) 상세페이지 — robust 생성기(생성→검증→통과까지 재생성)로 품질 보장.
+  //    검증 항목: 공백제외 600자+ 길이 / leaf SEO 노출 / 후킹·불릿·문단 구조 / 문장반복 없음 /
+  //    금지어 / 카테고리 어휘 정합. 통과 못하면 "직전 문제"를 교정지시로 주입해 최대 3회 재생성.
+  //    ⚠️ 예전엔 buildDetailPrompt 1회+minLen 200 검사만 → CPU 400토큰이면 짧게/중간에 잘려도
+  //       통과했다(길이·후킹 미보장). 이제 길이 미달/잘림/반복을 잡아 재생성한다.
+  //    카테고리는 원본이 아니라 매핑된 쿠팡 카테고리(snapped) 기준으로 정합성 검증.
+  const dt0 = Date.now();
+  // 재생성이 왜 걸렸는지를 남긴다 — 상세글 재생성 1회 = 상세글 1개 값(≈800토큰)이라
+  //   "무엇 때문에 다시 썼는가"가 곧 속도 개선 지점이다(bench-allinone-speed 가 집계한다).
+  const detailIssueLog = [];
+  const detailGen = await generatePerfectDetail({
+    model,
+    originalName: product.originalName,
+    categoryPath: snapped.path || product.categoryPath || '',
+    // leaf 를 명시 전달 — 안 주면 generatePerfectDetail 이 '>' 로 잘라 경로 전체를 leaf 로 쓴다.
+    leaf: snapped.leaf || (product.categoryPath || '').split('>').pop() || '',
+    features: product.features || [],
+    // 판매자가 밝힌 사실(원산지·중량·보관법 등) — 없으면 모델이 카테고리 일반론으로 흐른다.
+    sourceFacts: product.sourceFacts || [],
+    seoKeywords: keywords,
+    seed: personaSeed || product.originalName,
+    // ⭐ 토큰 하한 800 — 저사양 PC 라고 여기를 낮추면 안 된다(반드시 손해).
+    //   num_predict 는 상한이라 낮춰도 생성이 빨라지지 않고 글만 잘리고, 잘린 글은 길이 검증
+    //   (공백제외 550자)에 걸려 재생성을 부른다. 실측(qwen2.5:3b-instruct, 4상품):
+    //     상한 400 → 평균 436자 · 재생성 4/4 · 통과 0/4 (평균 시간도 800 보다 길었다)
+    //     상한 800 → 평균 616자 · 재생성 3/4 · 통과 2/4
+    maxTokens: Math.max(maxDetailTokens || 0, 800),
+    // 3회 — 문체(soft)로는 재생성하지 않으므로 늘려도 평상시 비용은 그대로다. 늘린 이유는
+    //   "딴 물건 환각" 처럼 지시가 구체적인("냉수통을 전부 지워라") 하드 결함이 생겼기 때문이다.
+    //   막연한 문체 피드백과 달리 이런 지시는 재생성으로 실제로 고쳐진다.
+    maxAttempts: 3,
+    onAttempt: ({ ok, issues }) => { if (!ok) for (const s of issues) if (detailIssueLog.length < 6) detailIssueLog.push(s); },
+  });
+  const detailChk = checkMini(detailGen.text, ctx); // 법적 금지어 최종 확인(compliance byField 리포트)
+  const detailRaw = {
+    text: detailGen.text, ms: Date.now() - dt0, tokPerSec: null,
+    ok: detailChk.ok, violations: detailChk.violations, retried: detailGen.attempts > 1,
+  };
+  // generatePerfectDetail 이 이미 길이·구조·반복·SEO 를 검증/재생성 → 통과 못한 경우만 사유 표기.
+  const detailCheck = { ok: detailGen.ok, issues: detailGen.ok ? [] : detailGen.issues.slice(0, 3) };
 
   const totalMs = Date.now() - t0;
   const fields = { title: titleRaw, category: catRaw, detail: detailRaw };
-  const allOk = Object.values(fields).every((f) => f.ok);
-  const totalTokens = Object.values(fields).reduce((s, f) => s + (f.evalCount || 0), 0);
+  const complianceOk = Object.values(fields).every((f) => f.ok);
+
+  // 원본 상품명이 카테고리 어휘뿐 = 소싱 단계에서 상품명이 깨진 것. 노출명·상세글·옵션이
+  //   전부 분류어 조합으로 나오므로 자동 결과를 그대로 등록하면 안 된다 → 검수 강제.
+  const bareOriginal = originalNameIsBare(product.originalName, snapped.path || product.categoryPath, snapped.leaf);
+
+  // 품질 사유 집계 — compliance(법적 금지어) + 품질(외국어·누출·약매칭)
+  const qualityIssues = [
+    ...dnCheck.issues,
+    ...(displaySalvaged && !displayUngrounded ? ['노출명 원문복구'] : []),
+    ...(displayUngrounded ? ['⚠️ 생성된 노출명이 원본과 다른 상품이었음 — 원본명으로 되돌림(반드시 확인)'] : []),
+    ...(bareOriginal ? ['원본 상품명에 상품 정보 없음(분류어뿐) — 상품명·옵션 직접 확인'] : []),
+    ...detailCheck.issues,
+    ...optSan.issues,
+    ...(!snapped.code ? ['카테고리 코드없음'] : []),
+    ...(snapped.weak ? ['카테고리 약매칭(폴백)'] : []),
+  ];
+  const needsReview = !complianceOk || qualityIssues.length > 0;
 
   return {
     persona: persona.key,
-    displayName: titleJson.displayName || titleRaw.text,
-    keywords: titleJson.keywords || [],
+    displayName,
+    displaySalvaged,
+    displayUngrounded,
+    keywords,
     categoryCode: snapped.code,
     categoryPath: snapped.path,
     categoryLlmRaw: catJson.categoryPath || catRaw.text,
     categorySnapped: snapped.snapped,
+    categoryWeak: !!snapped.weak,
     categoryConfidence: catJson.confidence ?? null,
     detail: detailRaw.text,
+    // 상세글을 몇 번 만에 통과시켰나 + 무엇에 걸렸나(속도 진단용, 하네스가 집계).
+    detailAttempts: detailGen.attempts,
+    detailIssueLog,
     options,
-    compliance: { ok: allOk, byField: {
+    qualityIssues,
+    compliance: { ok: complianceOk, byField: {
       title: titleRaw.violations, category: catRaw.violations, detail: detailRaw.violations,
     } },
     timings: {
@@ -107,6 +370,6 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
       titleMs: titleRaw.ms, categoryMs: catRaw.ms, detailMs: detailRaw.ms,
       tokPerSec: { title: titleRaw.tokPerSec, category: catRaw.tokPerSec, detail: detailRaw.tokPerSec },
     },
-    needsReview: !allOk,
+    needsReview,
   };
 }

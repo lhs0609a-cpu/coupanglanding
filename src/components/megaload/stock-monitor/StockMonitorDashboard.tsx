@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import {
   RefreshCw, Package, XCircle, AlertTriangle, PauseCircle, Loader2,
-  CheckCircle2, ExternalLink, Clock, Link2Off, PlayCircle,
+  CheckCircle2, ExternalLink, Clock, Link2Off, PlayCircle, ChevronDown, ChevronRight, History,
 } from 'lucide-react';
 import StockStatusBadge from './StockStatusBadge';
+import StockMonitorHistory from './StockMonitorHistory';
+import LiveDetectionMonitor from './LiveDetectionMonitor';
 
 interface MonitorItem {
   id: string;
@@ -32,6 +34,11 @@ interface Stats {
   inactive: number;
   unchecked: number;
   needsSourceUrl: number;
+  // 커버리지 — "결과가 무엇인가"가 아니라 "확인이 실제로 되고 있는가"
+  activeWithUrl: number;
+  checked24h: number;
+  stale3d: number;
+  lastCheckedAt: string | null;
 }
 
 type FilterTab = 'all' | 'in_stock' | 'sold_out' | 'error' | 'no_source_url';
@@ -48,15 +55,43 @@ function timeAgo(dateStr: string | null): string {
   return `${days}일 전`;
 }
 
+// 절대 날짜+시각 (예: 07/08 06:04) — 상대시간과 함께 "언제 체크됐는지" 정확히 표기
+function fmtDate(dateStr: string | null): string {
+  if (!dateStr) return '-';
+  return new Date(dateStr).toLocaleString('ko-KR', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+// 마우스오버 시 전체 날짜(연도 포함)
+function fmtFull(dateStr: string | null): string {
+  if (!dateStr) return '';
+  return new Date(dateStr).toLocaleString('ko-KR', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+}
+
 export default function StockMonitorDashboard() {
   const [monitors, setMonitors] = useState<MonitorItem[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [filterTab, setFilterTab] = useState<FilterTab>('all');
   const [apiError, setApiError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // 페이지네이션 — 서버(route.ts)는 page/limit + pagination.total 을 이미 지원. 프론트가 안 쓰고 있었음.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [total, setTotal] = useState(0);
+  const PAGE_SIZES = [50, 100, 500, 1000];
 
   const [starting, setStarting] = useState(false);
   const [startMsg, setStartMsg] = useState('');
+
+  // 실측 라벨 교정 — 쿠팡 실제 판매상태(onSale/재고)로 coupang_status 를 진실에 맞춘다.
+  const [reconciling, setReconciling] = useState(false);
+  const [reconcileMsg, setReconcileMsg] = useState('');
 
   // 데스크탑 앱 (메가로드 도우미) 상태 — 꺼져 있으면 네이버 조회가 전부 실패한다.
   interface DesktopStatus {
@@ -66,6 +101,14 @@ export default function StockMonitorDashboard() {
     heartbeatAgeMin: number;
     monitorsCheckedRecently: number;
     diagnosis: string;
+    smartstoreMonitors?: number;
+    // 도우미가 알려준 네이버 로그인 상태. null = 모른다(구버전 도우미) → 아무 말도 하지 않는다.
+    naver?: {
+      loggedIn: boolean | null;
+      persistent: boolean | null;
+      credential: boolean | null;
+      checkedAt: string | null;
+    } | null;
   }
   const [desktopStatus, setDesktopStatus] = useState<DesktopStatus | null>(null);
 
@@ -90,7 +133,7 @@ export default function StockMonitorDashboard() {
     setApiError(null);
     try {
       const statusParam = filterTab === 'all' ? '' : `&status=${filterTab}`;
-      const res = await fetch(`/api/megaload/stock-monitor?${statusParam}`);
+      const res = await fetch(`/api/megaload/stock-monitor?page=${page}&limit=${pageSize}${statusParam}`);
       const data = await res.json();
       if (!res.ok) {
         setApiError(`GET ${res.status}: ${data.error || JSON.stringify(data)}`);
@@ -98,12 +141,13 @@ export default function StockMonitorDashboard() {
       }
       setMonitors(data.monitors || []);
       setStats(data.stats || null);
+      setTotal(data.pagination?.total ?? 0);
     } catch (err) {
       setApiError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, [filterTab]);
+  }, [filterTab, page, pageSize]);
 
   useEffect(() => {
     fetchData();
@@ -157,6 +201,44 @@ export default function StockMonitorDashboard() {
     }
   };
 
+  /**
+   * 실측 라벨 교정 — "쿠팡 상태"가 실제와 어긋난(대부분 '중지됨'인데 실제 판매중) 항목을
+   * inventories API 실측으로 바로잡는다. stop/resume 쓰기 없이 라벨만 교정(안전).
+   * suspended 백로그를 cursor 로 끝까지 훑는다.
+   */
+  const handleReconcile = async () => {
+    if (reconciling) return;
+    setReconciling(true);
+    let cursor: string | undefined;
+    let scanned = 0;
+    let corrected = 0;
+    try {
+      for (let guard = 0; guard < 200; guard++) {
+        setReconcileMsg(`실측 확인 ${scanned}건 · 교정 ${corrected}건...`);
+        const res = await fetch('/api/megaload/stock-monitor/reconcile-coupang', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scope: 'suspended', cursor, limit: 25 }),
+        });
+        const data = await res.json();
+        if (!res.ok) { alert(`교정 실패: ${data.error || '알 수 없는 오류'}`); break; }
+        scanned += data.scanned || 0;
+        corrected += data.corrected || 0;
+        cursor = data.cursor;
+        if (data.rateLimited) { await new Promise((r) => setTimeout(r, 2000)); continue; }
+        if (data.done || !cursor) break;
+      }
+      alert(`실측 교정 완료\n\n확인 ${scanned}건 중 ${corrected}건의 "쿠팡 상태"를 실제와 일치시켰습니다.\n(중지됨으로 잘못 표시됐지만 실제로는 판매중이던 항목 등)`);
+      await fetchData();
+    } catch (err) {
+      console.error('reconcile error:', err);
+      alert('교정 중 오류가 발생했습니다.');
+    } finally {
+      setReconciling(false);
+      setReconcileMsg('');
+    }
+  };
+
   const tabButtons: { tab: FilterTab; label: string; count: number }[] = [
     { tab: 'all', label: '전체', count: stats?.total ?? 0 },
     { tab: 'in_stock', label: '판매중', count: stats?.inStock ?? 0 },
@@ -165,10 +247,24 @@ export default function StockMonitorDashboard() {
     { tab: 'no_source_url', label: '원본 URL 필요', count: stats?.needsSourceUrl ?? 0 },
   ];
 
-  // 데스크탑 앱 배너 — 토큰 발급된 사용자에 한해, 비정상일 때만
+  // 데스크탑 앱 배너 — 토큰 발급된 사용자에 한해, 앱이 정말 꺼져 있을 때만.
+  // isAlive 는 이제 워커 하트비트(30초 주기)까지 반영하므로 사이드바 "연결됨"과 일치한다.
+  // (결과 제출이 뜸해도 앱이 켜져 있으면 배너를 띄우지 않아 오탐 제거)
   const showDesktopBanner = !!desktopStatus
     && desktopStatus.tokenIssued
-    && (!desktopStatus.isAlive || desktopStatus.monitorsCheckedRecently === 0);
+    && !desktopStatus.isAlive;
+
+  // 네이버 로그인 안내 — 도우미는 켜져 있는데 네이버 로그인이 없으면
+  // 스마트스토어 원본은 **아무도 못 본다**(도우미가 그 건들을 통째로 건너뛴다).
+  // 앱이 꺼져 있을 땐 위 배너가 이미 더 큰 문제를 말하고 있으므로 겹쳐 띄우지 않는다.
+  // naver == null(모른다: 구버전 도우미)이면 침묵 — 모르는 것을 문제라고 말하지 않는다.
+  const nv = desktopStatus?.naver ?? null;
+  const smartstoreCount = desktopStatus?.smartstoreMonitors ?? 0;
+  const showNaverLogin = !!desktopStatus && desktopStatus.isAlive
+    && !!nv && nv.loggedIn === false && smartstoreCount > 0;
+  // 로그인은 돼 있으나 세션 쿠키뿐 — 지금은 되지만 앱을 끄면 풀린다.
+  const showNaverFragile = !!desktopStatus && desktopStatus.isAlive
+    && !!nv && nv.loggedIn === true && nv.persistent === false && smartstoreCount > 0;
 
   return (
     <div className="space-y-6">
@@ -202,6 +298,56 @@ export default function StockMonitorDashboard() {
         </div>
       )}
 
+      {/* 네이버 로그인이 없어 스마트스토어를 통째로 건너뛰고 있을 때 */}
+      {showNaverLogin && nv && (
+        <div className={`flex items-start gap-3 p-4 rounded-lg border ${
+          nv.credential ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
+        }`}>
+          <AlertTriangle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${
+            nv.credential ? 'text-amber-600' : 'text-red-600'
+          }`} />
+          <div className="flex-1">
+            <div className={`text-sm font-semibold ${nv.credential ? 'text-amber-900' : 'text-red-900'}`}>
+              네이버 로그인이 풀려 스마트스토어 {smartstoreCount.toLocaleString()}개를 확인하지 못하고 있습니다
+            </div>
+            <div className={`text-xs mt-1 ${nv.credential ? 'text-amber-800' : 'text-red-800'}`}>
+              스마트스토어 원본은 로그인 없이는 조회가 막힙니다(비로그인은 전부 실패). 그동안 이 상품들은
+              품절이 되어도 감지되지 않습니다.
+              {nv.credential
+                ? ' 저장해 두신 계정으로 도우미가 자동 복구를 시도합니다 — 몇 분 뒤에도 이 안내가 남아 있으면 도우미에서 직접 로그인해 주세요.'
+                : ' 메가로드 도우미 → 품절 감시 패널 → “네이버 로그인”을 눌러 로그인해 주세요.'}
+            </div>
+            <div className={`text-xs mt-1 ${nv.credential ? 'text-amber-700' : 'text-red-700'}`}>
+              로그인할 때 <span className="font-semibold">“로그인 상태 유지”</span>를 체크하면 앱을 껐다 켜도 유지됩니다.
+            </div>
+            <div className="mt-2">
+              <a
+                href="/megaload/desktop-app"
+                className={`inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-white border rounded transition ${
+                  nv.credential
+                    ? 'text-amber-900 border-amber-300 hover:bg-amber-100'
+                    : 'text-red-900 border-red-300 hover:bg-red-100'
+                }`}
+              >
+                메가로드 도우미 열기 <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 지금은 로그인돼 있지만 세션 쿠키뿐 — 앱을 끄면 풀린다 */}
+      {showNaverFragile && (
+        <div className="flex items-start gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <Clock className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-blue-900">
+            네이버에 로그인돼 있지만 <span className="font-semibold">앱을 끄면 풀리는 상태</span>입니다
+            (“로그인 상태 유지”가 꺼져 있습니다). 다음에 로그인하실 때 체크해 두시면
+            스마트스토어 {smartstoreCount.toLocaleString()}개 감시가 재부팅 후에도 이어집니다.
+          </div>
+        </div>
+      )}
+
       {/* 헤더 — 버튼은 단 하나 */}
       <div className="flex items-center justify-between">
         <div>
@@ -210,15 +356,72 @@ export default function StockMonitorDashboard() {
             버튼 한 번이면 전체 상품의 원본 상태·가격을 점검합니다. 이후 PC의 메가로드 도우미가 24시간 자동으로 갱신합니다.
           </p>
         </div>
-        <button
-          onClick={handleStartScan}
-          disabled={starting || loading}
-          className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
-        >
-          {starting ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
-          {starting ? (startMsg || '시작 중...') : '전체 점검 시작'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleReconcile}
+            disabled={reconciling || starting || loading}
+            title="쿠팡 실제 판매상태(재고·판매중지)를 조회해 대시보드의 '쿠팡 상태'를 실제와 일치시킵니다"
+            className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition"
+          >
+            {reconciling ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
+            {reconciling ? (reconcileMsg || '교정 중...') : '쿠팡 실제상태 맞추기'}
+          </button>
+          <button
+            onClick={handleStartScan}
+            disabled={starting || loading}
+            className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-[#E31837] rounded-lg hover:bg-red-700 disabled:opacity-50 transition"
+          >
+            {starting ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+            {starting ? (startMsg || '시작 중...') : '전체 점검 시작'}
+          </button>
+        </div>
       </div>
+
+      {/* 실시간 감지 신호등 + "방금 ○○ 확인완료" 피드 — 도우미가 지금 돌고 있는지 눈으로 확인 */}
+      <LiveDetectionMonitor
+        isAlive={desktopStatus ? desktopStatus.isAlive : null}
+        tokenIssued={!!desktopStatus?.tokenIssued}
+        heartbeatAgeMin={desktopStatus?.heartbeatAgeMin ?? -1}
+      />
+
+      {/* 커버리지 배너 — 품절 감지가 실제로 돌고 있는지.
+          기존 카드들은 "마지막에 본 결과"만 보여줘서, 확인이 며칠째 멈춰도 화면은 멀쩡해 보였다. */}
+      {stats && stats.activeWithUrl > 0 && (() => {
+        const pct = Math.round((stats.checked24h / stats.activeWithUrl) * 100);
+        const level = pct >= 80 ? 'ok' : pct >= 40 ? 'warn' : 'bad';
+        const tone = level === 'ok'
+          ? 'border-green-200 bg-green-50 text-green-800'
+          : level === 'warn'
+            ? 'border-amber-300 bg-amber-50 text-amber-900'
+            : 'border-red-300 bg-red-50 text-red-900';
+        return (
+          <div className={`rounded-xl border p-4 ${tone}`}>
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <div className="text-sm font-bold">
+                  최근 24시간 확인 {stats.checked24h.toLocaleString()} / {stats.activeWithUrl.toLocaleString()}개 ({pct}%)
+                </div>
+                <div className="text-xs mt-1 opacity-90">
+                  {level === 'ok'
+                    ? '품절 동기화가 정상 주기로 돌고 있습니다.'
+                    : '확인이 밀려 있습니다. 도우미(내 PC)가 켜져 있어야 원본을 제때 확인할 수 있습니다 — 서버만으로는 전체를 감당하지 못합니다.'}
+                </div>
+                {stats.stale3d > 0 && (
+                  <div className="text-xs mt-1 font-semibold">
+                    3일 넘게 확인 안 된 상품 {stats.stale3d.toLocaleString()}개 — 이 상품들은 품절을 놓치고 있을 수 있습니다.
+                  </div>
+                )}
+              </div>
+              <div className="text-right text-xs shrink-0">
+                <div className="opacity-70">마지막 확인</div>
+                <div className="font-semibold" title={fmtFull(stats.lastCheckedAt)}>
+                  {timeAgo(stats.lastCheckedAt)}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 요약 카드 (읽기 전용) */}
       {stats && (
@@ -266,7 +469,7 @@ export default function StockMonitorDashboard() {
         {tabButtons.map(({ tab, label, count }) => (
           <button
             key={tab}
-            onClick={() => setFilterTab(tab)}
+            onClick={() => { setFilterTab(tab); setPage(1); }}
             className={`px-4 py-1.5 text-xs rounded-full border transition ${
               filterTab === tab
                 ? 'bg-[#E31837] text-white border-[#E31837]'
@@ -283,10 +486,20 @@ export default function StockMonitorDashboard() {
             )}
           </button>
         ))}
+        <select
+          value={pageSize}
+          onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+          className="ml-auto text-xs border border-gray-300 rounded-lg px-2 py-1 text-gray-600 bg-white hover:bg-gray-50 cursor-pointer"
+          title="페이지당 표시 개수"
+        >
+          {PAGE_SIZES.map((n) => (
+            <option key={n} value={n}>{n}개씩 보기</option>
+          ))}
+        </select>
         <button
           onClick={fetchData}
           disabled={loading}
-          className="ml-auto text-xs text-gray-400 hover:text-gray-600 transition"
+          className="text-xs text-gray-400 hover:text-gray-600 transition"
           title="새로고침"
         >
           {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
@@ -335,44 +548,59 @@ export default function StockMonitorDashboard() {
             <tbody className="divide-y divide-gray-100">
               {monitors.map((m) => {
                 const product = m.sh_products;
+                const isExpanded = expandedId === m.id;
                 return (
-                  <tr key={m.id} className="hover:bg-gray-50 transition">
+                  <Fragment key={m.id}>
+                  <tr
+                    onClick={() => setExpandedId(isExpanded ? null : m.id)}
+                    className={`transition cursor-pointer ${isExpanded ? 'bg-red-50/40' : 'hover:bg-gray-50'}`}
+                  >
                     <td className="px-4 py-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-gray-900 truncate max-w-[300px]">
-                          {product?.display_name || product?.product_name || '상품명 없음'}
-                        </p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          {product?.brand && (
-                            <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-                              {product.brand}
+                      <div className="flex items-start gap-2">
+                        {isExpanded
+                          ? <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
+                          : <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0 mt-0.5" />}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-gray-900 truncate max-w-[280px]">
+                            {product?.display_name || product?.product_name || '상품명 없음'}
+                          </p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {product?.brand && (
+                              <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                                {product.brand}
+                              </span>
+                            )}
+                            {m.source_url ? (
+                              <a
+                                href={m.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5"
+                              >
+                                원본 <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            ) : (
+                              <span className="text-[10px] text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">
+                                원본 URL 필요
+                              </span>
+                            )}
+                            {m.coupang_product_id && (
+                              <a
+                                href={`https://wing.coupang.com/tenants/manage-product/products/list?searchKeyword=${m.coupang_product_id}&searchType=SELLER_PRODUCT_ID`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-[10px] text-purple-500 hover:text-purple-700 flex items-center gap-0.5"
+                                title="쿠팡 Wing 셀러센터에서 보기"
+                              >
+                                쿠팡 <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            )}
+                            <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
+                              <History className="w-2.5 h-2.5" /> 이력
                             </span>
-                          )}
-                          {m.source_url ? (
-                            <a
-                              href={m.source_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5"
-                            >
-                              원본 <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          ) : (
-                            <span className="text-[10px] text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">
-                              원본 URL 필요
-                            </span>
-                          )}
-                          {m.coupang_product_id && (
-                            <a
-                              href={`https://wing.coupang.com/tenants/manage-product/products/list?searchKeyword=${m.coupang_product_id}&searchType=SELLER_PRODUCT_ID`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[10px] text-purple-500 hover:text-purple-700 flex items-center gap-0.5"
-                              title="쿠팡 Wing 셀러센터에서 보기"
-                            >
-                              쿠팡 <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          )}
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -386,11 +614,20 @@ export default function StockMonitorDashboard() {
                       } />
                       {m.source_url && m.source_status === 'error' && (
                         <div className="text-[9px] text-orange-500 mt-0.5">
-                          {m.consecutive_errors === 0
+                          {/* 429/타임아웃(transient)은 consecutive_errors=0 이라 '도우미 꺼짐'으로 오표기되던 버그 수정.
+                              실제 도우미 생존여부(isAlive)로 구분하고, 0=일시 속도제한(자동 재시도)로 정확히 표기. */}
+                          {desktopStatus && desktopStatus.isAlive === false
                             ? '도우미 꺼짐(조회 실패)'
                             : m.consecutive_errors >= 5
-                              ? '네이버 속도제한'
-                              : `연속 ${m.consecutive_errors}회 실패`}
+                              ? `지속 실패 ${m.consecutive_errors}회`
+                              : m.consecutive_errors >= 1
+                                ? `연속 ${m.consecutive_errors}회 실패`
+                                : '일시 속도제한(429·자동 재시도)'}
+                        </div>
+                      )}
+                      {m.last_checked_at && (
+                        <div className="text-[9px] text-gray-400 mt-0.5" title={fmtFull(m.last_checked_at)}>
+                          {fmtDate(m.last_checked_at)} 확인
                         </div>
                       )}
                     </td>
@@ -404,6 +641,11 @@ export default function StockMonitorDashboard() {
                       {m.last_checked_at && m.coupang_status === 'suspended' && m.source_status === 'error' && (
                         <div className="text-[9px] text-gray-400 mt-0.5">확인 후 재개</div>
                       )}
+                      {m.last_checked_at && (
+                        <div className="text-[9px] text-gray-400 mt-0.5" title={fmtFull(m.last_checked_at)}>
+                          {fmtDate(m.last_checked_at)} 확인
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-center">
                       {m.source_price_last != null ? (
@@ -412,8 +654,8 @@ export default function StockMonitorDashboard() {
                             ₩{m.source_price_last.toLocaleString()}
                           </span>
                           {m.price_last_updated_at && (
-                            <div className="text-[10px] text-gray-400 mt-0.5">
-                              {timeAgo(m.price_last_updated_at)} 감지
+                            <div className="text-[10px] text-gray-400 mt-0.5" title={fmtFull(m.price_last_updated_at)}>
+                              {fmtDate(m.price_last_updated_at)} 변동
                             </div>
                           )}
                         </>
@@ -436,8 +678,8 @@ export default function StockMonitorDashboard() {
                             ₩{m.our_price_last.toLocaleString()}
                           </span>
                           {m.last_checked_at && (
-                            <div className="text-[10px] text-gray-400 mt-0.5">
-                              {timeAgo(m.last_checked_at)} 조회
+                            <div className="text-[10px] text-gray-400 mt-0.5" title={fmtFull(m.last_checked_at)}>
+                              {fmtDate(m.last_checked_at)} 조회
                             </div>
                           )}
                         </>
@@ -454,8 +696,8 @@ export default function StockMonitorDashboard() {
                             <Clock className="w-3 h-3" />
                             {timeAgo(m.last_checked_at)}
                           </span>
-                          <div className="text-[10px] text-gray-400">
-                            {new Date(m.last_checked_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+                          <div className="text-[10px] text-gray-400" title={fmtFull(m.last_checked_at)}>
+                            {fmtDate(m.last_checked_at)}
                           </div>
                         </>
                       ) : (
@@ -463,12 +705,73 @@ export default function StockMonitorDashboard() {
                       )}
                     </td>
                   </tr>
+                  {isExpanded && (
+                    <tr className="bg-gray-50">
+                      <td colSpan={6} className="p-0 border-t border-gray-200">
+                        <StockMonitorHistory monitorId={m.id} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
           </table>
         )}
       </div>
+
+      {/* 페이지네이션 — total(전체 필터결과 수) 기준. 목록은 pageSize 만큼만 서버에서 받아온다. */}
+      {!loading && total > pageSize && (() => {
+        const totalPages = Math.ceil(total / pageSize);
+        const from = (page - 1) * pageSize + 1;
+        const to = Math.min(page * pageSize, total);
+        // 현재 페이지 주변 ±2 + 처음/끝 페이지만 노출 (… 로 축약)
+        const nums: number[] = [];
+        for (let p = 1; p <= totalPages; p++) {
+          if (p === 1 || p === totalPages || (p >= page - 2 && p <= page + 2)) nums.push(p);
+        }
+        return (
+          <div className="flex items-center justify-between px-1">
+            <span className="text-xs text-gray-500">
+              전체 {total.toLocaleString()}개 중 {from.toLocaleString()}–{to.toLocaleString()}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="px-2.5 py-1 text-xs rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                이전
+              </button>
+              {nums.map((p, i) => {
+                const gap = i > 0 && p - nums[i - 1] > 1;
+                return (
+                  <Fragment key={p}>
+                    {gap && <span className="px-1 text-xs text-gray-400">…</span>}
+                    <button
+                      onClick={() => setPage(p)}
+                      className={`min-w-[30px] px-2 py-1 text-xs rounded-lg border transition ${
+                        p === page
+                          ? 'bg-[#E31837] text-white border-[#E31837]'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  </Fragment>
+                );
+              })}
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="px-2.5 py-1 text-xs rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                다음
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

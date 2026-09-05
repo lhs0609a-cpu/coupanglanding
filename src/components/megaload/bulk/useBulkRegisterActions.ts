@@ -8,10 +8,13 @@ import type {
   CategoryItem, CategoryMatchResult, PreviewProduct, BatchResult,
   CategoryMetadata, PreventionConfig, FailureDiagnostic,
 } from './types';
-import type { PreflightProductResult, CanaryResult } from '@/lib/megaload/types';
+import type { PreflightProductResult, CanaryResult, Channel } from '@/lib/megaload/types';
+import type { CertPreviewResult } from '@/app/api/megaload/products/cert-preview/route';
+import { isChannelSupported } from '@/lib/megaload/types';
 import { DEFAULT_PREVENTION_CONFIG, DISABLED_PREVENTION_CONFIG } from '@/lib/megaload/services/item-winner-prevention';
 import { isCommodityCategory } from '@/lib/megaload/services/stock-image-service';
 import { computeRequiredAttrAutofillDetailed } from '@/lib/megaload/services/required-attr-autofill';
+import { isValidBrand } from '@/lib/megaload/services/brand-validator';
 import { addRecentPath } from './BulkStep1Settings';
 import { isAgriProduct, resolveAgriWeight } from './option-candidates';
 import { createClient } from '@/lib/supabase/client';
@@ -38,30 +41,7 @@ function extractBrandFromName(name: string): string {
   return '';
 }
 
-/**
- * product.json brand 필드가 실제 브랜드인지 검증.
- * 제외 대상: 프로모션 태그, UI 링크 텍스트("본문으로 바로가기" 등), 문장류.
- */
-function isValidBrand(brand: string | undefined): boolean {
-  if (!brand) return false;
-  const trimmed = brand.trim();
-  if (trimmed.length < 2 || trimmed.length > 15) return false; // 너무 길면 UI 문구/설명일 가능성
-  // "1+1", "2+1" 등 프로모션 태그 제외
-  if (/^\d+\+\d+$/.test(trimmed)) return false;
-  // 숫자/특수문자만으로 구성된 것 제외
-  if (!/[가-힣a-zA-Z]/.test(trimmed)) return false;
-  // UI/네비게이션 문구 블랙리스트 (크롤러가 페이지 링크 텍스트를 잘못 수집하는 케이스)
-  const UI_KEYWORDS = [
-    '본문', '바로가기', '상세', '페이지', '참조', '뒤로', '메뉴',
-    '카테고리', '바로', '이동', '열기', '닫기', '더보기', '보기',
-    '홈으로', '처음으로', '목록', '전체', '선택', '장바구니', '구매',
-    '공지', '안내', '이벤트', '검색', '로그인', '회원', '주문',
-  ];
-  if (UI_KEYWORDS.some(w => trimmed.includes(w))) return false;
-  // 공백 2개 이상 = 문장/UI 문구일 가능성 큼 (정상 브랜드는 대부분 공백 0~1개)
-  if ((trimmed.match(/\s/g) || []).length >= 2) return false;
-  return true;
-}
+// isValidBrand 는 서버(고시정보 필러)와 기준이 같아야 해 services/brand-validator.ts 로 분리(단일 출처).
 
 export function useBulkRegisterActions() {
   const supabase = useMemo(() => createClient(), []);
@@ -85,6 +65,34 @@ export function useBulkRegisterActions() {
   }, [supabase]);
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
+
+  // ─── 전파 대상 채널 (대량등록 시 "어디에 함께 올릴지" 선택) ───
+  const [connectedChannels, setConnectedChannels] = useState<Channel[]>([]);
+  const [fanoutChannels, setFanoutChannels] = useState<Channel[]>([]);
+  // 이번 등록에서 실제로 성공한 sh_products.id — Step3 실시간 전파 결과 패널이 폴링 대상.
+  const [registeredProductIds, setRegisteredProductIds] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/megaload/channels/credentials');
+        if (!res.ok) return;
+        const data = await res.json();
+        const connected = ((data.credentials || []) as Array<{ channel: string; is_connected?: boolean }>)
+          .filter((c) => c.is_connected && c.channel !== 'coupang' && isChannelSupported(c.channel as Channel))
+          .map((c) => c.channel as Channel);
+        if (cancelled) return;
+        setConnectedChannels(connected);
+        setFanoutChannels(connected); // 기본값: 연결된 채널 전부 선택(원하면 해제)
+      } catch { /* 채널 조회 실패 — 전파 선택 UI만 비활성, 등록은 정상 */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  const toggleFanoutChannel = useCallback((ch: Channel) => {
+    setFanoutChannels((prev) => prev.includes(ch) ? prev.filter((c) => c !== ch) : [...prev, ch]);
+  }, []);
+  const fanoutChannelsRef = useRef<Channel[]>([]);
+  fanoutChannelsRef.current = fanoutChannels;
 
   // Step 1 state
   const [folderPaths, setFolderPaths] = useState<string[]>([]);
@@ -147,6 +155,9 @@ export function useBulkRegisterActions() {
   const [autoCategoryRetryCount, setAutoCategoryRetryCount] = useState(0);
   const [categoryFailures, setCategoryFailures] = useState<FailureDiagnostic[]>([]);
   const AUTO_CATEGORY_MAX_RETRIES = 3;
+  const [certPreviewLoading, setCertPreviewLoading] = useState(false);
+  /** 등록 후 서버가 알려준 인증 미반영 요약 (certWarnings) */
+  const [certWarningNotice, setCertWarningNotice] = useState('');
 
   // Auto-fill pipeline progress
   const [titleGenProgress, setTitleGenProgress] = useState<{ done: number; total: number } | null>(null);
@@ -247,6 +258,51 @@ export function useBulkRegisterActions() {
         : p));
     }
   }, [products, categoryMetaCache]);
+
+  // ── 인증(KC) 미리보기 ────────────────────────────────────────────
+  // 소싱 인증번호가 등록 payload 의 어느 쿠팡 인증 항목으로 들어가는지 검수 단계에서 계산.
+  // 서버가 등록과 **같은** groundCertifications 를 쓰므로 미리보기와 실제 결과가 갈리지 않는다.
+  const runCertPreview = useCallback(async () => {
+    const input = products
+      .filter((p) => p.editedCategoryCode && Array.isArray(p.certifications) && p.certifications.length > 0)
+      .map((p) => ({
+        uid: p.uid,
+        categoryCode: p.editedCategoryCode!,
+        sourceCertifications: p.certifications,
+      }));
+    if (input.length === 0) return;
+    setCertPreviewLoading(true);
+    try {
+      const res = await fetch('/api/megaload/products/cert-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products: input }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!res.ok) return;
+      const data = await res.json() as { results?: CertPreviewResult[] };
+      const byUid = new Map((data.results || []).map((r) => [r.uid, r]));
+      if (byUid.size === 0) return;
+      setProducts((prev) => prev.map((p) => (byUid.has(p.uid) ? { ...p, certPreview: byUid.get(p.uid) } : p)));
+    } catch {
+      // 미리보기 실패는 등록을 막지 않는다 — 블록만 안 뜬다.
+    } finally {
+      setCertPreviewLoading(false);
+    }
+  }, [products]);
+
+  // 카테고리가 바뀌면 매칭 결과도 바뀐다 → 카테고리 코드 조합이 달라질 때만 재계산.
+  const certPreviewKey = products
+    .filter((p) => Array.isArray(p.certifications) && p.certifications.length > 0)
+    .map((p) => `${p.uid}:${p.editedCategoryCode || ''}`)
+    .join('|');
+  useEffect(() => {
+    if (step !== 2 || !certPreviewKey) return;
+    const t = setTimeout(() => void runCertPreview(), 600);
+    return () => clearTimeout(t);
+    // certPreviewKey 가 실제 의존성 — runCertPreview 는 products 마다 새로 생겨 넣으면 루프
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, certPreviewKey]);
 
   const [validationPhase, setValidationPhase] = useState<'idle' | 'local' | 'deep' | 'dryrun' | 'preupload' | 'complete'>('idle');
 
@@ -1970,6 +2026,8 @@ export function useBulkRegisterActions() {
           brand: resolvedBrand,
           tags: sp.productJson.tags || [],
           description: sp.productJson.description || '',
+          // 원본 인증(KC 등) 보존 — 등록 시 sourceCertifications 로 전달돼 서버가 카테고리 grounding(올인원과 동일)
+          certifications: Array.isArray(sp.productJson.certifications) ? sp.productJson.certifications : undefined,
           sourcePrice,
           sellingPrice: sourcePrice,
           mainImageCount: sp.mainImages.length,
@@ -2062,6 +2120,8 @@ export function useBulkRegisterActions() {
         brand: resolvedBrand,
         tags: sp.productJson.tags || [],
         description: sp.productJson.description || '',
+        // 원본 인증(KC 등) 보존 — 등록 시 sourceCertifications 로 전달돼 서버가 카테고리 grounding(올인원과 동일)
+        certifications: Array.isArray(sp.productJson.certifications) ? sp.productJson.certifications : undefined,
         sourcePrice,
         sellingPrice: sourcePrice,
         mainImageCount: sp.mainImages.length,
@@ -3596,6 +3656,7 @@ export function useBulkRegisterActions() {
     }
 
     setStep(3); setRegistering(true); setIsPaused(false); isPausedRef.current = false; setAccountBlocked(null); setStartTime(Date.now());
+    setRegisteredProductIds([]); // 이번 등록 성공분 초기화(실시간 전파 결과 폴링 대상)
 
     // preupload 완료까지 최대 30초 대기 (state는 ref로 읽어야 stale 방지)
     if (imagePreuploadProgress.phase !== 'complete' && imagePreuploadProgress.phase !== 'idle') {
@@ -3686,6 +3747,8 @@ export function useBulkRegisterActions() {
             uid: p.uid, productCode: p.productCode, folderPath: p.folderPath, name: p.editedName, sourceName: p.name, sourceUrl: p.sourceUrl,
             brand: p.editedBrand, sellingPrice: p.editedSellingPrice, sourcePrice: p.sourcePrice,
             categoryCode: p.editedCategoryCode, categoryPath: p.editedCategoryName, tags: p.tags, description: p.description,
+            // 원본 인증(KC 등) → 서버가 카테고리 메타로 grounding 후 등록 payload 에 반영(올인원과 동일 경로)
+            sourceCertifications: Array.isArray(p.certifications) && p.certifications.length ? p.certifications : undefined,
             mainImages: p.mainImages,
             detailImages: filterImagesByOrder(p.detailImages || [], p.editedDetailImageOrder),
             reviewImages: filterImagesByOrder(p.reviewImages || [], p.editedReviewImageOrder),
@@ -3870,6 +3933,8 @@ export function useBulkRegisterActions() {
               preventionConfig: preventionConfig.enabled ? preventionConfig : undefined,
               products: batchProducts,
               thirdPartyImageUrls: thirdPartyImageCdnUrls.length > 0 ? thirdPartyImageCdnUrls : undefined,
+              // 사용자가 고른 전파 대상 채널(빈 배열이면 이번 등록은 전파 안 함).
+              targetChannels: fanoutChannelsRef.current,
             }),
           });
           const batchData = await batchRes.json().catch(() => ({}));
@@ -3877,11 +3942,29 @@ export function useBulkRegisterActions() {
             const batchResults = batchData.results as BatchResult[];
             totalSuccess += batchData.successCount || 0;
             totalError += batchData.errorCount || 0;
+            // 성공한 상품의 sh_products.id 수집 → Step3 실시간 전파 결과 폴링 대상
+            const okIds = batchResults
+              .filter((br) => br.success)
+              .map((br) => (br as { productId?: string }).productId)
+              .filter((x): x is string => !!x);
+            if (okIds.length > 0) {
+              setRegisteredProductIds((prev) => [...new Set([...prev, ...okIds])]);
+            }
             setProducts((prev) => prev.map((p) => {
               const r = batchResults.find((br) => br.uid === p.uid);
               if (!r) return p;
               return { ...p, status: r.success ? 'success' : 'error', channelProductId: r.channelProductId, errorMessage: r.error, detailedError: r.detailedError, duration: r.duration };
             }));
+            // 인증 매칭 실패 — 등록은 성공해도 인증번호 없이 올라간 것이므로 반드시 알린다.
+            const cw = batchData.certWarnings as { productCode: string; detail: string; allFailed: boolean }[] | undefined;
+            if (cw?.length) {
+              const failed = cw.filter((w) => w.allFailed).length;
+              setCertWarningNotice(
+                `인증정보 미반영 ${cw.length}건`
+                + (failed > 0 ? ` — ${failed}건은 "인증대상아님"으로 등록됐습니다. 전기용품·어린이제품 계열이면 쿠팡 윙에서 보완해주세요.` : '')
+                + ` (상품코드: ${cw.slice(0, 5).map((w) => w.productCode).join(', ')}${cw.length > 5 ? ` 외 ${cw.length - 5}건` : ''})`,
+              );
+            }
             // 셀러 계정 차단 감지 — 쿠팡이 계정 자체를 막은 경우 모든 후속 배치도 동일 실패.
             // 첫 발견 시 즉시 중단 + 사용자에게 셀러센터 안내.
             const blockSignals = ['쿠팡 기준에 맞지 않아', '신규 상품을 등록할 수 없', '판매이용 약관'];
@@ -4113,6 +4196,8 @@ export function useBulkRegisterActions() {
     useStockImages, setUseStockImages,
     noticeOverrides, setNoticeOverrides,
     categoryMetaCache,
+    certPreviewLoading, runCertPreview,
+    certWarningNotice, setCertWarningNotice,
     preventionConfig, setPreventionEnabled, setSellerBrand, setAutoBarcodeGeneration,
     loadingShipping, shippingError,
     scanning, scanError, browsingFolder, browseProgress, thirdPartyImages, savedThirdPartyUrls,
@@ -4130,6 +4215,8 @@ export function useBulkRegisterActions() {
     // Canary
     canaryPhase, canaryResult, canaryTargetUid,
     registering, isPaused, batchProgress, startTime, accountBlocked,
+    // 전파 대상 채널 선택 + 실시간 결과
+    connectedChannels, fanoutChannels, toggleFanoutChannel, registeredProductIds,
     // Computed
     selectedCount, totalSourcePrice, totalSellingPrice,
     validationReadyCount, validationErrorCount, validationWarningCount, registerableCount,

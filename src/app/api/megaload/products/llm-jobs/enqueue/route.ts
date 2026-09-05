@@ -6,8 +6,8 @@ import { logSystemError } from '@/lib/utils/system-log';
 
 export const maxDuration = 30;
 
-type TaskType = 'display_name' | 'content' | 'options' | 'category';
-const TASKS: TaskType[] = ['display_name', 'content', 'options', 'category'];
+type TaskType = 'display_name' | 'content' | 'options' | 'category' | 'search_tags';
+const TASKS: TaskType[] = ['display_name', 'content', 'options', 'category', 'search_tags'];
 
 interface JobInput {
   /** "{uid}:{task}" — 결과를 어느 상품/필드에 적용할지 */

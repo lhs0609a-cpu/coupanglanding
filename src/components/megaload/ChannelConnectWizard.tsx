@@ -7,6 +7,7 @@ import { CHANNEL_SETUP_GUIDES } from '@/lib/data/channel-setup-guides';
 import { CHANNEL_CREDENTIAL_FIELDS } from '@/lib/data/channel-credential-fields';
 import { CHANNEL_ONBOARDING_GUIDES } from '@/lib/data/channel-onboarding-guides';
 import ChannelOnboardingGuide from './ChannelOnboardingGuide';
+import EgressIpBox from './EgressIpBox';
 import type { Channel } from '@/lib/megaload/types';
 import type { ChannelGuideStep } from '@/lib/data/channel-setup-guides';
 import {
@@ -47,6 +48,7 @@ function StepMockup({ step, color }: { step: ChannelGuideStep; color: string }) 
   const showRealImage = !!step.imageUrl && !imgError;
 
   return (
+    <>
     <div className="rounded-xl border-2 border-gray-200 overflow-hidden bg-white shadow-sm select-none">
       {/* 가짜 윈도우 바 */}
       <div className="flex items-center gap-1.5 px-3 py-2 bg-gray-100">
@@ -74,8 +76,19 @@ function StepMockup({ step, color }: { step: ChannelGuideStep; color: string }) 
               🔍 크게 보기
             </span>
           </button>
+          {(step.hotspots ?? []).map((h) => (
+            <span
+              key={h.n}
+              title={h.label}
+              className="absolute -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-[#E31837] text-white
+                text-xs font-bold flex items-center justify-center shadow-lg ring-2 ring-white pointer-events-none"
+              style={{ left: `${h.x}%`, top: `${h.y}%` }}
+            >
+              {h.n}
+            </span>
+          ))}
           <figcaption className="text-[10px] text-gray-400 text-center py-1 px-2 border-t border-gray-100">
-            실제 화면 예시 · 출처: 윈셀링 가이드 (마켓 UI 버전에 따라 다를 수 있어요)
+            실제 화면 예시{step.imageSource ? ` · 출처: ${step.imageSource}` : ''} (마켓 UI 버전에 따라 다를 수 있어요)
           </figcaption>
           {zoom && (
             <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4" onClick={() => setZoom(false)}>
@@ -118,6 +131,19 @@ function StepMockup({ step, color }: { step: ChannelGuideStep; color: string }) 
       </div>
       )}
     </div>
+      {(step.hotspots ?? []).length > 0 && (
+        <ol className="mt-2 space-y-1 px-1">
+          {step.hotspots!.map((h) => (
+            <li key={h.n} className="flex items-start gap-2 text-xs text-gray-700">
+              <span className="shrink-0 mt-0.5 w-4 h-4 rounded-full bg-[#E31837] text-white text-[10px] flex items-center justify-center font-bold">
+                {h.n}
+              </span>
+              {h.label}
+            </li>
+          ))}
+        </ol>
+      )}
+    </>
   );
 }
 
@@ -292,6 +318,13 @@ export default function ChannelConnectWizard({ channel, isOpen, onClose, onConne
           </div>
 
           <StepMockup step={guideSteps[step]} color={color} />
+
+          {/* 셀러가 채널 화면에 붙여넣을 우리 호출 서버 IP — 11번가 IP 등록 단계 등 */}
+          {guideSteps[step].copyValueKey === 'egressIp' && (
+            <div className="mt-3">
+              <EgressIpBox />
+            </div>
+          )}
 
           <ul className="space-y-1.5 my-3">
             {guideSteps[step].detailedInstructions.map((inst, i) => (

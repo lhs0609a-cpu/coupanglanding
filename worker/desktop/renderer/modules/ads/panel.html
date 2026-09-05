@@ -14,6 +14,16 @@
     <button id="ads-capture-save" class="btn-ghost">현재 화면 HTML 저장</button>
     <button id="ads-run" class="btn-ghost danger">1회 실행(실제)</button>
   </div>
+  <div class="row wrap" style="margin-top:8px; align-items:center; gap:10px;">
+    <button id="ads-start" class="btn-ghost">자동 실행 시작</button>
+    <button id="ads-stop" class="btn-ghost">중지</button>
+    <label class="small" style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+      <input type="checkbox" id="ads-auto"> 앱 시작 시 자동 실행
+    </label>
+  </div>
+  <p class="muted small" style="margin-top:4px;">
+    ※ 자동 실행은 웹 "광고 자동화" 규칙 모드를 따릅니다(드라이런=제안만 · 승인 후 적용 · 완전 자동=실제 변경). 6시간마다 평가.
+  </p>
   <p id="ads-msg" class="muted small"></p>
   <pre id="ads-log" class="log"></pre>
 </section>

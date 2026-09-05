@@ -1,9 +1,32 @@
 import type { MetadataRoute } from "next";
+import { CHANNEL_ONBOARDING_GUIDES } from "@/lib/data/channel-onboarding-guides";
+import { GUIDE_ARTICLES } from "@/lib/data/guide-articles";
+import type { Channel } from "@/lib/megaload/types";
 
 const SITE_URL = "https://megaload.co.kr";
 
+/** 셀프 입점이 가능한 채널만 공개 가이드가 있다 (준비중 채널은 페이지 자체를 만들지 않음) */
+const PUBLIC_CHANNELS = (Object.keys(CHANNEL_ONBOARDING_GUIDES) as Channel[])
+  .filter((c) => CHANNEL_ONBOARDING_GUIDES[c]?.available);
+
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
+
+  const articles: MetadataRoute.Sitemap = GUIDE_ARTICLES.map((a) => ({
+    url: `${SITE_URL}/guide/${a.slug}`,
+    lastModified: new Date(a.updated),
+    changeFrequency: "monthly",
+    priority: 0.75,
+    alternates: { languages: { "ko-KR": `${SITE_URL}/guide/${a.slug}` } },
+  }));
+
+  const channelGuides: MetadataRoute.Sitemap = PUBLIC_CHANNELS.map((c) => ({
+    url: `${SITE_URL}/guide/channel/${c}`,
+    lastModified: now,
+    changeFrequency: "monthly",
+    priority: 0.8,
+    alternates: { languages: { "ko-KR": `${SITE_URL}/guide/channel/${c}` } },
+  }));
 
   return [
     {
@@ -66,5 +89,21 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "yearly",
       priority: 0.3,
     },
+    {
+      url: `${SITE_URL}/supplier-program`,
+      lastModified: now,
+      changeFrequency: "monthly",
+      priority: 0.7,
+      alternates: { languages: { "ko-KR": `${SITE_URL}/supplier-program` } },
+    },
+    {
+      url: `${SITE_URL}/guide/marketplace-comparison`,
+      lastModified: now,
+      changeFrequency: "monthly",
+      priority: 0.85,
+      alternates: { languages: { "ko-KR": `${SITE_URL}/guide/marketplace-comparison` } },
+    },
+    ...channelGuides,
+    ...articles,
   ];
 }

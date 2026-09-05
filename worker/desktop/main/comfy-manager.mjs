@@ -4,7 +4,7 @@
  */
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
-import { comfyRoot, ensureRembgNode } from './bootstrap.mjs';
+import { comfyRoot, comfyAppDir, embeddedPython, ensureRembgNode, IS_WIN } from './bootstrap.mjs';
 import { checkHealth } from '../runtime/comfyui-client.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -32,11 +32,19 @@ export class ComfyManager {
       await ensureRembgNode({ installDir: this.installDir, onProgress: (p) => this.onLog(`[누끼노드] ${p.detail || p.phase}${p.pct != null ? ' ' + p.pct + '%' : ''}`) });
     } catch (e) { this.onLog(`[누끼노드] 보장 실패(무시): ${e.message}`); }
 
-    const root = comfyRoot(this.installDir);
-    const python = join(root, 'python_embeded', 'python.exe');
-    const args = ['-s', join('ComfyUI', 'main.py'), '--port', String(this.port), '--disable-auto-launch'];
+    // 윈도 포터블은 루트에서 ComfyUI/main.py 를 부르고, 맥 소스 배치는 본체 폴더가 곧 cwd 다.
+    // ComfyUI 는 맥에서 별도 플래그 없이 Metal(MPS)을 자동 인식한다.
+    const python = embeddedPython(this.installDir);
+    const cwd = IS_WIN ? comfyRoot(this.installDir) : comfyAppDir(this.installDir);
+    const args = ['-s', IS_WIN ? join('ComfyUI', 'main.py') : 'main.py',
+      '--port', String(this.port), '--disable-auto-launch'];
+    // ⚠️ 맥(MPS)에서는 PyTorch 가 아직 구현하지 않은 연산이 있다. 커스텀 노드(누끼 등)가
+    //    그런 연산을 만나면 "The operator 'aten::…' is not currently implemented for the MPS
+    //    device" 로 **생성 전체가 죽는다**. 이 환경변수가 있으면 해당 연산만 CPU 로 흘려
+    //    (조금 느려질 뿐) 파이프라인이 계속된다. 맥에서 ComfyUI 를 쓰려면 사실상 필수.
+    const env = IS_WIN ? process.env : { ...process.env, PYTORCH_ENABLE_MPS_FALLBACK: '1' };
     this.onLog(`ComfyUI 시작: ${python} ${args.join(' ')}`);
-    this.proc = spawn(python, args, { cwd: root, windowsHide: true });
+    this.proc = spawn(python, args, { cwd, env, windowsHide: true });
     this.proc.stdout?.on('data', (d) => this.onLog(String(d).trimEnd()));
     this.proc.stderr?.on('data', (d) => this.onLog(String(d).trimEnd()));
     this.proc.on('exit', (code) => { this.onLog(`ComfyUI 종료 (code=${code})`); this.proc = null; });

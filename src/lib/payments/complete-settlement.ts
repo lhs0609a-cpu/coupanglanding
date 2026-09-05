@@ -14,7 +14,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getReportCosts } from '@/lib/calculations/deposit';
-import { calculateTrainerBonus } from '@/lib/calculations/trainer';
+import { calculateTrainerBonus, isBonusExpired, bonusUntilYearMonth } from '@/lib/calculations/trainer';
 import { notifyTrainerBonusEarned } from '@/lib/utils/notifications';
 import { logSettlementError } from './settlement-errors';
 
@@ -98,17 +98,22 @@ export async function completeSettlement(
     }
   }
 
-  // 5. 트레이너 보너스 생성 (trainer_earnings.monthly_report_id UNIQUE 로 중복 방지)
+  // 5. 트레이너(추천인) 보너스 생성 (trainer_earnings.monthly_report_id UNIQUE 로 중복 방지)
+  //    기준은 순이익 × bonus_percentage(기본 5%). 여기에 정책 가드를 적용한다:
+  //      ① 지급 기간 — 첫 지급 달부터 12개월(bonus_until_year_month)까지만
+  //    (월 상한 없음 — 피추천인이 번 만큼 그대로 지급)
   const { data: traineeLink } = await serviceClient
     .from('trainer_trainees')
-    .select('trainer_id, trainer:trainers(*, pt_user:pt_users(profile_id))')
+    .select('trainer_id, bonus_first_year_month, bonus_until_year_month, trainer:trainers(*, pt_user:pt_users(profile_id))')
     .eq('trainee_pt_user_id', report.pt_user_id)
     .eq('is_active', true)
     .maybeSingle();
 
   if (traineeLink) {
-    const trainer = (traineeLink as unknown as {
+    const link = traineeLink as unknown as {
       trainer_id: string;
+      bonus_first_year_month: string | null;
+      bonus_until_year_month: string | null;
       trainer: {
         id: string;
         status: string;
@@ -116,9 +121,13 @@ export async function completeSettlement(
         total_earnings: number;
         pt_user: { profile_id: string };
       };
-    }).trainer;
+    };
+    const trainer = link.trainer;
 
-    if (trainer && trainer.status === 'approved') {
+    // ① 지급 기간 만료면 채널 호출 없이 조용히 skip (첫 지급 전이면 만료 아님)
+    const expired = isBonusExpired(report.year_month, link.bonus_until_year_month);
+
+    if (trainer && trainer.status === 'approved' && !expired) {
       const reportCosts = getReportCosts(report);
       const { netProfit: trainerNetProfit, bonusAmount } = calculateTrainerBonus(
         report.reported_revenue,
@@ -134,41 +143,53 @@ export async function completeSettlement(
           .maybeSingle();
 
         if (!existingEarning) {
-          const { error: earningErr } = await serviceClient.from('trainer_earnings').insert({
-            trainer_id: trainer.id,
-            trainee_pt_user_id: report.pt_user_id,
-            monthly_report_id: report.id,
-            year_month: report.year_month,
-            trainee_net_profit: trainerNetProfit,
-            bonus_percentage: trainer.bonus_percentage,
-            bonus_amount: bonusAmount,
-            payment_status: 'pending',
-          });
-
-          if (!earningErr) {
-            // total_earnings 는 atomic increment 로 race-free 보장
-            await serviceClient.rpc('trainer_increment_total_earnings', {
-              p_trainer_id: trainer.id,
-              p_delta: bonusAmount,
+            const { error: earningErr } = await serviceClient.from('trainer_earnings').insert({
+              trainer_id: trainer.id,
+              trainee_pt_user_id: report.pt_user_id,
+              monthly_report_id: report.id,
+              year_month: report.year_month,
+              trainee_net_profit: trainerNetProfit,
+              bonus_percentage: trainer.bonus_percentage,
+              bonus_amount: bonusAmount,
+              payment_status: 'pending',
             });
 
-            if (trainer.pt_user?.profile_id) {
-              await notifyTrainerBonusEarned(
-                serviceClient,
-                trainer.pt_user.profile_id,
-                userName,
-                report.year_month,
-                bonusAmount,
-              );
+            if (!earningErr) {
+              // 첫 지급이면 12개월 창을 여기서 확정(앵커 = 이번 정산 월)
+              if (!link.bonus_first_year_month) {
+                await serviceClient
+                  .from('trainer_trainees')
+                  .update({
+                    bonus_first_year_month: report.year_month,
+                    bonus_until_year_month: bonusUntilYearMonth(report.year_month),
+                  })
+                  .eq('trainee_pt_user_id', report.pt_user_id)
+                  .is('bonus_first_year_month', null);
+              }
+
+              // total_earnings 는 atomic increment 로 race-free 보장
+              await serviceClient.rpc('trainer_increment_total_earnings', {
+                p_trainer_id: trainer.id,
+                p_delta: bonusAmount,
+              });
+
+              if (trainer.pt_user?.profile_id) {
+                await notifyTrainerBonusEarned(
+                  serviceClient,
+                  trainer.pt_user.profile_id,
+                  userName,
+                  report.year_month,
+                  bonusAmount,
+                );
+              }
+            } else if (earningErr.code !== '23505') {
+              await logSettlementError(serviceClient, {
+                stage: 'trainer_earnings_insert',
+                monthlyReportId: report.id,
+                ptUserId: report.pt_user_id,
+                error: earningErr,
+              });
             }
-          } else if (earningErr.code !== '23505') {
-            await logSettlementError(serviceClient, {
-              stage: 'trainer_earnings_insert',
-              monthlyReportId: report.id,
-              ptUserId: report.pt_user_id,
-              error: earningErr,
-            });
-          }
         }
       }
     }

@@ -4,7 +4,7 @@
 
 // --- Enums ---
 
-export type Channel = 'coupang' | 'naver' | 'elevenst' | 'gmarket' | 'auction' | 'lotteon' | 'toss' | 'kakao';
+export type Channel = 'coupang' | 'naver' | 'elevenst' | 'gmarket' | 'auction' | 'lotteon' | 'toss' | 'kakao' | 'temu';
 
 /** 실제 API 연동 여부 — 토스/카카오는 공식 셀러 API 미공개로 준비 중 */
 export const UNSUPPORTED_CHANNELS = ['toss', 'kakao'] as const;

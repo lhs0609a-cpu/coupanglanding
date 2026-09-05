@@ -306,6 +306,57 @@ export class CoupangAdapter extends BaseAdapter {
     }
   }
 
+  /**
+   * 옵션(vendorItem) 실재고·판매상태 — 쿠팡의 진짜 "판매중/품절/판매중지" 신호.
+   * ⚠️ seller-products 상세로는 옵션 판매 on/off 를 못 읽는다(승인상태만 나옴).
+   *    이 inventories API 만 onSale(판매중 여부) + amountInStock(재고) 을 반환한다.
+   *    응답 예: { sellerItemId, amountInStock, salePrice, onSale }
+   */
+  async getVendorItemInventory(vendorItemId: string): Promise<{ onSale: boolean; amountInStock: number | null; salePrice: number | null } | null> {
+    try {
+      const path = `/v2/providers/seller_api/apis/api/v1/marketplace/vendor-items/${vendorItemId}/inventories`;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const raw = await this.coupangApi<any>('GET', path);
+      const d = raw?.data ?? raw;
+      if (!d) return null;
+      return {
+        onSale: !!d.onSale,
+        amountInStock: typeof d.amountInStock === 'number' ? d.amountInStock : null,
+        salePrice: typeof d.salePrice === 'number' ? d.salePrice : null,
+      };
+    } catch (err) {
+      console.warn(`[CoupangAdapter] getVendorItemInventory(${vendorItemId}) failed:`, err instanceof Error ? err.message : err);
+      return null;
+    }
+  }
+
+  /**
+   * 상품이 지금 쿠팡에서 실제로 팔리는지 실측(라벨 교정용 진실 소스).
+   * 옵션(vendorItem) 중 하나라도 onSale && 재고>0 이면 판매중으로 판정.
+   * @param maxOptions 조회할 옵션 수 상한(호출량 제어). 기본 3.
+   */
+  async getCoupangSaleTruth(sellerProductId: string, maxOptions = 3): Promise<{
+    statusName: string;
+    sellable: boolean;
+    optionsChecked: number;
+    firstStock: number | null;
+  } | null> {
+    const detail = await this.getProductDetail(sellerProductId);
+    if (!detail) return null;
+    const vids = detail.items.map(i => i.vendorItemId).filter(Boolean).slice(0, maxOptions);
+    let sellable = false;
+    let firstStock: number | null = null;
+    let checked = 0;
+    for (const vid of vids) {
+      const inv = await this.getVendorItemInventory(vid);
+      checked++;
+      if (!inv) continue;
+      if (checked === 1) firstStock = inv.amountInStock;
+      if (inv.onSale && (inv.amountInStock == null || inv.amountInStock > 0)) { sellable = true; break; }
+    }
+    return { statusName: detail.statusName, sellable, optionsChecked: checked, firstStock };
+  }
+
   async updateProduct(channelProductId: string, product: Record<string, unknown>) {
     // 공식 스펙: PUT /v2/providers/seller_api/apis/api/v1/marketplace/seller-products/{sellerProductId}
     const path = `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/${channelProductId}`;
@@ -677,6 +728,59 @@ export class CoupangAdapter extends BaseAdapter {
 
     console.warn(`[getNoticeCategoryFields] 모든 엔드포인트 실패: categoryCode=${categoryCode}`);
     return { items: [] };
+  }
+
+  /** 카테고리가 제공하는 인증(KC 등) 조회 — grounding 소스.
+   *  category-related-metas 응답의 certifications 배열을 파싱한다.
+   *
+   *  ⚠️ 실측(2026-07-20, 카테고리 63454): 쿠팡은 인증 타입을 MANDATORY 로 선언하지 않는다.
+   *     27종 전부 required 가 OPTIONAL|RECOMMEND 였다. 따라서 required 로 거르면 항상 0개가 되고
+   *     인증번호가 통째로 누락된다 → 호출부는 required 가 아니라 *이름 매칭* 으로 타입을 고른다.
+   *     dataType('CODE'=인증번호를 받는 타입 / 'NONE'=번호 없음)이 그 판단에 필수라 함께 반환한다. */
+  async getCategoryCertifications(categoryCode: string): Promise<{
+    items: { certificationType: string; name: string; required: boolean; dataType: string }[];
+  }> {
+    const endpoints = [
+      `/v2/providers/seller_api/apis/api/v1/marketplace/meta/category-related-metas/display-category-codes/${categoryCode}`,
+      `/v2/providers/openapi/apis/api/v4/vendors/${this.vendorId}/categorization/meta/display-category-codes/${categoryCode}`,
+    ];
+    for (const path of endpoints) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const raw = await this.coupangApi<any>('GET', path);
+        const data = raw?.data || raw;
+        // 응답 키 자동 감지 (certifications / certificationList / requiredCertifications)
+        const list = data?.certifications || data?.certificationList || data?.requiredCertifications;
+        if (Array.isArray(list)) {
+          const items = list
+            .map((c: Record<string, unknown>) => {
+              const certificationType = String(c.certificationType || c.type || c.code || '').trim();
+              const requiredRaw = c.required ?? c.mandatory ?? c.necessary;
+              const required = requiredRaw === true
+                || (typeof requiredRaw === 'string' && /mandatory|required|필수|true|y/i.test(requiredRaw));
+              return {
+                certificationType,
+                name: String(c.name || c.certificationName || c.certificationTypeName || '').trim(),
+                required,
+                dataType: String(c.dataType || '').trim().toUpperCase(),
+              };
+            })
+            .filter((c: { certificationType: string }) => c.certificationType && c.certificationType !== 'NOT_REQUIRED');
+          console.log(`[getCategoryCertifications] ${categoryCode}: ${items.length}개 (code타입=${items.filter((i: {dataType:string}) => i.dataType === 'CODE').length})`);
+          return { items };
+        }
+      } catch (e) {
+        console.log(`[getCategoryCertifications] ${path.split('/').slice(-2).join('/')}: 에러=${e instanceof Error ? e.message.slice(0, 80) : 'unknown'}`);
+        continue;
+      }
+    }
+    return { items: [] };
+  }
+
+  /** 카테고리 메타 원문(category-related-metas) 그대로 반환 — 디버그/인증 shape 확인용 */
+  async getRawCategoryMeta(categoryCode: string): Promise<unknown> {
+    const path = `/v2/providers/seller_api/apis/api/v1/marketplace/meta/category-related-metas/display-category-codes/${categoryCode}`;
+    return this.coupangApi<unknown>('GET', path);
   }
 
   /** 카테고리 자동 매칭 (상품명 기반) — Predict API */

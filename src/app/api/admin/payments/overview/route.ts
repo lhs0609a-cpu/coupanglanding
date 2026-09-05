@@ -146,14 +146,29 @@ export async function GET() {
     if (txErr) throw txErr;
 
     const latestTxByUser = new Map<string, NonNullable<typeof txs>[number]>();
-    // 마지막 성공 결제(영수증 표시용) — 별도 추적
+    // 마지막 성공 결제(영수증 표시용) — 별도 추적.
+    //   ⚠ 이건 "월 무관 최근 성공 결제"라 특정 청구월의 결제 여부/금액 판정에 쓰면 안 된다.
+    //   월별 판정은 아래 successTxByReport(monthly_report_id 매칭)를 쓸 것.
     const lastSuccessTxByUser = new Map<string, NonNullable<typeof txs>[number]>();
+    // 청구월(monthly_report) 단위 성공 결제 — 예상 청구액과 실결제액의 달을 일치시키기 위함
+    const successTxByUserReport = new Map<string, Map<string, NonNullable<typeof txs>[number]>>();
     (txs || []).forEach((t) => {
       if (!latestTxByUser.has(t.pt_user_id)) {
         latestTxByUser.set(t.pt_user_id, t);
       }
       if (t.status === 'success' && !lastSuccessTxByUser.has(t.pt_user_id)) {
         lastSuccessTxByUser.set(t.pt_user_id, t);
+      }
+      if (t.status === 'success' && t.monthly_report_id) {
+        let byReport = successTxByUserReport.get(t.pt_user_id);
+        if (!byReport) {
+          byReport = new Map();
+          successTxByUserReport.set(t.pt_user_id, byReport);
+        }
+        // txs 는 created_at DESC 정렬 → 리포트당 첫 항목이 최신 성공 결제
+        if (!byReport.has(t.monthly_report_id)) {
+          byReport.set(t.monthly_report_id, t);
+        }
       }
     });
 
@@ -162,6 +177,7 @@ export async function GET() {
       const report = reportByUser.get(u.id) ?? null;
       const latestTx = latestTxByUser.get(u.id) ?? null;
       const lastSuccessTx = lastSuccessTxByUser.get(u.id) ?? null;
+      const successTxByReport = successTxByUserReport.get(u.id) ?? null;
       const unpaid = unpaidSummaryByUser.get(u.id) ?? null;
       const contractStatus = contractByUser.get(u.id) ?? null;
       const hasSignedContract = contractStatus === 'signed';
@@ -250,6 +266,21 @@ export async function GET() {
               approved_at: (lastSuccessTx as { approved_at?: string | null }).approved_at ?? null,
             }
           : null,
+        // monthly_report_id → 그 청구월의 성공 결제. 특정 월의 실결제액/영수증은 반드시 이걸 쓸 것.
+        success_tx_by_report: successTxByReport
+          ? Object.fromEntries(
+              [...successTxByReport.entries()].map(([reportId, t]) => [
+                reportId,
+                {
+                  id: t.id,
+                  total_amount: t.total_amount,
+                  receipt_url: (t as { receipt_url?: string | null }).receipt_url ?? null,
+                  toss_payment_key: (t as { toss_payment_key?: string | null }).toss_payment_key ?? null,
+                  approved_at: (t as { approved_at?: string | null }).approved_at ?? null,
+                },
+              ]),
+            )
+          : {},
       };
     });
 

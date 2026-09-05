@@ -1,4 +1,5 @@
 import type { Channel } from '@/lib/megaload/types';
+import type { Hotspot } from '@/components/megaload/GuideImageWithHotspots';
 
 export interface ChannelGuideStep {
   stepNumber: number;
@@ -11,6 +12,21 @@ export interface ChannelGuideStep {
   inputFields?: string[];
   /** 실제 화면 예시 이미지(외부). 로드 실패 시 마법사가 자동 목업으로 폴백. */
   imageUrl?: string;
+  /**
+   * 캡처 출처. 없으면 마법사가 출처 문구를 생략한다.
+   * (이전엔 "출처: 윈셀링 가이드"가 하드코딩돼, 출처가 다른 캡처에도 그 문구가 붙었다.)
+   */
+  imageSource?: string;
+  /**
+   * 캡처 위에 얹을 번호 배지. 빨간 박스만으로는 "어느 것부터"를 알 수 없어
+   * 순서가 필요한 단계에 좌표(백분율)로 넣는다.
+   */
+  hotspots?: Hotspot[];
+  /**
+   * 셀러가 채널 화면에 그대로 붙여넣어야 하는 우리 쪽 값 — 마법사가 복사 버튼과 함께 렌더.
+   * 정적 데이터에 값을 박지 않고 키로 참조한다(IP 는 배포 환경에 따라 달라짐).
+   */
+  copyValueKey?: 'egressIp';
 }
 
 export interface ChannelSetupGuide {
@@ -59,11 +75,17 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         title: '판매자 코드(Vendor ID) 확인',
         description: '내 판매자 고유 코드를 확인합니다.',
         detailedInstructions: [
-          '우측 상단 판매자 이름 → "판매자정보"(또는 "추가판매정보")를 클릭하세요.',
-          '"업체코드(VendorID)" 항목의 값을 복사해두세요.',
+          '우측 상단 판매자 이름을 클릭하면 드롭다운이 열립니다.',
+          '드롭다운 맨 위에 상호와 함께 "업체코드"가 바로 보입니다 — 이 값을 복사하세요.',
+          'API 키 발급은 같은 드롭다운의 [추가판매정보] 메뉴에서 합니다.',
         ],
         tip: '업체코드는 "A" 또는 "C" + 숫자 형태입니다 (예: A00012345).',
         imageUrl: '/onboarding/coupang/api-vendor.png',
+        hotspots: [
+        { n: 1, x: 76, y: 6, label: '우측 상단 판매자 이름을 클릭해 드롭다운을 엽니다.' },
+        { n: 2, x: 55, y: 30, label: '"업체코드"가 여기 바로 보입니다 — 복사해 두세요.' },
+        { n: 3, x: 48, y: 80, label: 'API 키는 [추가판매정보] 메뉴에서 발급합니다.' },
+        ],
         inputFields: ['Vendor ID (업체코드)'],
       },
       {
@@ -71,13 +93,21 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         title: 'Open API 키 발급',
         description: 'Access Key와 Secret Key를 발급받습니다.',
         detailedInstructions: [
-          '"판매자정보"(또는 "추가판매정보") 화면의 "API Key 발급 받기" 버튼을 클릭하세요.',
-          '용도로 "OPEN API"를 선택하고 확인합니다 (웹솔루션 연동 키가 아님).',
-          '약관에 동의하고 "약관 동의 및 Key 발급받기"를 클릭합니다.',
-          '업체코드 · Access Key · Secret Key가 함께 표시됩니다.',
+          '[추가판매정보] 화면에서 "OPEN API 키 발급" 영역을 찾으세요.',
+          '발급 전에 동의 2종이 모두 "완료"여야 합니다 — 카테고리 자동매칭 이용동의, 약관동의.',
+          '[발급] 버튼을 누르면 사용 목적 "OPEN API" 행이 생기고 Access Key·Secret Key가 표시됩니다.',
+          '같은 표에 업체코드와 유효 기간(남은 일수)이 함께 나옵니다.',
         ],
-        warning: 'Secret Key는 발급 시 한 번만 표시됩니다. 즉시 복사하세요. 분실 시 기존 키를 삭제 후 재발급하며, 키는 유효기간(약 180일)이 있어 만료 전 재발급이 필요합니다.',
+        warning: 'Secret Key는 발급 시 한 번만 표시됩니다. 즉시 복사하세요. 키에는 유효기간(180일)이 있고 표에 남은 일수가 보이므로, 만료 전에 [재발급]을 눌러 갱신해야 연동이 끊기지 않습니다.',
         imageUrl: '/onboarding/coupang/api-key.png',
+        hotspots: [
+        { n: 1, x: 11, y: 17, label: '"카테고리 자동매칭 이용동의 완료"와 "약관동의 완료" 둘 다 되어야 발급됩니다.' },
+        { n: 2, x: 45, y: 17, label: '[발급]을 누르면 아래 표에 키가 생성됩니다.' },
+        { n: 3, x: 20, y: 50, label: '업체코드(Vendor ID) — 메가로드에 입력할 값입니다.' },
+        { n: 4, x: 34, y: 45, label: '유효 기간과 남은 일수. 만료 전에 [재발급]으로 갱신하세요.' },
+        { n: 5, x: 66, y: 50, label: 'Access Key' },
+        { n: 6, x: 86, y: 50, label: 'Secret Key — 이 두 개와 업체코드를 메가로드에 붙여넣습니다.' },
+        ],
         inputFields: ['Access Key', 'Secret Key'],
       },
       {
@@ -150,7 +180,8 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           '✅ 상품 관리   ✅ 주문 관리(필수)   ✅ 클레임 관리   ✅ 정산 관리',
           '앱 상세에서 "인증" 버튼으로 앱을 활성화합니다 (IP가 비어있으면 인증 불가).',
         ],
-        warning: '"주문" 권한을 빠뜨리면 주문 연동이 막힙니다. IP 미등록 시 인증도 실패합니다. IP는 메가로드가 안내하는 값을 넣으세요.',
+        warning: '"주문" 권한을 빠뜨리면 주문 연동이 막힙니다. IP 미등록 시 앱 인증 자체가 실패합니다.',
+        copyValueKey: 'egressIp',
       },
       {
         stepNumber: 5,
@@ -172,6 +203,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           'Client ID와 Client Secret을 각 필드에 붙여넣으세요.',
           '"연결 테스트 & 저장"으로 연동을 확인합니다.',
         ],
+        tip: '연결 테스트가 실패하면 대부분 4단계 IP 등록이 빠진 경우예요.',
       },
     ],
     finalNote: '네이버 토큰은 주기적으로 만료되지만(응답 expires_in 기준) 메가로드가 자동 재발급합니다. 서버 시각 기반 bcrypt 서명이라 별도 만료일 관리는 필요 없습니다.',
@@ -198,6 +230,11 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         ],
         url: 'https://soffice.11st.co.kr',
         tip: '이미 셀러 계정이 있으면 이 단계는 건너뛰세요.',
+        imageUrl: '/onboarding/elevenst/step-1b-login.png',
+        hotspots: [
+          { n: 1, x: 50, y: 34, label: '이미 셀러 계정이 있으면 아이디·비밀번호로 로그인하세요.' },
+          { n: 2, x: 50, y: 69, label: '아직 판매자가 아니라면 [판매자 가입하기]를 눌러 가입부터 하세요.' },
+        ],
       },
       {
         stepNumber: 2,
@@ -209,6 +246,9 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         ],
         url: 'https://openapi.11st.co.kr/openapi/OpenApiFrontMain.tmall',
         imageUrl: '/onboarding/elevenst/api-register.png',
+        hotspots: [
+          { n: 1, x: 47, y: 24, label: '상단 [서비스 등록·확인] 메뉴를 클릭하세요. 여기서 API 서비스를 등록합니다.' },
+        ],
       },
       {
         stepNumber: 3,
@@ -219,8 +259,14 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           '메가로드 호출 서버 IP를 입력합니다 (여러 개면 세미콜론 ; 로 구분).',
           '개발/PC/상용 IP 필드가 나뉘어 있으면 안내된 IP를 모두 넣고 저장하세요.',
         ],
-        warning: 'IP를 등록하지 않으면 모든 API 호출이 거부됩니다. 가장 흔한 실패 원인이에요. IP는 메가로드가 안내하는 값을 넣으세요.',
+        url: 'https://openapi.11st.co.kr/openapi/OpenApiFrontMain.tmall',
+        warning: 'IP를 등록하지 않으면 모든 API 호출이 거부됩니다. 가장 흔한 실패 원인이에요. 아래 값을 그대로 복사해 넣으세요.',
         imageUrl: '/onboarding/elevenst/api-ip.png',
+        hotspots: [
+          { n: 1, x: 72, y: 17, label: '상단 [서비스 등록·확인] 클릭' },
+          { n: 2, x: 19, y: 74, label: '좌측 [Seller API 정보 수정] 클릭 → 여기서 호출 IP를 입력합니다.' },
+        ],
+        copyValueKey: 'egressIp',
       },
       {
         stepNumber: 4,
@@ -232,6 +278,11 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         ],
         tip: '이 키 하나로 상품/주문 API를 모두 사용합니다 (API별 개별신청 불필요).',
         imageUrl: '/onboarding/elevenst/api-key.png',
+        hotspots: [
+          { n: 1, x: 46, y: 8, label: '[서비스 등록·확인] → 확인 화면으로 들어옵니다.' },
+          { n: 2, x: 80, y: 60, label: '"11ST OPEN API KEY" 아래 값이 발급된 키입니다. "승인 완료"로 표시돼야 사용할 수 있습니다.' },
+          { n: 3, x: 72, y: 87, label: '[복사하기]를 눌러 키를 복사한 뒤 메가로드에 붙여넣으세요.' },
+        ],
         inputFields: ['API Key (openapikey)'],
       },
       {
@@ -242,6 +293,8 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           'API Key(openapikey) 필드에 붙여넣으세요. (SK Open API Key는 선택 — 비워도 됨)',
           '"연결 테스트 & 저장"으로 연동을 확인합니다.',
         ],
+        inputFields: ['API Key (openapikey)', 'SK Open API Key (선택)'],
+        tip: '연결 테스트가 실패하면 대부분 3단계 IP 등록이 빠진 경우예요.',
       },
     ],
     finalNote: '11번가는 XML 기반이며 상품 등록에 일일 한도가 있을 수 있습니다(최신 기준은 공식 문서 확인). IP가 바뀌면 화이트리스트를 갱신하세요.',
@@ -276,8 +329,15 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         detailedInstructions: [
           'ESM+ → "계정(ID)관리" → "판매자 계정(ID) 관리"로 이동하세요.',
           'ESM 마스터ID와 G마켓 판매자 ID를 확인해 복사해두세요.',
+          '목록의 "ESM연동"이 완료인지 반드시 확인하세요 — 연동 안 된 ID는 API로 상품·주문·고객 정보가 조회되지 않습니다.',
         ],
         imageUrl: '/onboarding/gmarket/api-id.jpg',
+        hotspots: [
+        { n: 1, x: 11, y: 68, label: '사이트별로 줄이 나뉩니다 — A옥션 / G지마켓.' },
+        { n: 2, x: 25, y: 68, label: '여기 보이는 "판매자 ID"를 복사해 메가로드에 입력합니다.' },
+        { n: 3, x: 51, y: 68, label: 'ESM연동이 "완료"여야 합니다. 연동 안 된 ID로는 아무것도 조회되지 않습니다.' },
+        { n: 4, x: 60, y: 68, label: '계정(ID)상태가 "정상"인지 확인하세요.' },
+        ],
         inputFields: ['ESM+ 마스터ID', 'G마켓 셀러ID'],
       },
       {
@@ -292,6 +352,7 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         url: 'https://etapi.gmarket.com/',
         warning: '개발자가 직접 Secret Key를 발급받는 메뉴는 없습니다(이메일 신청만 가능). ESM+의 "ESM API 관리/셀링툴 관리"는 이미 등록된 솔루션 연동용이라 별개입니다.',
         tip: '회신에 며칠 걸릴 수 있어요. 신청 메일 보낸 뒤 네이버·11번가 등 다른 채널을 먼저 연동하세요.',
+        copyValueKey: 'egressIp',
       },
       {
         stepNumber: 4,
@@ -346,6 +407,12 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           'ESM 마스터ID와 옥션 판매자 ID를 확인해 복사해두세요.',
         ],
         imageUrl: '/onboarding/gmarket/api-id.jpg',
+        hotspots: [
+        { n: 1, x: 11, y: 68, label: '사이트별로 줄이 나뉩니다 — A옥션 / G지마켓.' },
+        { n: 2, x: 25, y: 68, label: '여기 보이는 "판매자 ID"를 복사해 메가로드에 입력합니다.' },
+        { n: 3, x: 51, y: 68, label: 'ESM연동이 "완료"여야 합니다. 연동 안 된 ID로는 아무것도 조회되지 않습니다.' },
+        { n: 4, x: 60, y: 68, label: '계정(ID)상태가 "정상"인지 확인하세요.' },
+        ],
         inputFields: ['ESM+ 마스터ID', '옥션 셀러ID'],
       },
       {
@@ -354,12 +421,13 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         description: 'ESM은 셀프 발급 메뉴가 없어 이메일로 신청합니다.',
         detailedInstructions: [
           'et_api@ebay.co.kr 로 키 발급 신청 메일을 보내세요 (일반 문의는 etapihelp@gmail.com).',
-          '메일에 포함: 마스터ID · 사용 API 목록 · 호출 IP(메가로드 서버 IP) · 서비스 URL · 최근 3개월 매출 · 개발 기간.',
+          '메일에 포함: 마스터ID · 사용 API 목록 · 호출 IP(아래 값) · 서비스 URL · 최근 3개월 매출 · 개발 기간.',
           'G마켓과 함께 신청하면 하나의 Secret Key로 옥션(A)·G마켓(G)을 모두 씁니다.',
         ],
         url: 'https://etapi.gmarket.com/',
         warning: '개발자용 셀프 발급 메뉴는 없습니다(이메일 신청만). ESM+의 "셀링툴 관리" 메뉴는 ISV 연동용이라 별개입니다.',
         tip: 'G마켓을 이미 신청했다면 같은 Secret Key를 옥션 셀러ID와 함께 쓰면 됩니다.',
+        copyValueKey: 'egressIp',
       },
       {
         stepNumber: 4,
@@ -416,6 +484,9 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         url: 'https://store.lotteon.com',
         tip: 'store.lotteon.com이 판매자 스토어센터입니다. partner.b2b.lotteon.com은 별도 B2B 포털이니 혼동하지 마세요.',
         imageUrl: '/onboarding/lotteon/api-menu.png',
+        hotspots: [
+        { n: 1, x: 40, y: 47, label: '좌측 메뉴에서 [OpenAPI관리]를 클릭하세요.' },
+        ],
       },
       {
         stepNumber: 3,
@@ -425,7 +496,8 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
           '"1단계. 서버 API 등록"에서 연동 방법을 "직접입력"으로 선택하세요.',
           '메가로드 호출 서버 IP를 입력하고 저장합니다 (여러 개면 세미콜론 ; 구분).',
         ],
-        warning: 'IP 미등록 시 호출이 거부됩니다. IP는 메가로드가 안내하는 값을 넣으세요.',
+        warning: 'IP 미등록 시 호출이 거부됩니다. "직접입력"으로 저장했는데도 승인이 나지 않으면, 롯데온이 연동사(셀러툴) 목록에 등록된 업체만 승인하는 경우이니 고객센터에 문의하세요.',
+        copyValueKey: 'egressIp',
       },
       {
         stepNumber: 4,
@@ -437,6 +509,12 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
         ],
         warning: '인증키는 발급 시 한 번만 표시됩니다. 인증키와 거래처번호가 서로 맞지 않으면 작업이 실패합니다.',
         imageUrl: '/onboarding/lotteon/api-key.png',
+        hotspots: [
+        { n: 1, x: 6, y: 33, label: '[키발급]을 눌러 인증키를 만듭니다. (연동사 지정이 안 돼 있으면 승인이 안 납니다)' },
+        { n: 2, x: 45, y: 63, label: '[복사]로 인증키를 복사해 메가로드에 붙여넣으세요.' },
+        { n: 3, x: 64, y: 63, label: '유효기간을 확인하세요 — 만료되면 연동이 끊기므로 만료 전에 재발급이 필요합니다.' },
+        { n: 4, x: 79, y: 63, label: '상태가 "사용"이어야 정상입니다.' },
+        ],
         inputFields: ['판매자 ID', 'API Key', '거래처번호'],
       },
       {
@@ -450,6 +528,108 @@ export const CHANNEL_SETUP_GUIDES: Record<Channel, ChannelSetupGuide> = {
       },
     ],
     finalNote: '롯데온 API 인증키는 1년 유효(연 1회 재발급)입니다. 메가로드가 만료 30일 전에 알려드립니다. IP가 바뀌면 화이트리스트를 갱신하세요.',
+  },
+
+  // ── 토스쇼핑 (스텁 — 공식 셀러 API 미공개) ──
+  // ── 테무 (Temu Open Platform / 한국 로컬셀러 L2L) ──
+  //
+  // 다른 채널과 결정적으로 다른 점: 키가 "셀러 포털에서 즉시 발급"이 아니라
+  // 별도 개발자 포털(partner.temu.com)에서 앱을 만들고 테무 심사를 통과해야 나온다.
+  // 그래서 절차가 셀러센터 ↔ 개발자 포털 두 사이트를 오간다.
+  temu: {
+    channel: 'temu',
+    title: '테무 Open API 연동 가이드 (자체개발 앱)',
+    estimatedTime: '입력 약 10분 + 테무 심사 대기 (앱 승인 SLA 미공개)',
+    prerequisites: [
+      '테무 한국 로컬 셀러(L2L) 입점 승인 — 사업자 필수',
+      '셀러센터 주(main) 계정 — 서브 계정으로는 앱을 만들 수 없음',
+      '한국 A/S 담당자(Korea A/S REP) 사전 등록 — 미비 시 판매 제한',
+    ],
+    steps: [
+      {
+        stepNumber: 1,
+        title: '테무 한국 셀러 입점',
+        description: '한국 로컬 셀러(L2L)로 입점합니다.',
+        detailedInstructions: [
+          'kr.seller.temu.com 에서 로컬 셀러로 가입 신청하세요. 등록비는 무료입니다.',
+          '사업자 정보와 서류를 제출하면 영업일 1일 내 심사됩니다.',
+          '한국은 로컬투로컬(L2L) 모델만 열려 있습니다 — 국내 재고를 국내로 직배송하는 방식입니다.',
+        ],
+        url: 'https://kr.seller.temu.com/login.html',
+        tip: '중국 크로스보더(agentseller.temu.com, seller.kuajingmaihuo.com)와 다른 사이트입니다. 한국 셀러는 kr.seller.temu.com 이 맞습니다.',
+      },
+      {
+        stepNumber: 2,
+        title: '개발자 포털(Partner Platform) 가입',
+        description: 'API 앱을 만들 개발자 계정을 만듭니다.',
+        detailedInstructions: [
+          'partner.temu.com 에서 이메일로 파트너 계정을 생성하세요.',
+          '파트너 유형에서 반드시 "Self-developed applications seller"(자체개발 앱 셀러)를 선택하세요.',
+          '한국은 GLOBAL 관할입니다 — partner-us / partner-eu 가 아니라 partner.temu.com 입니다.',
+        ],
+        url: 'https://partner.temu.com/',
+        warning: '파트너 유형은 나중에 변경할 수 없습니다. 잘못 고르면 계정을 새로 만들어야 합니다. 또한 ISV(제3자 앱) 계정과 자체개발 앱 계정은 겸용할 수 없습니다.',
+      },
+      {
+        stepNumber: 3,
+        title: '셀러센터 계정 연동',
+        description: '개발자 계정에 내 매장을 연결합니다.',
+        detailedInstructions: [
+          '파트너 플랫폼에서 셀러센터 계정을 연동하세요.',
+          '반드시 주(main) 계정이어야 합니다. 서브 계정은 연동되지 않습니다.',
+          '한 셀러센터 계정은 파트너 계정 하나에만 연결되고, 매장당 자체개발 앱은 1개만 만들 수 있습니다.',
+        ],
+        warning: '"A self-developed app has already been applied for the shops." 가 뜨면 해당 매장에 이미 앱이 있다는 뜻입니다.',
+      },
+      {
+        stepNumber: 4,
+        title: '앱 생성 + 컴플라이언스 심사',
+        description: '앱 정보를 적고 설문을 제출한 뒤 승인을 기다립니다.',
+        detailedInstructions: [
+          '앱 이름, Shop ID, 신청 사유, API 연동으로 구현할 기능(예: 상품 등록 및 주문 관리)을 기입하세요.',
+          '컴플라이언스 설문(Compliance questionnaire)과 보안 설문(Security questionnaire)을 작성해 제출합니다.',
+          '심사 중에는 내용을 수정할 수 없습니다. 승인/반려 결과를 기다리세요.',
+        ],
+        tip: '쿠팡처럼 로그인 즉시 키가 나오는 방식이 아닙니다. 심사가 반드시 붙습니다.',
+      },
+      {
+        stepNumber: 5,
+        title: 'App Key / App Secret 확인',
+        description: '승인되면 앱 상세에서 키를 확인합니다.',
+        detailedInstructions: [
+          '승인 후 파트너 플랫폼의 앱 상세 화면에서 App Key 와 App Secret 을 확인하세요.',
+          '서버 IP 화이트리스트에 메가로드 호출 서버 IP 를 등록하세요(최대 20개).',
+        ],
+        inputFields: ['App Key', 'App Secret'],
+        warning: '중국 클라우드 사업자의 IP 는 등록할 수 없습니다. 고정 IP 가 없는 서버에서 호출하면 게이트웨이가 요청을 거부합니다.',
+      },
+      {
+        stepNumber: 6,
+        title: 'Access Token 발급',
+        description: '셀러센터에서 앱을 승인하고 토큰을 복사합니다.',
+        detailedInstructions: [
+          '셀러센터(kr.seller.temu.com) → "앱 및 서비스" → "앱스토어" 로 이동하세요.',
+          '내 앱을 찾아 "승인" 을 누르고, 하단 체크박스에 동의한 뒤 제출하세요.',
+          '화면에 표시되는 Access Token 을 복사하세요.',
+        ],
+        inputFields: ['Access Token'],
+        warning: 'Access Token 은 만료 기한이 있습니다. 토큰 재발급 API 가 공식 문서에 없어, 만료되면 이 화면에서 다시 발급받아 교체해야 할 수 있습니다.',
+      },
+      {
+        stepNumber: 7,
+        title: '메가로드에 입력 후 연결 테스트',
+        description: '키 3개를 입력하고 연결을 확인합니다.',
+        detailedInstructions: [
+          'App Key, App Secret, Access Token 을 아래 입력란에 넣고 "연결 테스트" 를 누르세요.',
+          '성공하면 연결된 매장명과 권한 개수, 토큰 만료일이 함께 표시됩니다.',
+        ],
+        inputFields: ['App Key', 'App Secret', 'Access Token'],
+        tip: '"서명 불일치" 가 뜨면 App Secret 을, "토큰 무효" 가 뜨면 Access Token 을 다시 확인하세요.',
+      },
+    ],
+    finalNote:
+      '연결이 되면 1단계 완료입니다. 상품 등록과 주문 연동은 이어지는 단계에서 추가됩니다. ' +
+      '참고로 테무는 상품을 올려도 즉시 판매되지 않고, 테무의 가격 평가와 승인을 통과해야 판매가 시작됩니다.',
   },
 
   // ── 토스쇼핑 (스텁 — 공식 셀러 API 미공개) ──

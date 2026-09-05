@@ -8,8 +8,7 @@ import { completeSettlement } from '@/lib/payments/complete-settlement';
 import { isRetryable, failureLabel, isBillingKeyInvalid } from '@/lib/payments/failure-codes';
 import { logSettlementError } from '@/lib/payments/settlement-errors';
 import { PAYMENT_RETRY_INTERVAL_HOURS, kstDateStr } from '@/lib/payments/billing-constants';
-import { buildCostBreakdown, calculateDeposit } from '@/lib/calculations/deposit';
-import { calculateVatOnTop } from '@/lib/calculations/vat';
+import { ensureBillableReports } from '@/lib/payments/billable-reports';
 import { logSystemError } from '@/lib/utils/system-log';
 import { hasPendingAdCost } from '@/lib/payments/ad-cost';
 
@@ -43,7 +42,7 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ p
     // PT 사용자 조회
     const { data: ptUser, error: ptErr } = await serviceClient
       .from('pt_users')
-      .select('id, profile_id, share_percentage, status, is_test_account, billing_excluded_until')
+      .select('id, profile_id, created_at, share_percentage, status, is_test_account, billing_excluded_until')
       .eq('id', ptUserId)
       .single();
 
@@ -115,72 +114,35 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ p
 
       // 보고서 생성 또는 awaiting_review → awaiting_payment 승급
       if (!existingReport) {
-        const { data: snap } = await serviceClient
-          .from('api_revenue_snapshots')
-          .select('total_sales, total_commission, total_shipping, total_returns, total_settlement, total_sales_orders')
-          .eq('pt_user_id', ptUserId)
-          .eq('year_month', targetMonth)
-          .maybeSingle();
-
-        const effective = snap
-          ? Math.max(Number(snap.total_sales) || 0, Number((snap as { total_sales_orders?: number }).total_sales_orders) || 0)
-          : 0;
-
-        if (!snap || effective <= 0) {
+        // 생성은 ensureBillableReports 단일 출처를 쓴다 — 정산 net(total_sales)만 청구 근거로
+        // 사용하고(주문액 미사용=과다청구 방지), 등록월 유예와 (user, month) 중복 skip 이 내장.
+        try {
+          await ensureBillableReports(serviceClient, {
+            id: ptUserId,
+            created_at: ptUser.created_at as string,
+            share_percentage: ptUser.share_percentage ?? null,
+          });
+        } catch (genErr) {
           return NextResponse.json({
-            error: `${targetMonth} 매출 데이터 없음 — 결제할 청구 금액 0원`,
+            error: '보고서 생성 실패: ' + (genErr instanceof Error ? genErr.message : String(genErr)),
+          }, { status: 500 });
+        }
+
+        // 생성 결과를 다시 읽어 청구 대상으로 삼는다(백로그 월 포함).
+        const { data: afterGen } = await serviceClient
+          .from('monthly_reports')
+          .select('id, year_month, total_with_vat, fee_payment_status, fee_payment_deadline')
+          .eq('pt_user_id', ptUserId)
+          .in('fee_payment_status', ['awaiting_payment', 'overdue', 'suspended'])
+          .order('year_month', { ascending: true });
+
+        if (!afterGen || afterGen.length === 0) {
+          return NextResponse.json({
+            error: `${targetMonth} 정산 매출 미확정(net≤0) — 청구 대상이 아닙니다. 주문액은 청구 근거로 쓰지 않습니다.`,
             code: 'NO_REVENUE',
           }, { status: 400 });
         }
-
-        const revenue = effective;
-        const sharePct = ptUser.share_percentage ?? 30;
-        const costs = buildCostBreakdown(revenue, 0);
-        const depositAmount = calculateDeposit(revenue, costs, sharePct);
-        const vatCalc = calculateVatOnTop(depositAmount);
-
-        const [ty, tm] = targetMonth.split('-').map(Number);
-        const nextMonth = tm === 12 ? 1 : tm + 1;
-        const nextYear = tm === 12 ? ty + 1 : ty;
-        const deadlineUtc = new Date(Date.UTC(nextYear, nextMonth - 1, 3, 14, 59, 59));
-
-        const { data: newReport, error: insertErr } = await serviceClient
-          .from('monthly_reports')
-          .insert({
-            pt_user_id: ptUserId,
-            year_month: targetMonth,
-            reported_revenue: revenue,
-            calculated_deposit: depositAmount,
-            payment_status: 'reviewed',
-            admin_deposit_amount: depositAmount,
-            reviewed_at: new Date().toISOString(),
-            cost_product: costs.cost_product,
-            cost_commission: costs.cost_commission,
-            cost_advertising: costs.cost_advertising,
-            cost_returns: costs.cost_returns,
-            cost_shipping: costs.cost_shipping,
-            cost_tax: costs.cost_tax,
-            api_verified: true,
-            api_settlement_data: snap,
-            supply_amount: vatCalc.supplyAmount,
-            vat_amount: vatCalc.vatAmount,
-            total_with_vat: vatCalc.totalWithVat,
-            // input_source 는 INSERT 페이로드에서 제외 — DB default 사용
-            // (CHECK 제약 위반 회피)
-            fee_payment_status: 'awaiting_payment',
-            fee_payment_deadline: deadlineUtc.toISOString(),
-            fee_surcharge_amount: 0,
-            fee_interest_amount: 0,
-          })
-          .select('id, year_month, total_with_vat, fee_payment_status, fee_payment_deadline')
-          .single();
-
-        if (!newReport || insertErr) {
-          return NextResponse.json({
-            error: '보고서 생성 실패: ' + (insertErr?.message || ''),
-          }, { status: 500 });
-        }
-        reports = [newReport];
+        reports = afterGen;
       } else {
         // awaiting_review 승급
         await serviceClient

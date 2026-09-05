@@ -156,6 +156,7 @@ export default function ChannelOnboardingGuide({
             domain={domain}
             imageUrl={step.imageUrl}
             imageSource={step.imageSource}
+            hotspots={step.hotspots}
           />
         </div>
 

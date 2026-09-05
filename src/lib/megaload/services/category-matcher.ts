@@ -107,6 +107,46 @@ function loadDetails(): Record<string, CategoryDetailRaw> {
   return _detailsData;
 }
 
+/**
+ * 카테고리 검색(자동완성용) — 키워드로 leaf 이름/경로를 검색해 상위 매치를 반환.
+ * 랭킹: leaf 정확일치 > leaf 접두 > leaf 부분 > 경로 부분. 경로 짧을수록 가점.
+ */
+export function searchCategories(
+  query: string,
+  limit = 30,
+): { code: string; path: string; name: string }[] {
+  const q = (query || '').trim().toLowerCase();
+  if (q.length < 1) return [];
+  const details = loadDetails();
+  const scored: { code: string; path: string; name: string; score: number }[] = [];
+  for (const entry of loadIndex()) {
+    const code = entry[0];
+    const leafName = entry[2] || '';
+    const path = details[code]?.p || leafName;
+    const leaf = leafName.toLowerCase();
+    const pathLower = path.toLowerCase();
+    let score = -1;
+    if (leaf === q) score = 100;
+    else if (leaf.startsWith(q)) score = 80;
+    else if (leaf.includes(q)) score = 60;
+    else if (pathLower.includes(q)) score = 30;
+    if (score < 0) continue;
+    score -= Math.min(15, path.split('>').length); // 얕은 카테고리 소폭 가점
+    scored.push({ code, path, name: leafName, score });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  // 동일 경로 중복 제거
+  const seen = new Set<string>();
+  const out: { code: string; path: string; name: string }[] = [];
+  for (const s of scored) {
+    if (seen.has(s.path)) continue;
+    seen.add(s.path);
+    out.push({ code: s.code, path: s.path, name: s.name });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 /** leaf 이름(소문자) → 해당 leaf 가 등장하는 IndexEntry 들. lazy build. */
 function loadExactLeafMap(): Map<string, IndexEntry[]> {
   if (_exactLeafMap) return _exactLeafMap;
@@ -792,6 +832,12 @@ const NOISE_WORDS = new Set([
   '추천', '인기', '베스트', '대용량', '소용량', '순수', '천연', '식물성',
   // 프로모션
   '무료배송', '당일발송', '특가', '할인', '증정', '사은품', '리뷰이벤트',
+  // 시즌/선물/행사 맥락 — 상품 정체성이 아닌 "선물 문맥" 노이즈.
+  //   (예: "안마의자 부모님 명절 설날 추석 선물" 이 "도서>초대/명절/파티요리" 로 오매칭되던 회귀 차단.
+  //    선물세트/파티 등은 실제 카테고리가 될 수 있어 제외 — 보수적 목록.)
+  '명절', '설날', '추석', '새해', '신정', '구정', '연말', '신년', '부모님', '효도', '효도선물',
+  '어버이날', '어린이날', '스승의날', '기념일', '생신', '환갑', '칠순', '고희', '승진', '개업', '집들이',
+  '답례품', '답례', '크리스마스', '성탄', '발렌타인', '화이트데이', '빼빼로데이', '선물용', '기프트', '선물추천',
   // 일반 서술어
   '함유', '효능', '효과', '예방', '개선', '상품상세참조', '풍성한',
   'new', 'box', 'haccp',

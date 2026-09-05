@@ -44,6 +44,12 @@ export interface DetailPageParams {
   detailImageTypes?: string[];
   // 상품고지정보 텍스트 테이블 (이미지 없을 때 폴백)
   noticeFields?: { name: string; value: string }[];
+  // 원본(DOM 크롤링) 상품설명 — 상세페이지 맨 끝(고시 앞)에 "상품 상세정보"로 노출.
+  //   소싱처가 제공한 원문을 버리지 않고 보존한다(기존엔 LLM 생성글만 실려 누락됐다).
+  originDescription?: string;
+  // 원본 상세 설명 이미지 — 맨 끝 "상품 상세정보" 섹션에 세로로 노출(본문 교차와 별개).
+  //   본문(글↔이미지 교차)은 리뷰컷만 쓰고, 소싱처 상세 설명컷은 여기 하단에 모아 보여준다.
+  descriptionImageUrls?: string[];
 }
 
 // ─── 레이아웃별 CSS 변형값 ──────────────────────────────────
@@ -102,6 +108,14 @@ function getTheme(categoryPath?: string): ThemeColor {
 }
 
 /**
+ * 원본 상품설명("상품 상세정보") 삽입 위치 표식.
+ *   각 레이아웃이 꼬리(상품정보제공고시·위탁·제3자) 직전에 심어 둔다. 원본 설명은 여기에 들어가고,
+ *   페이지의 **맨 마지막은 언제나 상품정보제공고시**가 된다(대량등록 상세페이지와 같은 순서).
+ *   예전엔 래퍼 닫기 직전(=고시 뒤)에 붙여, 고시 다음에 원본 사진이 더 나오는 순서였다.
+ */
+const TAIL_ANCHOR = '<!--MEGALOAD_ORIGIN_DESC-->';
+
+/**
  * SEO 최적화 상세페이지 HTML을 생성한다.
  *
  * @param templateVariant - 레이아웃 변형 (A/B/C/D), 아이템위너 방지용
@@ -112,6 +126,19 @@ function getTheme(categoryPath?: string): ThemeColor {
  * D: 이미지-글 교차(헤더없음) → FAQ → 텍스트리뷰 → 키워드마무리 → 정보
  */
 export function buildRichDetailPageHtml(params: DetailPageParams, templateVariant?: string): string {
+  const html = renderLayoutHtml(params, templateVariant);
+  // 원본(DOM) 상품설명(텍스트 + 상세 설명 이미지)을 본문(리뷰컷 교차) 뒤, **고시/위탁 앞**에 끼운다.
+  //   → 상세페이지의 맨 마지막은 상품정보제공고시(상품정보 이미지/표)로 끝난다.
+  const desc = (params.originDescription || '').trim();
+  const descImgs = (params.descriptionImageUrls || []).filter((u) => typeof u === 'string' && u.trim().length > 0);
+  if (!desc && descImgs.length === 0) return html.replace(TAIL_ANCHOR, '');
+  const section = buildProductInfoSection(desc, descImgs, params.productName);
+  if (html.includes(TAIL_ANCHOR)) return html.replace(TAIL_ANCHOR, section);
+  const idx = html.lastIndexOf('</div>');
+  return idx >= 0 ? html.slice(0, idx) + section + '\n' + html.slice(idx) : `${html}\n${section}`;
+}
+
+function renderLayoutHtml(params: DetailPageParams, templateVariant?: string): string {
   // V2: contentBlocks가 있으면 설득형 렌더러 사용
   if (params.contentBlocks && params.contentBlocks.length > 0) {
     return buildPersuasionPageHtml(params, params.contentBlocks, templateVariant);
@@ -124,6 +151,53 @@ export function buildRichDetailPageHtml(params: DetailPageParams, templateVarian
     case 'D': return buildLayoutD(params);
     default:  return buildLayoutA(params);
   }
+}
+
+/**
+ * 원본 상품설명 섹션 — 소싱처 DOM 에서 가져온 원문 텍스트 + 상세 설명 이미지를 "상품 상세정보"로 렌더.
+ *   텍스트: HTML 태그를 벗겨 안전하게 표시(스크립트/이미지 주입 방지), 과도한 길이는 컷.
+ *   이미지: 세로로 쌓아 노출(원본 상세 설명컷). 둘 중 있는 것만 렌더.
+ */
+function buildProductInfoSection(raw: string, imageUrls: string[], productName: string): string {
+  const parts: string[] = [];
+  parts.push('<div style="padding:28px 20px 8px;">');
+  parts.push('<div style="text-align:center;margin-bottom:16px;">');
+  parts.push('<div style="font-size:16px;font-weight:bold;color:#555;letter-spacing:1px;">상품 상세정보</div>');
+  parts.push('</div>');
+
+  // 텍스트(원문) — 태그 제거 후 문단 렌더
+  let text = String(raw || '')
+    .replace(/<br\s*\/?>(?=)/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  if (text.length > 4000) text = text.slice(0, 4000) + '…';
+  if (text) {
+    for (const p of text.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean)) {
+      parts.push(`<p style="margin:0 0 12px;font-size:15px;color:#333;line-height:1.9;word-break:keep-all;white-space:pre-wrap;">${esc(p)}</p>`);
+    }
+  }
+  // 이미지(원본 상세 설명컷) — 세로 스택
+  for (const url of imageUrls) {
+    parts.push(`<img src="${esc(url)}" alt="${esc(shortenForAlt(productName))} 상세정보" style="width:100%;display:block;margin:0 0 4px;" />`);
+  }
+  parts.push('</div>');
+  return parts.join('\n');
+}
+
+/**
+ * 블로그 교차용 본문 이미지 선택 — 리뷰이미지 우선, 없으면 상세이미지로 폴백.
+ *   올인원처럼 소싱 폴더에 리뷰컷이 없고 상세컷만 있을 때, 상세컷이라도 글과 교차시켜
+ *   "상세페이지에 이미지가 하나도 안 들어가는" 문제를 막는다(리뷰컷 있으면 기존과 동일).
+ */
+function pickBodyImages(reviewImageUrls?: string[], detailImageUrls?: string[]): string[] {
+  const valid = (arr?: string[]) => (arr ?? []).filter((u) => typeof u === 'string' && u.trim().length > 0);
+  const review = valid(reviewImageUrls);
+  return review.length > 0 ? review : valid(detailImageUrls);
 }
 
 // ─── 레이아웃 A (기본: 히어로 → 이미지-글 교차 → FAQ → 리뷰 → 마무리) ──
@@ -140,7 +214,7 @@ function buildLayoutA(params: DetailPageParams): string {
   // 본문: 스토리문단 + 리뷰이미지를 글-이미지-글-이미지 교차 (detailImageUrls는 사용하지 않음)
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
   // 빈 슬롯/null URL 제거 — 후기 4·5번이 빈 칸으로 노출되는 문제 차단
-  const bodyImages = (reviewImageUrls ?? []).filter(u => typeof u === 'string' && u.trim().length > 0);
+  const bodyImages = pickBodyImages(reviewImageUrls, params.detailImageUrls);
   if (bodyImages.length > 0 || paragraphs.length > 0) {
     sections.push(buildBlogStyleSection(bodyImages, paragraphs, productName, style, theme));
   }
@@ -155,6 +229,7 @@ function buildLayoutA(params: DetailPageParams): string {
     sections.push(buildClosingSection(closingText, productName, theme));
   }
 
+  sections.push(TAIL_ANCHOR);
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
@@ -179,7 +254,7 @@ function buildLayoutB(params: DetailPageParams): string {
   // 본문: 리뷰이미지 + 문단 균등 인터리브 (이미지당 3~5문단)
   // 이전 "이미지 전체 dump → 텍스트 전체 dump" 패턴 폐기 — 텍스트가 끝에 몰리는 버그 차단
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
-  const bodyImages = (reviewImageUrls ?? []).filter(u => typeof u === 'string' && u.trim().length > 0);
+  const bodyImages = pickBodyImages(reviewImageUrls, params.detailImageUrls);
   if (bodyImages.length > 0 || paragraphs.length > 0) {
     sections.push(buildBlogStyleSection(bodyImages, paragraphs, productName, style, theme));
   }
@@ -194,6 +269,7 @@ function buildLayoutB(params: DetailPageParams): string {
     sections.push(buildClosingSection(closingText, productName, theme));
   }
 
+  sections.push(TAIL_ANCHOR);
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
@@ -217,7 +293,7 @@ function buildLayoutC(params: DetailPageParams): string {
 
   // 본문: 1번 이미지 히어로 → 나머지 이미지+문단 인터리브 → 마지막에 2열 그리드(차별화)
   // 이전 "히어로 → 모든 텍스트 → 그리드" 패턴 폐기 — 텍스트가 한 덩어리로 쌓이는 버그 차단
-  const bodyImages = (reviewImageUrls ?? []).filter(u => typeof u === 'string' && u.trim().length > 0);
+  const bodyImages = pickBodyImages(reviewImageUrls, params.detailImageUrls);
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
 
   if (bodyImages.length > 0) {
@@ -257,6 +333,7 @@ function buildLayoutC(params: DetailPageParams): string {
     sections.push(buildClosingSection(closingText, productName, theme));
   }
 
+  sections.push(TAIL_ANCHOR);
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
@@ -285,7 +362,7 @@ function buildLayoutD(params: DetailPageParams): string {
   // 본문: 리뷰이미지 + 스토리문단 글-이미지 교차 (detailImageUrls 미사용)
   // 빈 슬롯/null URL 제거 — 후기 4·5번이 빈 칸으로 노출되는 문제 차단
   const paragraphs = aiStoryParagraphs || splitStoryIntoParagraphs(aiStoryHtml);
-  const bodyImages = (reviewImageUrls ?? []).filter(u => typeof u === 'string' && u.trim().length > 0);
+  const bodyImages = pickBodyImages(reviewImageUrls, params.detailImageUrls);
   if (bodyImages.length > 0 || paragraphs.length > 0) {
     sections.push(buildBlogStyleSection(bodyImages, paragraphs, productName, style, theme));
   }
@@ -314,6 +391,7 @@ function buildLayoutD(params: DetailPageParams): string {
     sections.push(buildClosingSection(closingText, productName, theme));
   }
 
+  sections.push(TAIL_ANCHOR);
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));
@@ -388,41 +466,72 @@ function buildBlogStyleSection(
     return parts.join('\n');
   }
 
-  // 문단/이미지 균등 인터리브 — "1 이미지 + 1 텍스트 묶음" = 1 슬롯 단위.
+  // 문단/이미지 균등 인터리브 — 슬롯 = "문단 묶음 + 이미지 묶음" 1쌍.
   //
-  // 핵심 원칙:
-  //   1) SEO를 위해 문단을 truncate 안 함 — 모든 문단 보존
-  //   2) 슬롯별 chunk를 dynamic하게 조정 — Math.ceil(남은문단/남은이미지)
-  //   3) 슬롯 내 여러 문단을 **하나의 div block**으로 묶음 — 3 문단도
-  //      "3 wall"이 아니라 "1 묶음(내부 3 단락)"으로 시각화 → 페이지 전체가
-  //      "이미지-텍스트-이미지-텍스트" 리듬으로 보이도록 함.
+  // ⚠️ 예전 방식(슬롯 수 = 이미지 장수, 슬롯당 ceil(남은문단/남은슬롯) 문단)의 결함:
+  //    이미지가 문단보다 많으면 문단이 먼저 동나고 **남은 이미지가 끝에 통째로 붙었다**.
+  //    실측(2026-07-30, 올인원 8상품): 문단 5·리뷰컷 12 → T I T I T I T I T I + IIIIIIII
+  //    (뒤 8장 연속). 사용자 표현으로 "글 따로 이미지 따로". 첫 슬롯이 ceil 로 가장 두꺼워
+  //    첫 이미지가 화면 한 장 아래로 밀리는 문제도 함께 있었다.
   //
-  // 30P/11I 시뮬: chunk = 3-3-3-3-3-3-3-3-2-2-2 = 정확히 30 분배. 잔여 0.
+  // 지금 방식:
+  //   1) 슬롯 수 = min(문단, 이미지) — 어느 쪽도 남지 않는다(양쪽 전량 소비, truncate 없음).
+  //   2) 문단·이미지를 각각 슬롯에 균등 분배하고, **나머지는 뒤쪽 슬롯에** 얹는다
+  //      → 첫 슬롯이 가장 가벼워 첫 이미지가 위로 올라온다.
+  //   3) 슬롯 내 여러 문단은 하나의 div block 으로 묶어 "글벽"이 아니라 한 덩어리로 보이게 한다.
+  //
+  // 5P/12I  → T II · T II · T II · T III · T III   (끝에 몰리는 구간 없음)
+  // 8P/7I   → T I ×6 · TT I
+  const slots = Math.min(cleanParagraphs.length, cleanImages.length);
+  // total 개를 slots 칸에 나눌 때 j 번째 칸의 몫 — 나머지는 뒤쪽 칸부터 얹는다.
+  const share = (total: number, j: number) =>
+    Math.floor(total / slots) + (j >= slots - (total % slots) ? 1 : 0);
+
   let pIdx = 0;
-  for (let i = 0; i < cleanImages.length; i++) {
-    const remaining = cleanParagraphs.length - pIdx;
-    const slotsLeft = cleanImages.length - i;
-    const take = Math.min(Math.ceil(remaining / slotsLeft), remaining);
-    if (take > 0) {
-      parts.push(buildParagraphGroupBlock(cleanParagraphs.slice(pIdx, pIdx + take), style));
-      pIdx += take;
+  let iIdx = 0;
+  for (let j = 0; j < slots; j++) {
+    const takeP = share(cleanParagraphs.length, j);
+    if (takeP > 0) {
+      parts.push(buildParagraphGroupBlock(cleanParagraphs.slice(pIdx, pIdx + takeP), style));
+      pIdx += takeP;
     }
-    parts.push(
-      `<div style="margin:12px 0;"><img src="${esc(cleanImages[i])}" alt="${esc(shortenForAlt(productName))} ${i + 1}" style="width:100%;display:block;" /></div>`
-    );
+    const takeI = share(cleanImages.length, j);
+    for (let k = 0; k < takeI; k++) {
+      const url = cleanImages[iIdx++];
+      parts.push(
+        `<div style="margin:12px 0;"><img src="${esc(url)}" alt="${esc(shortenForAlt(productName))} ${iIdx}" style="width:100%;display:block;" /></div>`
+      );
+    }
   }
-  // 위 dynamic 분배로 잔여 0이 보장되지만, 안전망으로 마지막 슬롯에 남는 경우 합쳐서 한 묶음으로.
+  // 안전망 — 분배가 정확해 잔여 0 이지만, 방어적으로 남으면 마지막에 붙인다.
   if (pIdx < cleanParagraphs.length) {
     parts.push(buildParagraphGroupBlock(cleanParagraphs.slice(pIdx), style));
+  }
+  for (; iIdx < cleanImages.length; iIdx++) {
+    parts.push(
+      `<div style="margin:12px 0;"><img src="${esc(cleanImages[iIdx])}" alt="${esc(shortenForAlt(productName))} ${iIdx + 1}" style="width:100%;display:block;" /></div>`
+    );
   }
 
   return parts.join('\n');
 }
 
+/**
+ * 순수 텍스트를 escape 하고 마크다운 볼드(**x**)를 <strong> 로 변환한다.
+ *   LLM 상세글이 후킹 문장을 `**...**` 로 감싸는데, 예전엔 esc 만 해서 상세페이지에
+ *   리터럴 별표(**이런 적 있으시죠?**)가 그대로 노출됐다. 짝 안 맞는 ** 도 제거한다.
+ */
+function escInline(text: string): string {
+  let s = esc(text);
+  s = s.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>'); // **볼드** → <strong>
+  s = s.replace(/\*\*/g, '');                                   // 남은 짝 없는 마커 제거
+  return s;
+}
+
 /** 단일 문단 — 다른 섹션(FAQ 등)에서 호출 */
 function buildParagraphBlock(text: string, style: LayoutStyle): string {
   const isHtml = /<[a-z][\s\S]*>/i.test(text);
-  const content = isHtml ? text : `<p style="margin:0;">${esc(text)}</p>`;
+  const content = isHtml ? text : `<p style="margin:0;">${escInline(text)}</p>`;
   return `<div style="padding:${style.padding};line-height:2.2;font-size:21px;color:#222;word-break:keep-all;">\n${content}\n</div>`;
 }
 
@@ -438,7 +547,7 @@ function buildParagraphGroupBlock(texts: string[], style: LayoutStyle): string {
     const margin = isLast ? '0' : '0 0 14px 0';
     return isHtml
       ? `<div style="margin:${margin};">${text}</div>`
-      : `<p style="margin:${margin};">${esc(text)}</p>`;
+      : `<p style="margin:${margin};">${escInline(text)}</p>`;
   }).join('\n');
   return `<div style="padding:${style.padding};line-height:2.2;font-size:21px;color:#222;word-break:keep-all;">\n${ps}\n</div>`;
 }
@@ -828,6 +937,7 @@ export function buildPersuasionPageHtml(
   }
 
   // 상품정보제공고시 / 위탁판매 정보 / 제3자 이미지
+  sections.push(TAIL_ANCHOR);
   sections.push(buildDivider());
   if (infoImageUrls && infoImageUrls.length > 0) sections.push(buildInfoSection(infoImageUrls, productName));
   if (params.noticeFields && params.noticeFields.length > 0) sections.push(buildNoticeTable(params.noticeFields));

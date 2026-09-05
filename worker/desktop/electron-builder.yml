@@ -29,6 +29,38 @@ win:
   target:
     - nsis
 
+# ─────────────────────────────────────────────────────────────────────────
+# macOS 빌드 (DMG) — **코드서명·공증 없음**(Apple Developer 계정 $99/년 미등록).
+#
+# 서명이 없으면 사용자가 최초 1회 Gatekeeper 를 수동으로 통과시켜야 한다:
+#   실행 → "악성 소프트웨어..." 경고 → [완료] → 시스템 설정 → 개인정보 보호 및 보안
+#   → 맨 아래 "확인 없이 열기" → 관리자 암호
+# (macOS Sequoia 부터 우클릭→열기 우회가 제거돼 위 경로만 유효하다.)
+#
+# ⚠️ 기능 범위: 광고 자동화·로그인·연결만 동작한다. 이미지 생성(ComfyUI+SDXL)은 CUDA,
+#   텍스트 엔진(ollama)은 Windows 바이너리를 받도록 돼 있어 맥에서는 자동설치가 건너뛰어진다.
+#   bootstrap 이 플랫폼을 보고 스스로 빠지므로 앱이 죽지는 않는다.
+#
+# identity: null 이 없으면 electron-builder 가 키체인에서 서명 인증서를 찾다가 CI 에서 실패한다.
+# ⚠️ arch 를 여기에 나열하지 않는다. 나열하면 CLI 의 --arm64/--x64 가 그 목록을 덮어쓰지
+#    못해서, arm64 러너가 Intel 용까지 만들려다 hdiutil 이 깨진 dmg 를 뱉는다
+#    (실측 v0.2.82: "Detected arm64 process, HFS+ is unavailable" → 손상된 x64 dmg 발행).
+#    비워두면 빌드를 실행한 호스트/CLI 플래그가 아키텍처를 결정한다.
+#
+# ⚠️ Intel(x64) 은 빌드하지 않는다. GitHub 이 Intel 러너(macos-13)를 걷어내는 중이라
+#    진짜 Intel 바이너리를 만들 수단이 없고, 크로스빌드는 위처럼 깨진다.
+#    Intel 맥은 어차피 MPS 가 없어 누끼·이미지 생성이 불가능하다(애플도 2023년 판매 종료).
+mac:
+  target:
+    - dmg
+  icon: build/icon.png
+  category: public.app-category.business
+  artifactName: MegaloadDesktop-${version}-${arch}.${ext}
+  identity: null
+
+dmg:
+  title: 메가로드 도우미 ${version}
+
 # 원클릭 설치기 (사용자가 더블클릭 → 바로 설치)
 nsis:
   # 버전 없는 고정 파일명 → 고정 태그(gpu-worker-update)와 합쳐 다운로드 URL 영구 불변.

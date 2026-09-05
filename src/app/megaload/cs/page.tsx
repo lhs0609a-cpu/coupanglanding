@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { CHANNELS, CHANNEL_SHORT_LABELS, CHANNEL_COLORS } from '@/lib/megaload/constants';
 import type { Channel, CsInquiry, InquiryStatus } from '@/lib/megaload/types';
-import { MessageSquare, Search, Send, Sparkles, RefreshCw, ChevronLeft, ChevronRight, Clock, CheckCircle } from 'lucide-react';
+import { MessageSquare, Search, Send, Sparkles, RefreshCw, ChevronLeft, ChevronRight, Clock, CheckCircle, DownloadCloud } from 'lucide-react';
 
 const STATUS_TABS: { key: InquiryStatus | 'all'; label: string }[] = [
   { key: 'all', label: '전체' },
@@ -76,25 +76,32 @@ export default function CsPage() {
   };
 
   const [sendLoading, setSendLoading] = useState(false);
-  const [collecting, setCollecting] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [syncLoading, setSyncLoading] = useState(false);
 
-  const collectInquiries = async () => {
-    setCollecting(true);
+  const syncInquiries = async () => {
+    setSyncLoading(true);
     setMessage(null);
     try {
       const res = await fetch('/api/megaload/cs/collect', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) {
-        setMessage({ type: 'error', text: data.error || '문의 수집에 실패했습니다.' });
-        return;
+        setMessage({ type: 'error', text: data.error || '문의 가져오기에 실패했습니다.' });
+      } else if (data.collected > 0) {
+        setMessage({ type: 'success', text: `${data.collected}건의 문의를 가져왔습니다.` });
+      } else {
+        setMessage({
+          type: 'success',
+          text: data.errors > 0
+            ? '새 문의가 없습니다. (일부 채널 연결/응답 오류)'
+            : '새로 가져올 문의가 없습니다.',
+        });
       }
-      setMessage({ type: 'success', text: `${data.new}건의 새 문의를 가져왔습니다 (조회 ${data.collected}건)` });
       await fetchInquiries();
     } catch {
-      setMessage({ type: 'error', text: '문의 수집 중 오류가 발생했습니다.' });
+      setMessage({ type: 'error', text: '문의 가져오기 중 오류가 발생했습니다.' });
     } finally {
-      setCollecting(false);
+      setSyncLoading(false);
     }
   };
 
@@ -156,19 +163,19 @@ export default function CsPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={collectInquiries}
-            disabled={collecting}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm text-white bg-[#E31837] rounded-lg hover:bg-red-700 transition disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${collecting ? 'animate-spin' : ''}`} />
-            {collecting ? '가져오는 중...' : '문의 가져오기'}
-          </button>
-          <button
             onClick={fetchInquiries}
             className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition"
           >
             <RefreshCw className="w-4 h-4" />
             새로고침
+          </button>
+          <button
+            onClick={syncInquiries}
+            disabled={syncLoading}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-white bg-[#E31837] rounded-lg hover:bg-red-700 transition disabled:opacity-50"
+          >
+            <DownloadCloud className={`w-4 h-4 ${syncLoading ? 'animate-pulse' : ''}`} />
+            {syncLoading ? '가져오는 중...' : '문의 가져오기'}
           </button>
         </div>
       </div>

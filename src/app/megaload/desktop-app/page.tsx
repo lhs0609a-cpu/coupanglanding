@@ -1,12 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { Download, Key, RefreshCw, Copy, CheckCircle2, AlertCircle, Monitor, Zap, Activity, Settings2, ShieldAlert } from 'lucide-react';
+import { Key, RefreshCw, Copy, CheckCircle2, AlertCircle, Monitor, Zap, Activity, Settings2, ShieldAlert } from 'lucide-react';
 import Link from 'next/link';
-import { MONITOR_APP_VERSION, MONITOR_DOWNLOAD_URLS, WORKER_SETTINGS_URL } from '@/lib/megaload/worker-download';
-
-// 다운로드 URL·버전은 worker-download.ts 단일 출처에서 가져온다(설정 다운로드 허브와 동일 값 보장).
-const APP_VERSION = MONITOR_APP_VERSION;
+import { WORKER_SETTINGS_URL } from '@/lib/megaload/worker-download';
 
 interface StatusInfo {
   isAlive: boolean;
@@ -20,6 +17,8 @@ interface StatusInfo {
 }
 
 export default function DesktopAppPage() {
+  // 이 화면은 폐기된 별도 모니터링 앱 안내용이라 릴리스 버전·다운로드 URL 을 더 이상 조회하지 않는다.
+  // (남은 기능은 인증코드 발급/폐기와 연결 진단뿐 — 기존 사용자 정리용.)
   const [token, setToken] = useState<string | null>(null);
   const [issuing, setIssuing] = useState(false);
   const [revoking, setRevoking] = useState(false);
@@ -126,13 +125,35 @@ export default function DesktopAppPage() {
         <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
           <Monitor className="w-6 h-6" />
           상품 모니터링 도우미
-          <span className="ml-1 px-2 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-700 rounded-full">
-            최신 v{APP_VERSION}
+          <span className="ml-1 px-2 py-0.5 text-xs font-medium bg-gray-200 text-gray-600 rounded-full">
+            종료됨
           </span>
         </h1>
         <p className="text-sm text-gray-500 mt-1">
-          등록 상품의 품절·가격 변동을 자동으로 확인해 주는 보조 프로그램입니다.
+          등록 상품의 품절·가격 변동을 자동으로 확인해 주는 보조 프로그램이었습니다.
         </p>
+      </div>
+
+      {/* 폐기 안내 — 사용자가 가장 먼저 봐야 할 내용이라 맨 위에 둔다. */}
+      <div className="rounded-xl border border-amber-300 bg-amber-50 p-5">
+        <h2 className="font-bold text-amber-900 flex items-center gap-2">
+          이 프로그램은 더 이상 필요하지 않습니다
+        </h2>
+        <p className="text-sm text-amber-900 mt-2 leading-relaxed">
+          품절·가격 확인은 이제 <strong>서버가 자동으로</strong> 처리합니다.
+          PC를 켜두지 않아도 되고, 이 프로그램은 <strong>삭제하셔도 됩니다.</strong>
+        </p>
+        <p className="text-xs text-amber-800 mt-3 leading-relaxed">
+          사용자 PC에서 네이버 원본을 직접 확인하는 방식은 네이버 차단으로 실패율이 76%까지
+          올라갔습니다. 서버 경로는 같은 기간 실패율이 2%라, 확인 방식을 서버로 일원화했습니다.
+          이미 설치돼 있어도 서버가 자동으로 작업을 넘겨받으므로 그냥 두셔도 문제는 없습니다.
+        </p>
+        <Link
+          href="/megaload/stock-monitor"
+          className="inline-flex items-center gap-1.5 mt-3 px-3 py-2 bg-amber-600 text-white rounded-lg font-semibold text-sm hover:bg-amber-700 transition"
+        >
+          품절 동기화 현황 보기 →
+        </Link>
       </div>
 
       {/* 연결 상태 진단 */}
@@ -198,103 +219,23 @@ export default function DesktopAppPage() {
         </ul>
       </div>
 
-      {/* ⚡ 원클릭 자동 설정 (가장 추천) */}
-      <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 rounded-xl p-6">
-        <h2 className="font-semibold text-emerald-900 mb-2 flex items-center gap-2">
-          <Zap className="w-5 h-5" />
-          ⚡ 원클릭 자동 설치 (추천)
-        </h2>
-        <p className="text-sm text-emerald-800 mb-4">
-          버튼 한 번 클릭으로 인증코드 자동 발급 + 설치 파일 다운로드.
-          설치 후 자동 실행 시 인증코드까지 자동 인식하여 즉시 모니터링이 시작됩니다.
-        </p>
-        <button
-          onClick={async () => {
-            // 1. 토큰 발급
-            setIssuing(true);
-            setError(null);
-            try {
-              const res = await fetch('/api/megaload/desktop/auth', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({}),
-              });
-              const data = await res.json();
-              if (!res.ok) throw new Error(data.error || '토큰 발급 실패');
-              setToken(data.token);
-              setIssuedAt(data.issuedAt);
-              // 2. 클립보드 복사
-              await navigator.clipboard.writeText(data.token);
-              setCopied(true);
-              // 3. installer 다운로드 (Win 기본, Mac은 별도)
-              const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
-              const downloadUrl = isMac ? MONITOR_DOWNLOAD_URLS.macIntel : MONITOR_DOWNLOAD_URLS.win;
-              window.location.href = downloadUrl;
-              alert(
-                '✅ 인증코드가 복사되었습니다.\n\n다운로드된 설치 파일을 더블클릭하면:\n' +
-                '1. 자동 설치\n' +
-                '2. 자동 실행 (작업표시줄로 이동)\n' +
-                '3. 인증코드 자동 인식 → 모니터링 즉시 시작',
-              );
-            } catch (e) {
-              setError(e instanceof Error ? e.message : '실패');
-            } finally {
-              setIssuing(false);
-            }
-          }}
-          disabled={issuing}
-          className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 font-semibold text-base"
-        >
-          {issuing ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
-          원클릭 자동 설치
-        </button>
-        <div className="text-xs text-emerald-700 mt-3">
-          ⓘ 인증코드는 폐기/재발급 전까지 영구 유효합니다. 다른 PC 로 옮기거나 도난 우려 시 같은 버튼을 다시 눌러 새로 발급하세요 (이전 코드는 자동 폐기됨).
-        </div>
-      </div>
+      {/* 원클릭 자동 설치 폐기 — 이 앱은 더 이상 배포하지 않는다(서버가 품절 확인 전담). */}
 
-      {/* Step 1: 다운로드 */}
+      {/* 다운로드 섹션 폐기 — 신규 설치를 만들지 않는다. */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          <span className="w-6 h-6 bg-[#E31837] text-white rounded-full flex items-center justify-center text-sm">1</span>
-          프로그램 다운로드
-        </h2>
-        <p className="text-sm text-gray-600 mb-4">사용 중인 OS에 맞는 설치 파일을 받아주세요. <span className="text-emerald-700 font-medium">현재 최신 v{APP_VERSION}</span></p>
-        <div className="grid grid-cols-3 gap-3">
-          <a
-            href={MONITOR_DOWNLOAD_URLS.win}
-            className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
-            target="_blank" rel="noopener"
-          >
-            <span className="flex items-center gap-2"><Download className="w-4 h-4" /> Windows (.exe)</span>
-            <span className="text-xs text-gray-400">v{APP_VERSION}</span>
-          </a>
-          <a
-            href={MONITOR_DOWNLOAD_URLS.macIntel}
-            className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
-            target="_blank" rel="noopener"
-          >
-            <span className="flex items-center gap-2"><Download className="w-4 h-4" /> macOS Intel (.dmg)</span>
-            <span className="text-xs text-gray-400">v{APP_VERSION}</span>
-          </a>
-          <a
-            href={MONITOR_DOWNLOAD_URLS.macArm}
-            className="flex flex-col items-center gap-1 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
-            target="_blank" rel="noopener"
-          >
-            <span className="flex items-center gap-2"><Download className="w-4 h-4" /> macOS M1/M2 (.dmg)</span>
-            <span className="text-xs text-gray-400">v{APP_VERSION}</span>
-          </a>
-        </div>
-        <p className="text-xs text-gray-400 mt-3">
-          ⓘ 새 버전이 나오면 앱이 자동으로 알림 + 다운로드합니다 (실행 중일 때).
+        <h2 className="font-semibold text-gray-900 mb-2">프로그램 다운로드 (중단)</h2>
+        <p className="text-sm text-gray-600 leading-relaxed">
+          이 프로그램은 더 이상 배포하지 않습니다. 품절·가격 확인에는 설치가 필요 없습니다.
+        </p>
+        <p className="text-xs text-gray-500 mt-2 leading-relaxed">
+          다른 기능(이미지 생성·올인원 등록 등)을 위한 <strong>메가로드 도우미</strong>는 계속 제공됩니다.
         </p>
         <Link
           href={WORKER_SETTINGS_URL}
           className="inline-flex items-center gap-1.5 mt-3 text-xs font-medium text-indigo-600 hover:text-indigo-800"
         >
           <Settings2 className="w-3.5 h-3.5" />
-          설정 → 다운로드 센터에서 메가로드 도우미와 함께 받기
+          설정 → 다운로드 센터에서 메가로드 도우미 받기
         </Link>
       </div>
 

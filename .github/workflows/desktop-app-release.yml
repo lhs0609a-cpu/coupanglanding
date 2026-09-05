@@ -32,22 +32,173 @@ jobs:
         working-directory: worker/desktop
         run: npm install
 
+      # 웹↔도우미 "발견 규약" 검증 — 여기서 막히면 릴리스가 안 나간다.
+      #   과거 사고: 웹이 파라미터를 강제하는 경로(gen-status)로 도우미를 찾다가 400 →
+      #   정상 도우미가 "미연결" 로 오판되고 업로드 생성이 막혔다(배포 후에야 발견).
+      - name: Verify helper discovery contract
+        run: node scripts/verify-helper-discovery.mjs
+
+      # 대표컷 지재권 정책(공산품=누끼 / 과일=리뷰 실사 / 업체 스튜디오컷=후순위) 회귀 방지.
+      - name: Verify main-image IP policy
+        run: node scripts/verify-main-image-policy.mjs
+
+      # 소싱 상품명 꼬리 분류라벨 반복 접기 — 노출명·옵션·카테고리의 1차 입력이라 회귀가 치명적.
+      - name: Verify source-name repair
+        run: node scripts/verify-source-name-repair.mjs
+
+      # 노출상품명 "core + 속성어 5개 고정" — 쿠팡 가이드(스터핑 금지) 회귀 방지.
+      - name: Verify display-name attrs
+        run: node scripts/verify-display-name-attrs.mjs
+
+      # 이 버전의 "업데이트 소식"이 사람 말로 쓰여 있는가 — 없으면 릴리스를 막는다.
+      #   자동 업데이트라 앱은 조용히 새 버전이 된다. 무엇이 좋아졌는지 알려 주지 않으면
+      #   좋아지지 않은 것과 같다. 기억에 맡기면 반드시 빠지므로 **빌드 전에** 여기서 막는다.
+      - name: Verify release notes exist for this version
+        if: startsWith(github.ref, 'refs/tags/megaload-desktop-v')
+        shell: bash
+        run: node scripts/extract-release-notes.mjs "${GITHUB_REF_NAME#megaload-desktop-v}" > /dev/null
+
       - name: Build (sync-runtime + electron-builder, win/nsis)
         working-directory: worker/desktop
         run: npm run dist
 
+      # ⚠️ action-gh-release 는 같은 이름 자산을 "지우고 다시 올린다". 업로드 도중 GitHub 서버
+      #    일시장애(No server available)가 나면 latest.yml 이 지워진 채 안 올라가 → 자동업데이트
+      #    피드가 통째로 깨진다(전 사용자 업데이트 불가). 실제로 v0.2.43 발행 때 발생.
+      #    → 3회 재시도로 일시장애를 넘긴다.
       - name: Publish to fixed update feed (megaload-desktop-update)
-        uses: softprops/action-gh-release@v2
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 순수 bash 3회 재시도 — 외부 액션 의존 없이 일시장애를 넘긴다.
+          # latest.yml 을 "마지막에" 올린다: exe 가 먼저 자리잡은 뒤 피드 포인터가 갱신되게.
+          up() {
+            gh release upload megaload-desktop-update "$@" --clobber \
+              --repo lhs0609a-cpu/coupanglanding
+          }
+          n=0
+          until [ $n -ge 3 ]; do
+            if up worker/desktop/dist/MegaloadDesktop-Setup-*.exe \
+                  worker/desktop/dist/*.blockmap \
+               && up worker/desktop/dist/latest.yml; then
+              echo "✅ 발행 완료"; exit 0
+            fi
+            n=$((n+1)); echo "발행 실패(시도 $n/3) — 30초 후 재시도"; sleep 30
+          done
+          echo "::error::3회 재시도 후에도 발행 실패"; exit 1
+
+      # 발행 후 latest.yml 이 실제로 피드에 있는지 검증 — 없으면 워크플로를 실패시켜
+      # "조용히 깨진 피드"를 즉시 드러낸다(전엔 build success 로 초록불이었다).
+      - name: Verify latest.yml is present in feed
+        shell: bash   # ⚠️ 없으면 windows-latest 기본 pwsh 로 돌아 bash 문법이 터진다(v0.2.44 오탐 원인).
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for i in 1 2 3; do
+            names=$(gh release view megaload-desktop-update --repo lhs0609a-cpu/coupanglanding --json assets -q '.assets[].name')
+            if echo "$names" | grep -qx 'latest.yml'; then
+              echo "✅ latest.yml 존재 — 자동업데이트 피드 정상"
+              exit 0
+            fi
+            echo "latest.yml 미확인 (시도 $i) — 재확인"; sleep 10
+          done
+          echo "::error::발행 후에도 latest.yml 이 피드에 없습니다 — 자동업데이트 깨짐"
+          exit 1
+
+      # 사용자에게 알린다 — 릴리스가 실제로 나간 뒤에만.
+      #   원문은 worker/desktop/RELEASE_NOTES.md(사람이 사용자 말로 써 둔 것)이고,
+      #   웹이 그걸 공지사항에 올려 /megaload/notices 에서 보이게 한다.
+      #   ⚠️ 실패해도 릴리스를 되돌리지 않는다(continue-on-error) — 앱은 이미 나갔고,
+      #      공지는 나중에 다시 올릴 수 있다. 다만 로그에는 남겨 놓쳤음을 알 수 있게 한다.
+      - name: Announce update to users (공지사항 자동 등록)
+        if: startsWith(github.ref, 'refs/tags/megaload-desktop-v')
+        continue-on-error: true
+        shell: bash
+        env:
+          RELEASE_NOTES_ENDPOINT: ${{ secrets.RELEASE_NOTES_ENDPOINT }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::warning::CRON_SECRET 시크릿이 없어 공지 등록을 건너뜁니다."
+            exit 0
+          fi
+          VERSION="${GITHUB_REF_NAME#megaload-desktop-v}"
+          NOTES=$(node scripts/extract-release-notes.mjs "$VERSION")
+          ENDPOINT="${RELEASE_NOTES_ENDPOINT:-https://www.megaload.co.kr/api/megaload/release-notes}"
+          BODY=$(VERSION="$VERSION" NOTES="$NOTES" node -e 'process.stdout.write(JSON.stringify({version:process.env.VERSION,notes:process.env.NOTES}))')
+          code=$(curl -sS -o /tmp/announce.out -w '%{http_code}' -X POST "$ENDPOINT" \
+            -H "Authorization: Bearer $CRON_SECRET" -H 'Content-Type: application/json' \
+            --data "$BODY")
+          echo "응답 $code: $(cat /tmp/announce.out)"
+          [ "$code" = "200" ] || { echo "::warning::공지 등록 실패($code) — 웹에서 수동 등록 필요"; exit 1; }
+          echo "✅ 공지사항 등록 완료 — 사용자가 /megaload/notices 에서 봅니다"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # macOS 빌드 — 별도 job. Windows job 과 독립이라 맥 빌드가 깨져도 Windows 릴리스는 나간다.
+  #
+  # ⚠️ 서명·공증 없음(Apple Developer 미등록). 사용자는 최초 1회 시스템 설정에서
+  #    "확인 없이 열기"를 눌러야 한다. 웹 다운로드 화면에 안내가 있다.
+  # ⚠️ latest.yml 은 절대 건드리지 않는다 — 그건 Windows 자동업데이트 피드다.
+  #    맥은 자동업데이트가 없으므로(auto-update.mjs 가 win32 에서만 동작) dmg 만 올린다.
+  # ⚠️ Apple Silicon(arm64) dmg 만 만든다.
+  #    ① GitHub 이 Intel 러너(macos-13)를 걷어내는 중이다 — v0.2.82 에서 Intel job 이
+  #       배정되지 않고 큐에 무한정 멈춰 있었다.
+  #    ② arm64 러너에서 x64 를 크로스빌드하면 hdiutil 이 실패해 **깨진 dmg 가 발행된다**
+  #       (v0.2.82 실측. 그 손상된 파일이 릴리스에 올라가 사용자에게 노출됐다).
+  #    ③ Intel 맥은 MPS 가 없어 어차피 누끼·이미지 생성을 못 쓴다.
+  #    아키텍처는 electron-builder.yml 에 나열하지 않고 여기 CLI 플래그로만 정한다
+  #    (설정에 나열하면 CLI 가 덮어쓰지 못해 x64 가 딸려 나온다).
+  #
+  # ⚠️ continue-on-error 를 쓰지 않는다. build-mac 은 build(Windows)와 의존관계가 없어
+  #    실패해도 Windows 릴리스를 막지 못한다. 예전에 이 옵션이 붙어 있어서 맥 빌드가
+  #    한 번도 성공한 적 없다는 사실이 릴리스 화면에서 초록불로 가려져 있었다(dmg 0개).
+  build-mac:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          tag_name: megaload-desktop-update
-          name: 메가로드 도우미 — 자동업데이트 피드
-          body: |
-            메가로드 도우미 (통합 데스크탑 앱)
-            모듈: 📦 상품 모니터링 · ⚙️ 올인원 생성 · 🖼️ 썸네일 GPU · 📢 광고 자동화
-            최신 빌드의 MegaloadDesktop-Setup-<버전>.exe / latest.yml / .blockmap 이 발행됩니다.
-          files: |
-            worker/desktop/dist/MegaloadDesktop-Setup-*.exe
-            worker/desktop/dist/latest.yml
-            worker/desktop/dist/*.blockmap
-          draft: false
-          prerelease: false
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: worker/desktop
+        run: npm install
+
+      - name: Build (sync-runtime + electron-builder, mac/dmg)
+        working-directory: worker/desktop
+        env:
+          # 키체인에서 서명 인증서를 찾지 않게 한다(없으면 빌드가 실패한다).
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run dist -- --mac --arm64
+
+      # arm64 만 나와야 한다. x64 가 섞여 있으면 크로스빌드가 되살아난 것이므로
+      # (깨진 dmg 발행 사고 재발) 여기서 끊는다 — 발행 단계로 넘기지 않는다.
+      - name: Verify dmg built (arm64 only)
+        shell: bash
+        run: |
+          ls -la worker/desktop/dist/*arm64*.dmg \
+            || { echo "::error::arm64 dmg 산출물이 없습니다"; exit 1; }
+          if ls worker/desktop/dist/*x64*.dmg >/dev/null 2>&1; then
+            echo "::error::x64 dmg 가 생성됐습니다 — 크로스빌드는 hdiutil 이 깨뜨립니다. electron-builder.yml 의 mac.target 에 arch 가 다시 들어갔는지 확인하세요."
+            exit 1
+          fi
+
+      - name: Publish dmg to fixed feed
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          n=0
+          until [ $n -ge 3 ]; do
+            if gh release upload megaload-desktop-update \
+                 worker/desktop/dist/*arm64*.dmg --clobber \
+                 --repo lhs0609a-cpu/coupanglanding; then
+              echo "✅ dmg 발행 완료"; exit 0
+            fi
+            n=$((n+1)); echo "발행 실패(시도 $n/3) — 30초 후 재시도"; sleep 30
+          done
+          echo "::error::3회 재시도 후에도 dmg 발행 실패"; exit 1

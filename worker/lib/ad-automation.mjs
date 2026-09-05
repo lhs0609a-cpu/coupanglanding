@@ -143,22 +143,54 @@ export const WING = {
   adsUrl: 'https://advertising.coupang.com/marketing/dashboard/sales',  // 광고 관리(매출 성장) — "모든 캠페인" 표가 있는 화면
   loggedInSelector: '#cap-sidebar',                        // 로그인 상태에서만 존재하는 좌측 사이드바
   table: {
-    panel: '[data-bigfoot-component="campaigns_table"]',
+    // 캠페인 목록 표. 개편판(revamp)에서도 data-bigfoot-component 는 유지되므로 두 변종 모두 매칭.
+    panel: '[data-bigfoot-component="campaigns_table"], [data-bigfoot-component="products_table"]',
     headerCell: '.rt-thead .rt-th',                        // 라벨로 컬럼 index 매핑
     row: '.rt-tbody .rt-tr',
-    name: '[data-bigfoot-component="campaign_name"] .dashboard-title',
+    name: '[data-bigfoot-component="campaign_name"] .dashboard-title, [data-bigfoot-component="campaign_name"] .page-name',
     cell: '.rt-td',
     onSwitch: 'button[role="switch"]',                     // aria-checked 로 ON/OFF 상태
+    budgetCell: '.simplify-compliance__budget',            // 행 내 예산 금액(컬럼 인덱스 실패 시 폴백) — 문서 01 idx5
+    statusMessage: '[data-bigfoot-component="campaign_status"] .status__message', // "중지" 등
     // 헤더 라벨(부분일치) → 우리 지표
     labels: {
       spend: ['집행 광고비'],
-      sales: ['광고 전환매출', '전환매출'],
+      sales: ['광고 전환매출', '전환매출', '중요결과', '중요 결과'],
       conversions: ['판매수', '전환수'],
       clicks: ['클릭수', '클릭'],
       impressions: ['노출'],
       budget: ['예산'],
-      roas: ['광고수익률'],
+      roas: ['광고수익률', '광고비 효율성', '광고비효율성'],
     },
+  },
+  // ★ 이미지 심사 위반 배너(문서 04) — 광고 노출 제한의 근본 원인 지표(read-only 진단).
+  //   "왜 광고가 안 나가나" 진단에 사용. 이미지 자동수정은 대표이미지를 실제 변경하므로 실행은 별도 허락 후.
+  diagnostics: {
+    imageAuditBanner: '[data-bigfoot-component="image_audit_suppresion_banner"]',
+    violationCountRe: '위반 상품\\s*(\\d+)\\s*개',
+  },
+  // ⚠️ 매출최적화(자동운영) 캠페인의 진짜 입찰 레버 = "목표 ROAS" 값 변경(문서 01 시사점).
+  //   현재 applyBidChange 는 일예산을 바꾼다(레벨상 예산도 유효한 레버). 목표 ROAS 직접 조정은
+  //   "캠페인 수정 화면" HTML 이 아직 미캡처(docs/coupang-ads README 미완 #1)라 셀렉터를 확정 못 함.
+  //   → 날조 금지. 수정화면 캡처가 들어오면 아래 __NEEDS_CAPTURE__ 를 실제 셀렉터로 교체.
+  roasEdit: {
+    roasInput: '__NEEDS_CAPTURE__',   // 캠페인 수정 화면의 목표 ROAS 입력칸
+    ready: '__NEEDS_CAPTURE__',
+  },
+  // 성과 수집 정식 소스(문서 05) — 광고보고서 AG Grid. col-id 가 안정 키.
+  //   read-only. 현재 계정 데이터 없어 라이브 검증 불가 → 보조 소스로만.
+  report: {
+    url: 'https://advertising.coupang.com/marketing-reporting/billboard',
+    ready: '#ad-reporting-app',
+    grid: '[data-bigfoot-component="ad_performance_table"] .ag-root-wrapper',
+    row: '.ag-row',
+    cell: (colId) => `.ag-cell[col-id="${colId}"]`,
+    cols: {
+      range: 'range', impressions: 'impressions', clicks: 'clicks', ctr: 'ctr',
+      cpc: 'cost_per_click', orders: 'orders', sales: 'sales',
+      conversionRate: 'conversion_rate', spend: 'ad_cost_sum', adGmv: 'ad_gmv',
+    },
+    noRows: '.ag-overlay-no-rows-wrapper',
   },
   // 예산 수정 = 캠페인 편집 폼(광고 수정, 캡처 2026-05). 표에서 캠페인명 클릭 → 폼 진입 → 일예산 변경 → 완료.
   // 캠페인 레벨엔 "입찰가"가 없고 "예산"뿐이므로 newBid 를 일예산으로 적용한다.
@@ -279,7 +311,12 @@ export async function collectMetrics(win, _opts = {}) {
       const on = sw ? sw.getAttribute('aria-checked') === 'true' : null;
       const cells = [...row.querySelectorAll(${JSON.stringify(t.cell)})];
       const val = (i) => (i >= 0 && cells[i]) ? parseNum(cells[i].textContent) : 0;
-      const budget = val(idx.budget);
+      // 예산: 헤더-인덱스 우선, 실패(0/미발견) 시 행 내 시맨틱 셀(.simplify-compliance__budget) 폴백
+      let budget = val(idx.budget);
+      if (!budget) {
+        const bEl = row.querySelector(${JSON.stringify(t.budgetCell)});
+        if (bEl) budget = parseNum(bEl.textContent);
+      }
       out.push({
         campaignId: name, campaignName: name, keyword: null, on,
         impressions: val(idx.impressions), clicks: val(idx.clicks),
@@ -289,6 +326,22 @@ export async function collectMetrics(win, _opts = {}) {
     });
     return out;
   })()`);
+}
+
+/**
+ * 이미지 심사 위반 배너 읽기(문서 04) — read-only. 광고 노출 제한의 근본 원인 지표.
+ * 반환: { present:boolean, violationCount:number|null } — 위반 상품 수(없으면 null).
+ * @param {import('electron').BrowserWindow} win
+ */
+export async function readImageAuditDiagnostics(win) {
+  const d = WING.diagnostics;
+  if (WING.adsUrl && !WING.adsUrl.includes('__TODO__')) await win.loadURL(WING.adsUrl).catch(() => {});
+  return win.webContents.executeJavaScript(`(() => {
+    const el = document.querySelector(${JSON.stringify(d.imageAuditBanner)});
+    if (!el) return { present: false, violationCount: null };
+    const m = (el.textContent || '').match(new RegExp(${JSON.stringify(d.violationCountRe)}));
+    return { present: true, violationCount: m ? Number(m[1]) : null };
+  })()`).catch(() => ({ present: false, violationCount: null }));
 }
 
 /**
@@ -527,6 +580,21 @@ export async function verifyDomActions(win) {
       `${rows.length}개 캠페인 읽음` + (f0 ? ` · 첫=‘${f0.campaignName}’ 예산=${f0.budget} ON=${f0.on}` : ''));
   }
   const firstName = rows[0]?.campaignName || null;
+
+  // 1b) 이미지 심사 위반 배너(노출 제한 근본원인) — read-only 진단
+  try {
+    const diag = await readImageAuditDiagnostics(win);
+    add('이미지 위반 배너(노출제한 진단)', true,
+      diag.present
+        ? `위반 상품 ${diag.violationCount ?? '?'}개 — 광고 노출 제한 원인일 수 있음`
+        : '위반 배너 없음(노출 제한 아님)');
+  } catch (e) { add('이미지 위반 배너(노출제한 진단)', false, e.message); }
+
+  // 1c) 목표 ROAS 레버 셀렉터 확보 여부(매출최적화 캠페인의 진짜 입찰 레버)
+  add('목표 ROAS 입력 셀렉터', !WING.roasEdit.roasInput.includes('__NEEDS_CAPTURE__'),
+    WING.roasEdit.roasInput.includes('__NEEDS_CAPTURE__')
+      ? '미확보 — "캠페인 수정 화면" HTML 캡처 필요(현재는 일예산으로 조정)'
+      : WING.roasEdit.roasInput);
 
   // 2) 행 액션 버튼(수정/삭제/ON·OFF) 존재 확인 — 클릭 안 함
   const btnReport = await win.webContents.executeJavaScript(`(() => {

@@ -6,7 +6,7 @@
  */
 
 import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo, type AttributeMeta, type CertificationInfo, type OptionVariant } from './coupang-product-builder';
-import { fillNoticeFields, aiFillRemainingNotices, type NoticeCategoryMeta, type FilledNoticeCategory, type ExtractedNoticeHints } from './notice-field-filler';
+import { fillNoticeFields, aiFillRemainingNotices, flattenSourceNotice, type NoticeCategoryMeta, type FilledNoticeCategory, type ExtractedNoticeHints } from './notice-field-filler';
 import { extractOptionsEnhanced, type ExtractedOptions } from './option-extractor';
 import { syncDisplayNameWithOptions } from './display-name-generator';
 import { selectWithSeed } from './item-winner-prevention';
@@ -27,6 +27,8 @@ export interface BuildPayloadProduct {
   sourcePrice: number;
   categoryCode: string;
   tags: string[];
+  /** 검수 화면에서 확정한 검색어 태그(로컬 에이전트의 쿠팡 연관검색어 포함) — 1순위 후보. */
+  searchTagsOverride?: string[];
   description: string;
   mainImages: string[];
   detailImages: string[];
@@ -39,6 +41,12 @@ export interface BuildPayloadProduct {
   originalPrice?: number;
   barcode?: string;
   certifications?: CertificationInfo[];
+  /**
+   * 공급처가 직접 입력한 원본 상품정보제공고시(네이버 provided-notice 원형).
+   * 고시 필드를 상품명 패턴이나 AI 로 추측하기 전에 이 사실값을 먼저 쓴다.
+   * 없으면(직접 만든 폴더 등) 기존 경로 그대로 동작한다.
+   */
+  providedNotice?: unknown;
   optionVariants?: OptionVariant[];
   taxType?: 'TAX' | 'FREE' | 'ZERO';
   adultOnly?: 'EVERYONE' | 'ADULT_ONLY';
@@ -75,6 +83,8 @@ export interface BuildPayloadParams {
   detailImageUrls: string[];
   reviewImageUrls: string[];
   infoImageUrls: string[];
+  descriptionImageUrls?: string[];   // 원본 상세 설명 이미지 — 맨 끝 "상품 상세정보"
+  originDescription?: string;         // 원본(DOM) 상품설명 텍스트 — 맨 끝 "상품 상세정보"
   // AI story는 batch에서만 사용 — preflight에서는 빈 값 전달 가능
   aiStoryHtml?: string;
   aiStoryParagraphs?: string[];
@@ -108,6 +118,19 @@ export interface BuildPayloadResult {
 }
 
 /**
+ * LLM 상세글(description)을 상세페이지 본문 문단 배열로 쪼갠다.
+ *   빈 줄 기준 문단 분리 → 문단이 1개뿐이면 단일 줄바꿈으로도 분리(불릿/짧은 문단 대응).
+ *   상세 HTML 렌더러(detail-page-builder)가 이 배열을 글-이미지 교차로 렌더한다.
+ */
+function splitDescriptionToParagraphs(text?: string): string[] {
+  const t = String(text || '').trim();
+  if (!t) return [];
+  let parts = t.split(/\n\s*\n+/).map((s) => s.trim()).filter(Boolean);
+  if (parts.length <= 1) parts = t.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+  return parts;
+}
+
+/**
  * 쿠팡 상품 등록 API 페이로드를 빌드한다.
  * batch/route.ts와 preflight/route.ts에서 동일하게 사용.
  */
@@ -116,6 +139,7 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     product, vendorId, deliveryInfo, returnInfo, stock,
     noticeOverrides, preventionConfig, shUserId,
     mainImageUrls, detailImageUrls, reviewImageUrls, infoImageUrls,
+    descriptionImageUrls, originDescription,
     aiStoryHtml = '', aiStoryParagraphs = [], aiReviewTexts = [],
     contentBlocks,
     detailImageTypes,
@@ -133,10 +157,14 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
 
   const effectiveDescription = product.descriptionOverride ?? product.description;
 
-  // 사용자가 편집한 스토리/리뷰가 있으면 우선 사용
+  // 사용자가 편집한 스토리/리뷰가 있으면 우선 사용.
+  //   ⚠️ 올인원은 storyParagraphsOverride 를 안 보내고 상세글을 descriptionOverride 로 준다.
+  //      그런데 상세 HTML 은 description 을 안 쓰고 aiStoryParagraphs 만 렌더 → 예전엔 올인원
+  //      LLM 상세글이 페이지에 통째로 누락되고 이미지만 나왔다(실측 확인). 그래서 명시 story 도
+  //      서버 AI story 도 없으면 description(=LLM 상세글)을 문단으로 쪼개 본문으로 쓴다.
   const finalStoryParagraphs = (product.storyParagraphsOverride && product.storyParagraphsOverride.length > 0)
     ? product.storyParagraphsOverride
-    : aiStoryParagraphs;
+    : (aiStoryParagraphs.length > 0 ? aiStoryParagraphs : splitDescriptionToParagraphs(effectiveDescription));
 
   const finalReviewTexts = (product.reviewTextsOverride && product.reviewTextsOverride.length > 0)
     ? product.reviewTextsOverride
@@ -165,6 +193,15 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
         opt.value = picked;
         opt.unit = undefined;
       }
+    }
+    // ⚠️ 추출 결과에 **행이 없는** 옵션에 사용자가 값을 직접 입력한 경우(추출 완전실패·택1 그룹 등)
+    //    위 루프는 그 값을 그냥 버렸다 — 검수 화면에서 채워도 쿠팡엔 안 올라감(실측 2026-08-06).
+    //    이름은 카테고리 buyOption 스키마에서 온 것이므로 그대로 추가한다.
+    //    (payload-builder 가 attributeMeta 와 매칭해 단위까지 정규화한다.)
+    const knownNames = new Set(extracted.buyOptions.map((o) => o.name));
+    for (const [name, picked] of Object.entries(product.buyOptionValuesOverride)) {
+      if (!name || !picked || knownNames.has(name)) continue;
+      extracted.buyOptions.push({ name, value: picked });
     }
   }
 
@@ -228,6 +265,11 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     if (fruitInfo.origin) noticeHints.origin = fruitInfo.origin;
   }
 
+  // 공급처 원본 고시정보 — 있으면 패턴/AI 추측보다 앞선다(사용자 override 다음 순위).
+  //   소싱이 네이버 provided-notice 를 그대로 담아 오므로 품목·용량·원산지·생산자·보관방법이
+  //   사실 그대로 채워진다. 없으면(직접 만든 폴더 등) 지금까지의 경로 그대로 동작한다.
+  const sourceNotice = flattenSourceNotice(product.providedNotice);
+
   // notices 자동채움 — 1차: 룰베이스 (notice-field-filler 의 패턴 매칭)
   const mergedNoticeOverrides = { ...(noticeOverrides || {}), ...(product.noticeValuesOverride || {}) };
   const ruleFilledNotices = fillNoticeFields(
@@ -237,6 +279,7 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     Object.keys(mergedNoticeOverrides).length > 0 ? mergedNoticeOverrides : undefined,
     noticeHints,
     product.categoryPath || product.name,
+    sourceNotice,
   );
   // 2차: 룰베이스가 "상세페이지 참조" 폴백한 필드만 GPT-4o-mini 로 보강.
   // OPENAI_API_KEY 없으면 silently skip → 룰베이스 결과 그대로 사용.
@@ -301,6 +344,8 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     attributeValues: product.attributeValuesOverride,
     reviewImageUrls,
     infoImageUrls,
+    descriptionImageUrls,
+    originDescription,
     aiStoryHtml: sanitizeOriginClaims(
       isFruit ? sanitizeFruitClaims(aiStoryHtml, fruitInfo) : aiStoryHtml,
       originEvidence,
@@ -327,6 +372,7 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     detailLayoutVariant,
     categoryPath,
     seoKeywords,
+    searchTagsOverride: product.searchTagsOverride,
     faqItems,
     closingText: sanitizeOriginClaims(
       isFruit ? sanitizeFruitClaims(closingText, fruitInfo) : closingText,

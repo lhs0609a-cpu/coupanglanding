@@ -207,6 +207,11 @@ const NOISE = new Set([
   '특가세일', '할인특가', '세일특가', '핫딜', '단독특가',
   '신상특가', '깜짝특가', '특별가', '할인가', '세일가',
   '★당일발송★', '【공식】', '★★', '★',
+  // 시즌/선물/행사 맥락 — 노출명 상품 정체성 아님(선물세트/파티 등 실제 카테고리 leaf 는 보존 로직 별도).
+  //   "안마의자 부모님 명절 설날 추석" → "초대 추석 명절 부모님 설날" 식 노출명 오염 차단.
+  '명절', '설날', '추석', '새해', '신정', '구정', '연말', '신년', '부모님', '효도', '효도선물',
+  '어버이날', '어린이날', '스승의날', '기념일', '생신', '환갑', '칠순', '고희', '승진', '개업', '집들이',
+  '답례품', '답례', '크리스마스', '성탄', '발렌타인', '화이트데이', '빼빼로데이', '선물추천',
 ]);
 
 // hypeBanned 사후 패턴 (substring) — addToken 이후 사후 제거
@@ -1534,6 +1539,20 @@ export function syncDisplayNameWithOptions(
   }
 
   if (parts.length === 0) return stripped || displayName;
+
+  // ⚠️ 위 stripRegex 는 **꼬리**의 스펙만 지운다. 그런데 노출명은 보통 스펙을 이름 중간에
+  //    갖고 있다("깐마늘 1kg 다진마늘 요리용 …", "세라마이드 수딩젤 175ml 바디보습 …").
+  //    그대로 꼬리에 canonical 을 붙이면 스펙이 두 번 나온다(실측):
+  //      "깐마늘 1kg 다진마늘 … 대용량 1kg, 2개"
+  //      "세라마이드 수딩젤 175ml 바디보습 성인용 175ml, 1개"
+  //    → 붙이기 전에 같은 스펙이 앞쪽에 있으면 지운다. 쿠팡 관례대로 스펙은 맨 뒤 한 번만.
+  for (const spec of parts) {
+    const esc = spec.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*');
+    // 숫자·단위가 통째로 일치할 때만 — "1kg" 이 "21kg"·"1kgX2" 를 건드리지 않게 경계를 둔다.
+    const re = new RegExp(`(?<![\\d.])${esc}(?![\\dA-Za-z가-힣])`, 'gi');
+    stripped = stripped.replace(re, ' ');
+  }
+  stripped = stripped.replace(/\s*,\s*/g, ', ').replace(/\s{2,}/g, ' ').replace(/[\s,]+$/, '').trim();
 
   const canonicalSpec = parts.join(', ');
   const result = stripped ? `${stripped} ${canonicalSpec}` : canonicalSpec;

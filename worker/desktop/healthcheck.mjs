@@ -8,7 +8,7 @@
 //   2) 패키지 내부 모든 상대 import 해결 (모듈 누락 = 시작 크래시의 주범)
 //   3) runtime/ 필수 파일 존재
 //   4) renderer 자산 존재 (index.html, shell.js, 모듈 패널)
-//   5) 버전 일치 (package.json == latest.yml == 웹 WORKER_APP_VERSION)
+//   5) 버전 일치 (package.json == latest.yml)
 //   6) 시작 스모크 — exe 를 --hidden 으로 띄워 12초 생존 + stderr 무에러
 // ============================================================
 import { readFileSync, existsSync, readdirSync, statSync, rmSync } from 'node:fs';
@@ -26,9 +26,17 @@ const exe = join(unpacked, 'MegaloadDesktop.exe');
 const results = [];
 const ok = (name, pass, detail = '') => results.push({ name, pass, detail });
 
+/**
+ * 설치기 파일명 — electron-builder.yml 의 `artifactName: MegaloadDesktop-Setup-${version}.${ext}`
+ * 와 **한 곳에서** 맞춘다. 예전에는 버전 없는 이름을 박아 뒀는데, artifactName 에 버전이
+ * 들어간 뒤로 산출물 검사와 설치기 스모크가 둘 다 "없음" 으로 빨간불이었다.
+ */
+const PKG_VERSION = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version;
+const SETUP_NAME = `MegaloadDesktop-Setup-${PKG_VERSION}.exe`;
+
 // ── 1) 빌드 산출물 ──
 {
-  const need = ['MegaloadDesktop-Setup.exe', 'latest.yml', 'MegaloadDesktop-Setup.exe.blockmap'];
+  const need = [SETUP_NAME, 'latest.yml', `${SETUP_NAME}.blockmap`];
   const missing = need.filter((f) => !existsSync(join(dist, f)));
   ok('빌드 산출물 (Setup/latest.yml/blockmap)', missing.length === 0, missing.length ? `누락: ${missing.join(', ')}` : '');
 }
@@ -65,7 +73,7 @@ const ok = (name, pass, detail = '') => results.push({ name, pass, detail });
 // ── 3) runtime 필수 파일 ──
 {
   const need = ['supabase-rest.mjs', 'pull-loop.mjs', 'llm-pull-loop.mjs', 'comfyui-client.mjs',
-    'ai-prompts.mjs', 'local-llm.mjs', 'category-embed-matcher.mjs'];
+    'ai-prompts.mjs', 'local-llm.mjs', 'category-embed-matcher.mjs', 'output-quality.mjs', 'image-selector.mjs', 'local-cutout.mjs'];
   const missing = need.filter((f) => !existsSync(join(appDir, 'runtime', f)));
   ok('runtime 필수 파일', missing.length === 0, missing.length ? `누락: ${missing.join(', ')}` : '');
 }
@@ -90,17 +98,21 @@ const ok = (name, pass, detail = '') => results.push({ name, pass, detail });
 
 // ── 5) 버전 일치 ──
 {
-  const pkgV = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version;
+  const pkgV = PKG_VERSION;
   let ymlV = '?';
   try { ymlV = (readFileSync(join(dist, 'latest.yml'), 'utf8').match(/^version:\s*(.+)$/m) || [])[1]?.trim(); } catch { /* */ }
-  let webV = '?';
-  try {
-    const w = readFileSync(join(here, '..', '..', 'src', 'lib', 'megaload', 'worker-download.ts'), 'utf8');
-    webV = (w.match(/WORKER_APP_VERSION\s*=\s*'([^']+)'/) || [])[1];
-  } catch { /* */ }
-  // pkg==yml 은 필수. web 은 파일이 있으면 비교(없으면 생략 — 빌드 디렉토리 실행 대비).
-  const same = !!pkgV && pkgV === ymlV && (webV === '?' || pkgV === webV);
-  ok('버전 일치 (pkg=yml' + (webV === '?' ? ', web생략' : '=web') + ')', same, `pkg=${pkgV} yml=${ymlV} web=${webV}`);
+  /**
+   * ★ 웹과는 대조하지 않는다.
+   * 예전에는 worker-download.ts 의 `WORKER_APP_VERSION` 상수와 맞춰 봤다. 그 상수는 이제
+   * 없다 — 버전의 단일 출처가 **실제 발행된 GitHub 릴리스**(latest.yml)로 옮겨갔고, 웹은
+   * /api/megaload/worker/latest-version 으로 그걸 읽는다(worker-download.ts 머리말 참고).
+   * 남은 건 조회 실패용 보험값 `WORKER_APP_VERSION_FALLBACK` 뿐이라 정규식이 안 맞았고,
+   * webV 가 undefined 가 되어 **이 검사가 항상 실패했다**. 발행 게이트가 늘 빨간불이면
+   * 사람은 게이트를 안 보게 된다 — 못 맞추는 것을 맞추라고 하는 검사는 지운다.
+   * 진짜 지켜야 하는 불변식은 pkg == yml 하나다(앱이 자기 버전으로 자동업데이트를 판단한다).
+   */
+  const same = !!pkgV && pkgV === ymlV;
+  ok('버전 일치 (pkg=yml)', same, `pkg=${pkgV} yml=${ymlV}`);
 }
 
 // ── 6) 시작 스모크 (exe 12초 생존 + stderr 무에러) ──
@@ -134,11 +146,11 @@ await smoke();
 //    (앱 실행 스모크는 win-unpacked 를 직접 띄우므로 "설치기(installer.nsh/NSIS)" 버그는 못 잡는다.
 //     설치가 중간에 깨지는 류는 이 테스트만 잡을 수 있음.)
 async function installerSmoke() {
-  const setup = join(dist, 'MegaloadDesktop-Setup.exe');
+  const setup = join(dist, SETUP_NAME);
   if (!existsSync(setup)) return ok('설치기 스모크 (/S 무인설치)', false, 'Setup.exe 없음');
   const installDir = join(process.env.LOCALAPPDATA || '', 'Programs', 'megaload-desktop');
   const pkgPath = join(installDir, 'resources', 'app', 'package.json');
-  const pkgV = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version;
+  const pkgV = PKG_VERSION;
   try { spawnSync('taskkill', ['/im', 'MegaloadDesktop.exe', '/f', '/t'], { stdio: 'ignore' }); } catch { /* */ }
   await new Promise((r) => setTimeout(r, 1000));
   // oneClick 무인 설치

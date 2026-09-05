@@ -7,27 +7,33 @@ import DesktopStatusIndicator from '@/components/megaload/DesktopStatusIndicator
 import {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
   Receipt, BarChart3, Zap, Globe, Link as LinkIcon, Settings, X,
-  Upload, User, ArrowRight, Search, ExternalLink, Loader2, Lock, RotateCcw, RefreshCw, Bug,
-  BookOpen, Monitor, Megaphone, AlertTriangle, Grid3x3,
+  Upload, User, ArrowRight, Search, PackageSearch, ExternalLink, Loader2, Lock, RotateCcw, RefreshCw, Bug,
+  BookOpen, MonitorDown, Megaphone, AlertTriangle, Grid3x3, Handshake, Bell,
 } from 'lucide-react';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
 import type { SettlementGateLevel } from '@/lib/utils/settlement';
 
 const iconMap = {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
-  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug, BookOpen, Monitor, Megaphone, AlertTriangle, Grid3x3,
+  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug, BookOpen, MonitorDown, Megaphone, AlertTriangle, Grid3x3, Handshake, Search, PackageSearch, Bell,
 } as const;
 
 const navItems = [
   { href: '/megaload/dashboard', label: '대시보드', icon: 'LayoutDashboard' as const },
+  // 도우미가 업데이트되면 무엇이 좋아졌는지 여기 자동으로 올라온다(릴리스 워크플로가 등록).
+  //   자동 업데이트라 앱은 조용히 새 버전이 된다 — 알려 주지 않으면 좋아진 걸 아무도 모른다.
+  { href: '/megaload/notices', label: '공지사항', icon: 'Bell' as const },
   { href: '/megaload/orders', label: '주문관리', icon: 'ShoppingCart' as const, badgeKey: 'pendingOrders' as const },
   { href: '/megaload/returns', label: '반품수거', icon: 'RotateCcw' as const },
   { href: '/megaload/products', label: '상품관리', icon: 'Package' as const },
   { href: '/megaload/products/bulk-register', label: '상품등록', icon: 'Upload' as const },
   { href: '/megaload/products/allinone', label: '올인원 등록 (폴더)', icon: 'Zap' as const },
   { href: '/megaload/catalog', label: '카탈로그', icon: 'BookOpen' as const },
+  { href: '/megaload/supplier-catalog', label: '공급사 제휴상품', icon: 'Handshake' as const },
   { href: '/megaload/stock-monitor', label: '품절동기화', icon: 'RefreshCw' as const },
-  { href: '/megaload/desktop-app', label: '모니터링 도우미', icon: 'Monitor' as const },
+  // 별도 모니터링 앱은 폐기(품절 확인은 서버 전담) — 메뉴에서 뺐다.
+  // 설치파일은 설정의 다운로드 센터 한곳에서만 받는다.
+  { href: '/megaload/settings?tab=localgpu', label: '메가로드 도우미 다운로드', icon: 'MonitorDown' as const },
   { href: '/megaload/inventory', label: '재고관리', icon: 'Warehouse' as const },
   { href: '/megaload/cs', label: '문의관리', icon: 'MessageSquare' as const, badgeKey: 'pendingInquiries' as const },
   { href: '/megaload/settlement', label: '정산', icon: 'Receipt' as const },
@@ -35,6 +41,11 @@ const navItems = [
   { href: '/megaload/ads', label: '광고 자동화', icon: 'Megaphone' as const },
   { href: '/megaload/automation', label: '자동화', icon: 'Zap' as const },
   { href: '/megaload/sourcing', label: '해외소싱', icon: 'Globe' as const },
+  // 수집물 조회는 **셀러도 본다** — 수집은 관리자 PC 도우미만 하지만, 결과는 서버에 남아
+  // 도우미 없이도 볼 수 있어야 한다(예전엔 도우미 메모리에만 있어 그 PC 에서만 보였다).
+  { href: '/megaload/sourcing/naver', label: '네이버 소싱 카탈로그', icon: 'PackageSearch' as const },
+  // 관리자 전용 — 네이버 카테고리 수집(도우미가 실행). 실제 접근 차단은 서버 레이아웃이 한다.
+  { href: '/megaload/naver-sourcing', label: '네이버 소싱 (수집)', icon: 'Search' as const, adminOnly: true },
   { href: '/megaload/channels', label: '채널관리 (연동)', icon: 'Link' as const },
   { href: '/megaload/channels/automation', label: '멀티채널 자동전파', icon: 'Zap' as const },
   { href: '/megaload/products/channel-status', label: '채널 등록현황', icon: 'Grid3x3' as const },
@@ -64,9 +75,11 @@ interface MegaloadSidebarProps {
   onClose: () => void;
   badges?: MegaloadBadgeData;
   gateLevel?: SettlementGateLevel;
+  /** 관리자 전용 메뉴(adminOnly) 노출 판정용. 숨김은 표시용이고 실제 차단은 서버가 한다. */
+  userRole?: string;
 }
 
-export default function MegaloadSidebar({ isOpen, onClose, badges, gateLevel }: MegaloadSidebarProps) {
+export default function MegaloadSidebar({ isOpen, onClose, badges, gateLevel, userRole }: MegaloadSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [quickSearch, setQuickSearch] = useState('');
@@ -273,12 +286,14 @@ export default function MegaloadSidebar({ isOpen, onClose, badges, gateLevel }: 
           </div>
 
         <nav className="p-3 space-y-1">
-          {navItems.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+          {navItems.filter((item) => !('adminOnly' in item && item.adminOnly) || userRole === 'admin').map((item) => {
+            // 쿼리스트링이 붙은 항목(?tab=...)도 경로만 떼어 비교한다.
+            const hrefPath = item.href.split('?')[0];
+            const isActive = pathname === hrefPath || pathname.startsWith(hrefPath + '/');
             const Icon = iconMap[item.icon];
             const badgeCount = item.badgeKey && badges ? badges[item.badgeKey] : 0;
             const isLocked = gateLevel === 'restricted' &&
-              !GATE_ALLOWED_PATHS.some((p) => item.href === p || item.href.startsWith(p + '/'));
+              !GATE_ALLOWED_PATHS.some((p) => hrefPath === p || hrefPath.startsWith(p + '/'));
 
             if (isLocked) {
               return (

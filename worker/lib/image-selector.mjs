@@ -1,0 +1,318 @@
+/**
+ * CLIP 기반 이미지 인식 — 대표이미지 자동추천 + 상세이미지 큐레이션 (완전 로컬)
+ * ---------------------------------------------------------------------------
+ * transformers.js(zero-shot-image-classification, CLIP)로 사진 "내용"을 읽어
+ *   1) main_images 후보 중 쿠팡이 좋아하는 대표컷(흰배경·단독·정면·선명)을 점수화해 선택
+ *   2) detail_images 에서 광고/배송안내/리뷰캡처/로고 등 비상품 컷을 걸러 상품 상세컷만 큐레이션
+ *
+ * ⚠️ transformers.js/sharp 는 무겁고 packaged Electron top-level import 시 실패하면
+ *    메인이 죽으므로 "실제 호출 시" 지연 로딩한다(thumbnail-processor 와 동일 패턴).
+ *    로드 실패(=standalone CLI 등 미탑재) 시 조용히 폴백:
+ *      - 대표: 첫 번째 후보  · 상세: 원본 전부(광고 파일명 필터는 스캐너가 이미 함)
+ *    → 인식이 없어도 파이프라인은 그대로 동작(오늘과 동일), 있으면 품질 향상.
+ */
+
+import { measureImage, scoreImage, metricsDepsFailed, looksCutout } from './image-metrics.mjs';
+
+const MODEL = 'Xenova/clip-vit-base-patch32';
+
+let _pipePromise = null;
+let _loadFailed = false;
+
+/** CLIP 파이프라인 1회 로드(지연). 실패 시 이후 호출은 즉시 폴백. */
+async function ensureClip({ cacheDir, onLog } = {}) {
+  if (_loadFailed) throw new Error('clip-unavailable');
+  if (_pipePromise) return _pipePromise;
+  _pipePromise = (async () => {
+    const tf = await import('@huggingface/transformers');
+    tf.env.allowLocalModels = false;
+    const dir = cacheDir || process.env.MEGALOAD_HF_CACHE;
+    if (dir) tf.env.cacheDir = dir;
+    onLog?.(`[이미지인식] CLIP 모델 로드 중(${MODEL}, 최초 1회 다운로드)…`);
+    const pipe = await tf.pipeline('zero-shot-image-classification', MODEL, {
+      progress_callback: (p) => {
+        if (p?.status === 'progress' && p.progress != null && Math.round(p.progress) % 25 === 0) {
+          onLog?.(`[이미지인식] 모델 다운로드 ${Math.round(p.progress)}%`);
+        }
+      },
+    });
+    onLog?.('[이미지인식] CLIP 준비 완료');
+    return pipe;
+  })().catch((e) => { _loadFailed = true; throw e; });
+  return _pipePromise;
+}
+
+/** 이미지 1장을 후보 라벨로 분류 → {label: score} (softmax) */
+async function classify(pipe, imgPath, labels) {
+  const out = await pipe(imgPath, labels); // [{label, score}] 내림차순
+  const m = {};
+  for (const o of out) m[o.label] = o.score;
+  return m;
+}
+
+// ⭐ 긍정 기준은 "흰배경"이 아니라 "정면·단독·완전한 상품"이다.
+//    누끼(local-cutout)가 어차피 배경을 흰색으로 바꾸고 상품을 88%로 꽉 채운다 →
+//    "흰배경인가"로 고르면 이미 납작한 흰바탕인 네이버 "N" 로고가 최고점을 받아 뽑힌다
+//    (실측: 이 배치의 N 로고·장갑 손 오선택 원인). 그래서 누끼가 못 고치는 것만 본다:
+//    정면인가 · 상품 하나만인가 · 안 잘렸나 · 선명한가.
+const MAIN_GOOD = 'a clear front-facing photo of one whole single product';
+const MAIN_LOGO = 'a logo, brand icon, app symbol, letter mark, or blank placeholder image';
+const MAIN_LIFESTYLE = 'a photo of a product held in a hand or worn by a person';
+const MAIN_ANGLE = 'a back view, tilted angle, or close-up cropped part of a product';
+// 뒤집힘/회전 — EXIF 없이 물리적으로 위아래가 뒤집힌/기울어진 컷. top 이면 감점(대표 부적합).
+const MAIN_UPSIDE = 'an upside-down, rotated, or sideways product photo';
+const MAIN_LABELS = [
+  MAIN_GOOD,
+  'a product photo with text, letters, or infographic overlay',
+  MAIN_LIFESTYLE,
+  MAIN_ANGLE,
+  MAIN_UPSIDE,
+  MAIN_LOGO,
+  'a collage showing multiple different products',
+  'a blurry, dark, or low quality photo',
+];
+// top 라벨이 이 집합이면 "대표컷 부적합" — MAIN_GOOD(정면·단독·완전)이 아니면 감점, 로고는 하드 반려.
+const MAIN_BAD_TOP = new Set(MAIN_LABELS.slice(1));
+
+// ── 리뷰컷 전용 라벨 ──────────────────────────────────────────────────────
+//   리뷰컷은 "구매자가 찍은 실사용 사진"이라 상세컷과 성격이 다르다(배경 지저분함, 손·식탁 등).
+//   그래서 DETAIL_LABELS 를 그대로 쓰면 안 된다 — 거기엔 'review screenshot' 이 드롭 사유로
+//   들어 있어 리뷰컷이 통째로 걸러진다. 여기서 걸러야 할 건 따로 있다:
+//     ① 사람 얼굴/인물 사진(초상권·부적합)  ② 채팅/별점/텍스트 캡처  ③ 영수증·송장(개인정보)
+//     ④ 상품과 무관한 사진
+const REVIEW_KEEP = 'a customer photo showing the product itself';
+const REVIEW_FACE = 'a portrait or close-up photo of a person or a face';
+const REVIEW_LABELS = [
+  REVIEW_KEEP,
+  REVIEW_FACE,
+  'a screenshot of a chat, message, rating stars, or text on screen',
+  'a photo of a receipt, invoice, shipping label, or document',
+  'a photo unrelated to any product, such as scenery, pets, or random objects',
+  'an advertisement or promotion banner',
+];
+
+const DETAIL_KEEP = 'a product photo or product detail shot';
+const DETAIL_LABELS = [
+  DETAIL_KEEP,
+  'an advertisement, promotion, or coupon banner',
+  'a shipping, delivery, or return policy guide',
+  'a review, rating, or chat screenshot',
+  'a company logo or text-only banner',
+];
+
+/** CLIP softmax 결과 → 대표컷 의미 판정. semanticFactor 1(적합)~0.05(로고 하드반려). */
+function mainSemantics(m) {
+  const good = +(m[MAIN_GOOD] || 0).toFixed(4);
+  const entries = Object.entries(m).sort((a, b) => b[1] - a[1]);
+  const topLabel = entries[0]?.[0] || '';
+  const isLogo = topLabel === MAIN_LOGO || (m[MAIN_LOGO] || 0) >= 0.45;
+  const isLifestyle = topLabel === MAIN_LIFESTYLE;
+  const isBadTop = MAIN_BAD_TOP.has(topLabel);
+  // 로고/플레이스홀더는 어떤 경우에도 대표컷이 되면 안 된다 → 사실상 반려.
+  let factor;
+  if (isLogo) factor = 0.05;
+  else if (!isBadTop) factor = 1;            // MAIN_GOOD 이 top
+  else if (isLifestyle) factor = 0.55;       // 연출/손 컷 — 원본 있으면 밀려남
+  else factor = 0.4;                          // 텍스트오버레이/콜라주/저화질 top
+  // MAIN_GOOD 확신이 아주 낮으면(≤0.2) top 이 아니어도 추가 감점
+  if (good <= 0.2) factor *= 0.6;
+  return { good, topLabel, isLogo, isBadTop, factor };
+}
+
+/**
+ * 대표이미지 후보 중 최적 1장 선택.
+ *   ⭐ 두 신호를 결합한다:
+ *     ① CLIP 의미 분류 — 로고/플레이스홀더/연출컷/텍스트오버레이를 걸러낸다(N 로고 문제).
+ *     ② L1 결정론 품질(image-metrics, sharp) — 해상도·선명도·콜라주·프레이밍(누끼가 못 고치는 것).
+ *   최종점수 = L1품질 × CLIP의미계수. 로고는 계수 0.05 로 사실상 반려.
+ *   deps 가용성에 따라 자동 폴백: 둘 다 → 결합 / CLIP만 / L1만 / 둘 다 없으면 첫컷.
+ * @param {string[]} imagePaths  main_images 후보 경로들
+ * @param {{cacheDir?:string, onLog?:Function, extraCandidates?:string[]}} [o]
+ *   extraCandidates: 상세/리뷰 폴더 컷 — 폴더가 갈렸을 뿐 실제로는 더 좋은 상품 정면컷이
+ *   섞여 있을 수 있어 대표 후보로 함께 심사한다. 단 아래 두 조건을 모두 만족할 때만:
+ *     ① CLIP 가용(= 인포그래픽/배너를 상품사진과 구분할 수 있을 때만 확장)
+ *     ② 그 컷이 "정면·단독·완전한 상품"으로 확실히 분류됨(MAIN_GOOD top + 확신 0.35+)
+ *   → 텍스트 배너·상세 인포그래픽이 대표로 승격되는 사고를 구조적으로 막는다.
+ * @returns {Promise<{path:string|null, ranked:Array, method:string, confident:boolean, reason?:string, error?:string}>}
+ *   confident=false 면 run-folder 가 needsReview 로 표기(전 후보가 로고/저품질일 때).
+ */
+export async function selectBestMainImage(imagePaths, o = {}) {
+  const paths = (imagePaths || []).filter(Boolean);
+  const extrasIn = (o.extraCandidates || []).filter(Boolean).filter((p) => !paths.includes(p));
+  if (paths.length === 0 && extrasIn.length === 0) return { path: null, ranked: [], method: 'none', confident: false };
+
+  // ── CLIP 지연로드(선택적) ──
+  let pipe = null;
+  try { pipe = await ensureClip(o); } catch { pipe = null; }
+
+  // 확장 후보는 CLIP 이 있을 때만 심사(위 ① — L1 만으로는 인포그래픽 판별 불가).
+  const extras = pipe ? extrasIn : [];
+  const isExtra = new Set(extras);
+  const allPaths = [...paths, ...extras];
+  if (extras.length) o.onLog?.(`[이미지인식] 대표 후보 확장: 상세/리뷰 ${extras.length}컷도 심사(정면 단독컷만 자격)`);
+
+  const ranked = [];
+  let l1Off = false;
+  for (const p of allPaths) {
+    let good = null, factor = 1, isLogo = false, topLabel = null, isBadTop = false;
+    if (pipe) {
+      try { const s = mainSemantics(await classify(pipe, p, MAIN_LABELS)); good = s.good; factor = s.factor; isLogo = s.isLogo; topLabel = s.topLabel; isBadTop = s.isBadTop; }
+      catch { /* 이 컷만 CLIP 실패 → 의미계수 중립 */ }
+    }
+    // 확장 후보(상세/리뷰컷)는 "명백한 정면·단독 상품컷"만 대표 자격(위 ②).
+    //   CLIP 분류 실패(good=null)면 판단 불가 → 자격 없음(원래 대표풀만 쓰던 동작 유지).
+    if (isExtra.has(p) && !(good != null && !isBadTop && good >= 0.35)) continue;
+    // L1 결정론 품질(sharp) — 미탑재면 1회만 감지 후 이후 스킵.
+    let l1 = null, blank = false, cutout = false;
+    if (!l1Off) {
+      try {
+        const met = await measureImage(p);
+        l1 = scoreImage(met).score;
+        // 이미 누끼된 흰배경 단독컷 = 쿠팡 대표컷 규격 그 자체 → 선택 가점(재가공도 생략된다).
+        cutout = looksCutout(met, p);
+        // 거의 균일한 단색(=빈/플레이스홀더 배너: "VA" 흰박스, 워터마크 등):
+        //   전경이 극소(subjectRatio≤0.05)인데 배경 신뢰 높음 → 상품 사진이 아니다.
+        //   로고와 동일하게 대표 부적합 처리(누끼해도 빈 흰바탕만 나온다).
+        blank = met.bgConfidence >= 0.6 && met.subjectRatio <= 0.05;
+      }
+      catch (e) { if (metricsDepsFailed()) l1Off = true; }
+    }
+    if (blank) { factor = Math.min(factor, 0.05); isLogo = true; }
+    // 결합: L1(누끼가 못 고치는 화질) × CLIP 의미계수(factor) × 정면가점(frontBoost).
+    //   ⭐ 정면성(good)을 순위에 직접 반영한다. 예전엔 두 컷이 다 "정면"으로 판정되면
+    //      그 다음은 화질(L1)로만 갈려서, 살짝 비스듬한 컷이 더 선명하면 정면컷을 이겼다.
+    //      누끼는 "선택된 원본"에 적용되므로(누끼가 각도를 못 바꿈) 선택이 가장 정면인 컷을
+    //      골라야 한다. good 이 높을수록(=더 정면·단독) 최대 +50% 가점.
+    const base = l1 != null ? l1 : (good != null ? good : 0.5);
+    const frontBoost = good != null ? (0.5 + 0.5 * good) : 1;
+    // 이미 누끼된 컷 가점 — 로고/플레이스홀더(factor 0.05)엔 주지 않는다(흰바탕이라 오인 방지).
+    const cutBoost = cutout && !isLogo && !blank ? 1.3 : 1;
+    const score = +(base * factor * frontBoost * cutBoost).toFixed(4);
+    ranked.push({ path: p, score, good, l1: l1 != null ? +l1.toFixed(4) : null, topLabel, isLogo, cutout });
+  }
+  ranked.sort((a, b) => b.score - a.score);
+
+  const noSignal = !pipe && l1Off;                       // 둘 다 미탑재 → 순수 첫컷 폴백
+  const method = noSignal ? 'fallback-first' : pipe ? (l1Off ? 'clip' : 'clip+l1') : 'l1';
+  const best = ranked[0];
+  // 신호가 있을 때만 사유를 매긴다 — deps 미탑재(noSignal)면 판단 불가이므로 flag 하지 않는다.
+  const reason = noSignal || !best ? undefined
+    : best.isLogo ? '로고/플레이스홀더만 있음(실제 상품 사진 없음)'
+    : (best.l1 != null && best.l1 < 0.3) ? `대표컷 품질 낮음(${best.l1})`
+    : (best.good != null && best.good < 0.25) ? '흰배경 단독컷 아님(연출/텍스트 컷)'
+    : undefined;
+  // 확신 = 사유 없음(noSignal 포함). 사유가 있으면 run-folder 가 needsReview 로 승격.
+  //   후보가 하나도 안 남은 경우(전부 자격미달)는 확신 없음 → 검수 대상.
+  const confident = !!best && !reason;
+  return { path: best ? best.path : null, ranked, method, confident, reason };
+}
+
+/**
+ * 리뷰이미지 큐레이션 — 상세페이지 본문에 끼워질 리뷰컷에서 **사람 얼굴·캡처·영수증·무관 사진**을 걷어낸다.
+ * ---------------------------------------------------------------------------
+ * ⚠️ 리뷰컷은 pickBodyImages 의 1순위라 상세페이지에 가장 크게 노출되는데, 예전엔 워커가
+ *    리뷰 폴더를 읽지도 않아 **무검사로** 실렸다(사람 얼굴, 카톡 캡처, 영수증까지 그대로).
+ * 판정은 CLIP 제로샷. 얼굴은 확률이 조금만 높아도(≥0.25) 버린다 — 초상권 리스크가 크고,
+ *   상품 사진이 아쉬우면 상세컷으로 폴백되므로 보수적으로 걸러도 손해가 없다.
+ * CLIP 미탑재 시엔 판단 불가 → 안전 우선으로 **전부 제외**하지 않고 blank 만 걸러 보존한다
+ *   (기존 동작과 동일하게 두어 이미지가 통째로 사라지는 사고를 막는다).
+ * @returns {Promise<{kept:Array<{path,score}>, dropped:Array<{path,reason,score}>, method:string}>}
+ */
+export async function curateReviewImages(imagePaths, o = {}) {
+  const paths = (imagePaths || []).filter(Boolean);
+  const max = o.max ?? 12;
+  const minKeep = o.minKeep ?? 0.3;
+  const faceMax = o.faceMax ?? 0.25;
+  if (paths.length === 0) return { kept: [], dropped: [], method: 'none' };
+
+  let pipe = null;
+  try { pipe = await ensureClip(o); } catch { pipe = null; }
+  if (!pipe) {
+    o.onLog?.('[리뷰컷] CLIP 미탑재 — 사람/캡처 판별 불가, 원본 유지');
+    return { kept: paths.map((p) => ({ path: p, score: null })), dropped: [], method: 'fallback-all' };
+  }
+
+  const kept = [], dropped = [];
+  for (const p of paths) {
+    try {
+      const m = await classify(pipe, p, REVIEW_LABELS);
+      const face = m[REVIEW_FACE] || 0;
+      const keep = m[REVIEW_KEEP] || 0;
+      const top = Object.entries(m).sort((a, b) => b[1] - a[1])[0];
+      if (face >= faceMax || top[0] === REVIEW_FACE) {
+        dropped.push({ path: p, reason: '사람 얼굴/인물', score: +face.toFixed(4) });
+      } else if (top[0] === REVIEW_KEEP && keep >= minKeep) {
+        kept.push({ path: p, score: +keep.toFixed(4) });
+      } else {
+        dropped.push({ path: p, reason: top[0], score: +keep.toFixed(4) });
+      }
+    } catch {
+      kept.push({ path: p, score: null }); // 분류 실패는 보존(안전 우선)
+    }
+  }
+  return { kept: kept.slice(0, max), dropped, method: 'clip' };
+}
+
+/**
+ * 상세이미지 큐레이션 — 비상품(광고/배송안내/리뷰/로고) 컷 제거, 원본 순서 보존.
+ * @param {string[]} imagePaths  detail_images 후보 경로들
+ * @param {{cacheDir?:string, onLog?:Function, max?:number, minKeep?:number}} [o]
+ * @returns {Promise<{kept:Array<{path,score}>, dropped:Array<{path,reason,score}>, method:string, error?:string}>}
+ */
+export async function curateDetailImages(imagePaths, o = {}) {
+  const paths = (imagePaths || []).filter(Boolean);
+  const max = o.max ?? 12;
+  const minKeep = o.minKeep ?? 0.35;
+  if (paths.length === 0) return { kept: [], dropped: [], method: 'none' };
+
+  // CLIP 은 선택적 — 못 올라와도 아래 L1(sharp) 결정론 필터로 최소한의 큐레이션은 한다.
+  //   (예전엔 CLIP 실패 시 전량 보존(fallback-all)이라, "고사이"·빈 배너 같은 비상품 컷이
+  //    그대로 상세페이지에 실렸다. 이제 CLIP 없이도 near-blank 플레이스홀더는 걸러낸다.)
+  let pipe = null;
+  try { pipe = await ensureClip(o); } catch { pipe = null; }
+
+  /** L1(sharp)로 "거의 균일한 단색(=빈/플레이스홀더 배너)"인지 — 상품 상세컷이 아니다. */
+  let l1Off = false;
+  const isBlankPlaceholder = async (p) => {
+    if (l1Off) return false;
+    try {
+      const m = await measureImage(p);
+      // 전경 극소 + 배경 신뢰 높음 = 텍스트만 있는 빈 배너/워터마크(예: "VA" 흰박스).
+      return m.bgConfidence >= 0.6 && m.subjectRatio <= 0.05;
+    } catch (e) { if (metricsDepsFailed()) l1Off = true; return false; }
+  };
+
+  const kept = [], dropped = [];
+  for (const p of paths) {
+    // ① 결정론 blank 필터(CLIP 유무 무관) — 빈/단색 플레이스홀더 배너 제거.
+    if (await isBlankPlaceholder(p)) { dropped.push({ path: p, reason: 'blank/placeholder', score: 0 }); continue; }
+    // ② CLIP 이 있으면 비상품(광고/배송/리뷰/로고) 컷 제거. 없으면 blank 아닌 컷은 보존.
+    if (!pipe) { kept.push({ path: p, score: null }); continue; }
+    try {
+      const m = await classify(pipe, p, DETAIL_LABELS);
+      const top = Object.entries(m).sort((a, b) => b[1] - a[1])[0];
+      if (top[0] === DETAIL_KEEP && m[DETAIL_KEEP] >= minKeep) kept.push({ path: p, score: +m[DETAIL_KEEP].toFixed(4) });
+      else dropped.push({ path: p, reason: top[0], score: +(m[DETAIL_KEEP] || 0).toFixed(4) });
+    } catch {
+      kept.push({ path: p, score: null }); // 분류 실패는 보존(안전 우선)
+    }
+  }
+  // ⚠️ 전부 광고/배너로 판정돼 kept 가 0 이 되면 상세페이지에 이미지가 하나도 안 들어간다.
+  //    네이버 소싱분은 상세컷이 텍스트 위주라 CLIP 이 전량 드롭하기 쉽다. 최소한 상품컷
+  //    점수(DETAIL_KEEP)가 높은 순으로 minRescue 장은 되살려 "이미지 0장"을 막는다.
+  const minRescue = o.minRescue ?? 3;
+  if (kept.length === 0 && dropped.length > 0) {
+    // blank 플레이스홀더는 되살리지 않는다(상품컷이 아님) — CLIP 오탐만 되살린다.
+    const rescuable = dropped.filter((d) => d.reason !== 'blank/placeholder');
+    const rescued = [...rescuable].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, minRescue);
+    const rescuedSet = new Set(rescued.map((r) => r.path));
+    if (rescued.length > 0) {
+      return {
+        kept: rescued.map((r) => ({ path: r.path, score: r.score })),
+        dropped: dropped.filter((d) => !rescuedSet.has(d.path)),
+        method: 'clip-rescue',
+      };
+    }
+  }
+  return { kept: kept.slice(0, max), dropped, method: pipe ? 'clip+l1' : (l1Off ? 'fallback-all' : 'l1') };
+}

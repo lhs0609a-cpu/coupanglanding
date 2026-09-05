@@ -23,6 +23,8 @@ export default function LoginForm() {
   const searchParams = useSearchParams();
   const redirect = searchParams.get('redirect');
   const type = searchParams.get('type');
+  const loginType = searchParams.get('loginType');
+  const isSupplierTab = loginType === 'supplier';
   const [isSignup, setIsSignup] = useState(type === 'signup');
 
   // 쿨다운 1초마다 감소
@@ -91,8 +93,8 @@ export default function LoginForm() {
         return;
       }
 
-      // 미승인 유저 차단 (admin/partner는 제외)
-      if (profile && profile.role !== 'admin' && profile.role !== 'partner' && !profile.is_active) {
+      // 미승인 유저 차단 (admin/partner 제외, 공급사는 로그인 허용 후 센터에서 심사상태로 게이트)
+      if (profile && profile.role !== 'admin' && profile.role !== 'partner' && profile.role !== 'supplier' && !profile.is_active) {
         await supabase.auth.signOut();
         setError('관리자 승인 대기 중입니다. 승인 후 로그인할 수 있습니다.');
         return;
@@ -102,6 +104,8 @@ export default function LoginForm() {
         router.push(redirect);
       } else if (profile?.role === 'admin' || profile?.role === 'partner') {
         router.push('/admin/dashboard');
+      } else if (profile?.role === 'supplier') {
+        router.push('/supplier');
       } else {
         router.push('/my/dashboard');
       }
@@ -277,6 +281,14 @@ export default function LoginForm() {
             로그인
           </button>
         </p>
+
+        <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-4 py-3 text-center text-sm text-emerald-800">
+          제조사·도매·공급사이신가요?{' '}
+          <Link href="/supplier/signup" className="font-semibold underline hover:text-emerald-900">
+            공급사 회원가입
+          </Link>
+          <span className="block text-xs text-emerald-700/80 mt-0.5">사업자등록증·증빙서류 제출 후 관리자 승인</span>
+        </div>
       </form>
     );
   }
@@ -350,12 +362,38 @@ export default function LoginForm() {
         </Link>
       </div>
 
-      <p className="text-center text-sm text-gray-500">
-        파트너 계정이 없으신가요?{' '}
-        <button type="button" onClick={() => setIsSignup(true)} className="text-[#E31837] font-semibold hover:underline">
-          회원가입
-        </button>
-      </p>
+      {isSupplierTab ? (
+        <>
+          <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-4 py-3 text-center text-sm text-emerald-800">
+            공급사 계정이 없으신가요?{' '}
+            <Link href="/supplier/signup" className="font-semibold underline hover:text-emerald-900">
+              공급사 회원가입
+            </Link>
+            <span className="block text-xs text-emerald-700/80 mt-0.5">사업자등록증·증빙서류 제출 후 관리자 승인</span>
+          </div>
+          <p className="text-center text-xs text-gray-400">
+            파트너/PT 이신가요?{' '}
+            <Link href="/auth/login?loginType=partner" className="text-gray-500 font-medium hover:underline">파트너 로그인</Link>
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="text-center text-sm text-gray-500">
+            파트너 계정이 없으신가요?{' '}
+            <button type="button" onClick={() => setIsSignup(true)} className="text-[#E31837] font-semibold hover:underline">
+              파트너 회원가입
+            </button>
+          </p>
+
+          <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-4 py-3 text-center text-sm text-emerald-800">
+            제조사·도매·공급사이신가요?{' '}
+            <Link href="/supplier/signup" className="font-semibold underline hover:text-emerald-900">
+              공급사 회원가입
+            </Link>
+            <span className="block text-xs text-emerald-700/80 mt-0.5">사업자등록증·증빙서류 제출 후 관리자 승인</span>
+          </div>
+        </>
+      )}
     </form>
   );
 }

@@ -40,7 +40,7 @@ api.on('thumbnail-gpu:install-progress', (p) => {
   if (p.detail) $('tg-install-detail').textContent = `${p.detail} (${p.pct ?? 0}%)`;
 });
 api.on('thumbnail-gpu:auto-started', async (ok) => { if (ok) { logLine('🚀 자동 시작됨'); await refresh(); } });
-api.on('thumbnail-gpu:comfy-log', (m) => logLine('[ComfyUI] ' + m));
+api.on('thumbnail-gpu:comfy-log', (m) => logLine('[누끼 엔진] ' + m));
 api.on('thumbnail-gpu:worker-event', (e) => {
   switch (e.type) {
     case 'idle': logLine('대기 중 — pending 잡 없음'); break;

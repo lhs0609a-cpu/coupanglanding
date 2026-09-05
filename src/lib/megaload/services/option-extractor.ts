@@ -1117,6 +1117,12 @@ function getRequiredFallback(optionName: string, productName: string, unit?: str
     return '홀빈';
   }
 
+  // 수량/개수(총 판매 개수) — 원본명에 개수 표기가 없으면 1개로 본다(사용자 규칙).
+  //   ('총 수량'·'개당 수량'은 위에서 이미 처리됨. '개당 중량/용량'은 이름에 수량/개수가 없어 여기 안 걸림.)
+  if (/수량|개수|갯수|입수/.test(n) && !/중량|용량|무게|부피/.test(n)) {
+    return String(extractCount(productName, {})); // 패턴 없으면 기본 1
+  }
+
   // ── 매칭되지 않은 옵션: unit 여부에 따라 결정 ──
   // 단위형 → "1" (숫자 필수), 텍스트형 → "상세페이지 참조" (누락 방지)
   return unit ? '1' : '상세페이지 참조';
@@ -1354,17 +1360,27 @@ ${optionList}
 }
 
 // ═══════════════════════════════════════════════════════════════
-// 도서 카테고리 감지
+// 도서 카테고리 감지 (제거됨 — 아래 경위 참조)
 // ═══════════════════════════════════════════════════════════════
 
-const BOOK_CATEGORY_PREFIXES = [
-  '72', // 도서 대분류 (쿠팡)
-];
-
-function isBookCategory(categoryCode: string, categoryPath?: string): boolean {
-  if (categoryPath && /^도서[>\/]/.test(categoryPath)) return true;
-  return BOOK_CATEGORY_PREFIXES.some(prefix => categoryCode.startsWith(prefix));
-}
+/*
+ * ⚠️ 삭제됨: 도서 카테고리 → 레거시(Layer 1 only) 폴백 게이트.
+ *
+ * `BOOK_CATEGORY_PREFIXES = ['72']` + `code.startsWith('72')` 로 판정했는데, 쿠팡 카테고리 코드는
+ * 계층 프리픽스가 아니다. 16,259개 전수 실측 결과 이 규칙은 **양방향 모두 100% 틀렸다**:
+ *   · 오탐 315개 — '72*' 로 시작하지만 도서는 0개(식품 290·패션 15·가전 9·뷰티 1)
+ *   · 미탐 6,359개 — 진짜 도서(34xxx 등)는 '72' 로 시작하는 게 하나도 없음
+ *
+ * 즉 실제 도서는 처음부터 전부 5-Layer 파이프라인을 타 왔고(그대로 유지), 애먼 식품·패션 315개만
+ * 레거시로 빠져 노출명 폴백(Layer 1.5)·태그(2)·OCR(3)·AI 추론(4)을 통째로 건너뛰었다.
+ * 실측 사례: 72708(식품>…>기능성쌀) — 원본명이 오염돼 스펙이 없고 노출명에만 "4kg" 이 있는데
+ * Layer 1.5 가 안 돌아 '개당 중량' 이 기본값 1g 으로 떨어졌다(등록 차단).
+ *
+ * 게이트를 "경로로 판정"하게 고치면 도서 6,359개가 **새로** 레거시로 이동한다 — 오늘까지 잘 돌던
+ * 경로를 바꾸는 것이라 위험만 크고 얻는 게 없다(도서 옵션은 출판사/저자/도서형태 같은 텍스트라
+ * Layer 1.5 의 용량·중량·수량 분기와 무관하고, Layer 4 는 오히려 도움이 된다).
+ * → 게이트 자체를 제거해 현재 동작을 보존하고 오탐만 없앤다.
+ */
 
 // ═══════════════════════════════════════════════════════════════
 // extractOptionsEnhanced — 5-Layer Pipeline
@@ -1380,16 +1396,12 @@ function isBookCategory(categoryCode: string, categoryPath?: string): boolean {
  * Layer 5: 스마트 fallback (기존 getRequiredFallback 개선)
  */
 export async function extractOptionsEnhanced(context: ProductContext): Promise<ExtractedOptions> {
-  // 도서 카테고리 → 기존 로직 폴백
-  if (isBookCategory(context.categoryCode, context.categoryPath)) {
-    return extractOptions(context.productName, context.categoryCode);
-  }
-
   const details = await getCategoryDetails(context.categoryCode);
   if (!details) {
     console.warn(`[option-extractor] Category ${context.categoryCode} not found in details DB`);
     return { buyOptions: [], confidence: 0, warnings: [`카테고리 ${context.categoryCode}를 찾을 수 없습니다.`] };
   }
+
 
   const buyOpts = details.buyOptions;
   if (!buyOpts || buyOpts.length === 0) {

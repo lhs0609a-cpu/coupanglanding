@@ -409,7 +409,7 @@ export default function GeminiKeySettings() {
         )}
 
         <p className="text-[10px] text-gray-400 pt-1">
-          키는 Supabase 데이터베이스에 본인 계정으로만 조회 가능하게 저장됩니다. 서비스 운영자도 열람하지 않습니다.
+          키는 데이터베이스에 본인 계정으로만 조회 가능하게 저장됩니다. 서비스 운영자도 열람하지 않습니다.
         </p>
       </div>
     </div>

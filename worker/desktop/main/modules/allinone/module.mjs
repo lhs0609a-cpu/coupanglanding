@@ -1,18 +1,26 @@
-// 올인원 생성 모듈 — run-folder.mjs 파이프라인을 앱에서 실행하고 진행을 실시간 스트리밍.
+// 올인원 생성 모듈 — 앱 네이티브 폴더창으로 고른 경로를 생성한다(경로 직독, 복사 없음).
 //   폴더 선택 → [텍스트 전체생성] → ollama 언로드 → [이미지 전체가공] → _allinone.generated.jsonl
-//   생성이 끝나면 웹 "올인원 등록(폴더)" 에서 폴더를 불러와 검수·등록.
-// ⚠️ ollama(텍스트) + ComfyUI(이미지)가 떠 있어야 함. dev(npm start)에서 worker/run-folder.mjs 를 실행.
-import { spawn } from 'node:child_process';
-import { join } from 'node:path';
+//   완료 시 웹 검수화면을 자동으로 연다(웹은 도우미 결과를 자동 로드).
+// ⚠️ 실제 생성 코어는 ../../allinone-runner.mjs (웹 업로드 생성과 공유).
+import { startGeneration, stopGeneration } from '../../allinone-runner.mjs';
 
-let child = null;
+/** 검수 화면을 연 적이 있는가 — 같은 실행에서 두 번 열지 않기 위해. */
+let reviewOpened = false;
+function openReview(ctx) {
+  reviewOpened = true;
+  try {
+    const origin = ctx.services?.webOrigin || 'https://www.megaload.co.kr';
+    // 크롬으로 연다(기본 브라우저엔 로그인 세션이 없어 검수화면 대신 로그인이 뜬다).
+    ctx.openUrl(`${origin}/megaload/products/allinone`);
+  } catch { /* 브라우저 열기 실패는 치명적 아님 — 결과는 이미 저장됨 */ }
+}
 
 export default {
   id: 'allinone',
   label: '올인원 생성',
   icon: '⚙️',
   order: 1,
-  events: ['allinone:log', 'allinone:progress', 'allinone:done'],
+  events: ['allinone:log', 'allinone:progress', 'allinone:done', 'allinone:review-ready'],
   ipc: {
     'allinone:pick-folder': async (ctx) => {
       const r = await ctx.dialog.showOpenDialog({ properties: ['openDirectory'], title: '소싱 폴더 선택 (product_*/ 들을 담은 상위 폴더)' });
@@ -20,56 +28,44 @@ export default {
     },
     'allinone:run': async (ctx, { folder, noThumb } = {}) => {
       if (!folder) throw new Error('폴더를 먼저 선택하세요.');
-      if (child) throw new Error('이미 생성이 진행 중입니다.');
-
-      // 엔진 자동 기동 — run-folder.mjs 는 ollama(텍스트)·ComfyUI(누끼) 가 떠 있어야 동작하므로
-      // 스폰 전에 도우미가 보장한다. ollama 는 없으면 자동 설치·기동·모델 다운로드까지 한다.
-      try {
-        ctx.send('allinone:log', '엔진 준비 중 — ollama(텍스트 생성)…');
-        await ctx.services.ollama?.start();
-      } catch (e) {
-        ctx.send('allinone:log', '❌ ollama 준비 실패: ' + (e.message || e));
-        ctx.send('allinone:done', { code: -1 });
-        return false;
-      }
-      if (!noThumb) {
-        try {
-          ctx.send('allinone:log', '엔진 준비 중 — ComfyUI(대표사진 누끼)…');
-          await ctx.services.comfy?.start();
-        } catch (e) {
-          // 누끼 엔진 실패는 치명적이지 않음 — 텍스트만 진행(원본 사진 폴백).
-          ctx.send('allinone:log', '⚠️ ComfyUI 준비 실패 — 누끼 없이 텍스트만 진행: ' + (e.message || e));
-        }
-      }
-
-      // sync-runtime 가 runtime/ 에 복사한 run-folder.mjs 실행 (dev+packaged 모두 번들 포함).
-      const runtimeDir = join(ctx.paths.appRoot, 'runtime');
-      const script = join(runtimeDir, 'run-folder.mjs');
-      const args = [script, folder];
-      if (noThumb) args.push('--no-thumb');
-
-      child = spawn(process.execPath, args, {
-        cwd: runtimeDir,
-        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      reviewOpened = false;   // 새 실행 — 이번 실행의 검수 화면은 아직 안 열렸다
+      return startGeneration({
+        services: ctx.services,
+        paths: ctx.paths,
+        store: ctx.store,
+        send: ctx.send,
+        folder,
+        noThumb: !!noThumb,
+        // VRAM 부족으로 수십 분~수시간이 걸릴 상황이면 시작 전에 물어본다.
+        //   (웹 경로는 이 훅이 없어 경고만 남기고 진행 — 브라우저에 모달을 띄울 수 없다)
+        confirmSlow: async ({ products, etaText, fastText, freeGb }) => {
+          const r = await ctx.dialog.showMessageBox({
+            type: 'warning',
+            buttons: ['그래도 계속', '취소'],
+            defaultId: 1,
+            cancelId: 1,
+            title: '생성이 매우 느려집니다',
+            message: `지금 시작하면 ${etaText} 걸립니다 (상품 ${products}개)`,
+            detail:
+              `사용 가능한 VRAM 이 ${freeGb}GB 뿐이라 AI 모델이 그래픽카드에 올라가지 못하고 CPU 로 처리됩니다.\n\n`
+              + `다른 AI 프로그램(ComfyUI·음악/영상 생성 등)이나 무거운 앱을 닫고 다시 시작하면 `
+              + `${fastText} 로 끝납니다.`,
+          });
+          return r.response === 0;
+        },
+        // 앱에서 시작한 생성 — 검수화면을 자동으로 연다(앱↔웹 왕복 제거).
+        //   ★ 여는 시점은 "레코드 저장 완료"다. 대표컷 누끼는 등록 때 필요한 작업이라 그 뒤에도
+        //     계속 돌지만, 사람은 그걸 기다릴 이유가 없다(100개 기준 3~8분 절약).
+        onReviewReady: () => openReview(ctx),
+        onDone: (code) => {
+          // 누끼를 미루지 않은 경로(--no-thumb 등)에선 여기서만 열린다. 이미 열었으면 다시 열지 않는다.
+          if (code !== 0 || reviewOpened) return;
+          openReview(ctx);
+        },
       });
-
-      const handle = (buf) => {
-        for (const line of buf.toString('utf-8').split(/\r?\n/)) {
-          if (!line.trim()) continue;
-          ctx.send('allinone:log', line);
-          let m;
-          if ((m = line.match(/\[텍스트\s+(\d+)\/(\d+)\]/))) ctx.send('allinone:progress', { phase: 'text', done: +m[1], total: +m[2] });
-          else if ((m = line.match(/\[이미지\s+(\d+)\/(\d+)\]/))) ctx.send('allinone:progress', { phase: 'image', done: +m[1], total: +m[2] });
-        }
-      };
-      child.stdout.on('data', handle);
-      child.stderr.on('data', handle);
-      child.on('exit', (code) => { child = null; ctx.send('allinone:done', { code }); });
-      child.on('error', (e) => { child = null; ctx.send('allinone:log', '실행 오류: ' + e.message); ctx.send('allinone:done', { code: -1 }); });
-      return true;
     },
-    'allinone:stop': () => { if (child) { try { child.kill(); } catch { /* skip */ } child = null; } return true; },
+    'allinone:stop': () => { stopGeneration(); return true; },
     'allinone:open-folder': (ctx, { folder } = {}) => { if (folder) ctx.shell.openPath(folder); return true; },
   },
-  onQuit: () => { if (child) { try { child.kill(); } catch { /* skip */ } } },
+  onQuit: () => { stopGeneration(); },
 };

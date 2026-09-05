@@ -140,3 +140,53 @@ export async function enqueueAutoReplication(
     margins,
   });
 }
+
+/**
+ * 사용자가 대량등록 시 "이 채널들에 올려줘"라고 명시적으로 고른 채널로만 전파 enqueue.
+ * enqueueAutoReplication 과 달리 auto_replicate_enabled / is_enabled 토글에 좌우되지 않는다
+ * (사용자의 명시적 선택이 우선). 단, 연결(is_connected)된 채널로만 제한해 자격증명 없는
+ * 채널에 잡을 만들지 않는다. 마진은 채널별 설정 스냅샷을 그대로 전달.
+ */
+export async function enqueueSelectedReplication(
+  serviceClient: SupabaseClient,
+  megaloadUserId: string,
+  productIds: string[],
+  selectedChannels: Channel[],
+): Promise<EnqueueResult> {
+  const ids = [...new Set(productIds)].filter(Boolean);
+  const picked = [...new Set(selectedChannels)].filter(
+    (c) => c !== 'coupang' && isChannelSupported(c),
+  );
+  if (ids.length === 0 || picked.length === 0) {
+    return { jobId: null, total: 0, productCount: 0, channelCount: 0, skippedReason: 'empty' };
+  }
+
+  const { data: creds } = await serviceClient
+    .from('channel_credentials')
+    .select('channel')
+    .eq('megaload_user_id', megaloadUserId)
+    .eq('is_connected', true);
+  const connected = new Set(
+    (creds || []).map((c) => (c as Record<string, unknown>).channel as string),
+  );
+  const targets = picked.filter((c) => connected.has(c));
+  if (targets.length === 0) {
+    return { jobId: null, total: 0, productCount: 0, channelCount: 0, skippedReason: 'no-connected-selected' };
+  }
+
+  const { data: marginRows } = await serviceClient
+    .from('sh_channel_margin_settings')
+    .select('channel, margin_percent')
+    .eq('megaload_user_id', megaloadUserId);
+  const margins: Record<string, number> = {};
+  for (const m of (marginRows || []) as Array<Record<string, unknown>>) {
+    margins[m.channel as string] = Number(m.margin_percent) || 0;
+  }
+
+  return enqueueReplicationJob(serviceClient, {
+    megaloadUserId,
+    productIds: ids,
+    targetChannels: targets,
+    margins,
+  });
+}

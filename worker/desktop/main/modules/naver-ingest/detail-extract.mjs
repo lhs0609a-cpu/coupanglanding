@@ -1,0 +1,534 @@
+/**
+ * 상세 추출 — 목록에서 고른 상품을 **올인원이 먹는 폴더**로 만든다.
+ * ---------------------------------------------------------------------------
+ * 여기가 소싱과 올인원 사이의 다리다. 올인원(대표컷 선정·상세페이지 생성)은 이미 완성돼
+ * 있고, 그것이 요구하는 입력은 폴더 하나다(worker/lib/folder-scanner.mjs):
+ *
+ *     product_<코드>/
+ *       product.json        { name, title, price, brand, tags, options, sourceCategory, … }
+ *       product_summary.txt "URL: https://…"
+ *       main_images/        대표 후보
+ *       detail_images/      상세 이미지
+ *
+ * ★ DOM 을 긁지 않는다(실측 2026-08-18). 옵션·상세본문·고시정보는 로드 시점 state 에 없고
+ *   화면이 뜬 뒤 JSON API 로 온다. 페이지 컨텍스트에서 같은 주소를 부르면 쿠키가 붙은 채
+ *   200 으로 정확한 JSON 이 온다. 난독화 클래스도, 렌더 타이밍도 상관없어진다.
+ *
+ * ★ 번호가 둘이다 — 채널상품번호(URL)와 원상품번호. 상세·고시정보는 **원상품번호**를 쓰고,
+ *   그 값은 URL 이 아니라 **상품 API 응답의 originProductNo** 에서 받아야 한다(URL 에서 긁으면
+ *   /n/v1/contents/reviews/… 에 걸려 "reviews" 를 집는다 — 실측 실패).
+ */
+import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { runOne } from './runner.mjs';
+import { isDetailExtractable, unsupportedReason } from './store-type.mjs';
+
+/**
+ * 페이지 안에서 상품 API 3종을 부른다.
+ * ⚠️ 이 문자열은 템플릿 리터럴이다 — **정규식을 쓰지 말 것**. 백슬래시가 먹혀(\d → d)
+ *   조용히 틀린 답을 준다(실측: 가격 매치가 0건이었다). 문자열 연산과 DOMParser 로 푼다.
+ */
+export const extractDetailJs = `
+(async () => {
+  const cut = (s, n) => String(s == null ? '' : s).split('\\n').join(' ').trim().slice(0, n);
+
+  // ── 채널ID ──
+  // ★ 출처가 하나면 안 된다. 처음엔 performance 리소스 목록에서만 주웠는데, 그 버퍼는
+  //   기본 250개에서 넘치면 **오래된 항목부터 조용히 버린다**. 상품 페이지는 리소스가
+  //   수백 개라 정작 필요한 /n/v2/channels/ 호출이 사라지고, 그러면 추출이 통째로 실패한다
+  //   (되다 안 되다 하는 실패라 재현도 어렵다). 세 곳을 순서대로 본다.
+  // ★ 스토어 종류마다 API 접두사가 다르다(실측 2026-08-19):
+  //     브랜드스토어  brand.naver.com **/n/** v2/channels/{ch}/...
+  //     스마트스토어  smartstore.naver.com **/i/** v2/channels/{ch}/...
+  //   '/n/' 만 찾으면 스마트스토어에서 채널ID 를 못 잡고 엉뚱한 주소를 불러 HTML 이 온다
+  //   (증상: "상품 API 실패 Unexpected token '<'"). 둘 다 본다.
+  const MARKERS = ['/n/v2/channels/', '/i/v2/channels/'];
+  let marker = MARKERS[0];
+  let apiBase = '/n';
+  let channelId = null;
+
+  // ① 페이지가 부른 주소 — 가장 확실하지만 버퍼에서 밀려날 수 있다.
+  for (const e of (performance.getEntriesByType('resource') || [])) {
+    const u = String(e.name || '');
+    for (const m of MARKERS) {
+      const i = u.indexOf(m);
+      if (i < 0) continue;
+      const id = u.slice(i + m.length).split('/')[0].split('?')[0];
+      if (id) { channelId = id; marker = m; apiBase = m.slice(0, 2); break; }
+    }
+    if (channelId) break;
+  }
+  // 주소를 못 봤으면 호스트로 접두사를 정한다(아래 ②③ 폴백이 쓸 값).
+  if (!channelId) {
+    apiBase = location.host.indexOf('smartstore') >= 0 ? '/i' : '/n';
+    marker = apiBase + '/v2/channels/';
+  }
+
+  // ② 페이지 상태에 박힌 channelUid — 실측상 채널ID 와 같은 값이다(버퍼와 무관).
+  if (!channelId) {
+    try {
+      const st = window.__PRELOADED_STATE__;
+      if (st) {
+        const j = JSON.stringify(st);
+        const key = '"channelUid":"';
+        const k = j.indexOf(key);
+        if (k >= 0) channelId = j.slice(k + key.length).split('"')[0] || null;
+      }
+    } catch (e) { /* 상태가 없거나 순환참조면 다음 경로로 */ }
+  }
+
+  // ③ 마지막 수단 — 문서 안에 남은 주소 조각.
+  if (!channelId) {
+    const html = document.documentElement ? document.documentElement.innerHTML : '';
+    const k = html.indexOf(marker);
+    if (k >= 0) {
+      const tail = html.slice(k + marker.length, k + marker.length + 60);
+      channelId = tail.split('/')[0].split('?')[0].split('"')[0].split('\\\\')[0] || null;
+    }
+  }
+
+  // ── 채널상품번호: 경로 마지막 조각(6자리 이상 숫자) ──
+  const segs = location.pathname.split('/').filter(Boolean);
+  const last = segs[segs.length - 1] || '';
+  const channelProductNo = (last.length >= 6 && String(Number(last)) === last) ? last : null;
+  if (!channelId || !channelProductNo) {
+    // 어느 쪽이 없는지 말한다 — "못 찾음"만으로는 다음에 또 같은 자리에서 막힌다.
+    return {
+      name: null,
+      error: '채널ID/상품번호 확인 실패 (channelId=' + (channelId || '없음')
+        + ', 상품번호=' + (channelProductNo || '없음') + ', 경로=' + location.pathname + ')',
+      channelId, channelProductNo,
+    };
+  }
+
+  const get = async (path) => {
+    try {
+      const res = await fetch(location.origin + path, { credentials: 'include', headers: { accept: 'application/json' } });
+      if (!res.ok) {
+        // ★ 실패 본문을 버리지 않는다. 예전엔 status 만 들고 나와서 419 가 무슨 뜻인지
+        //   **알 방법이 아예 없었다** — 네이버가 본문에 사유를 적어 보내는데 그걸 읽지
+        //   않으니, 하루 종일 419 를 맞으면서도 원인을 추측만 했다(실측 2026-08-28~31).
+        var body = '';
+        try { body = String(await res.text()).slice(0, 300); } catch (e2) { body = ''; }
+        return { ok: false, status: res.status, body: body };
+      }
+      return { ok: true, status: res.status, json: await res.json() };
+    } catch (e) { return { ok: false, error: String(e && e.message) }; }
+  };
+
+  // ① 상품 본체 — 이름·가격·브랜드·카테고리·옵션·대표이미지
+  const main = await get(apiBase + '/v2/channels/' + channelId + '/products/' + channelProductNo + '?withWindow=false');
+  // status 를 그대로 올려 보낸다 — 호출부가 "요청이 틀렸다(404)"와 "지금 오지 마라(419/429)"를
+  // 구분해야 하는데, 문자열만 주면 구분할 수가 없어 전부 같은 재시도를 돌렸다.
+  if (!main.ok) return {
+    name: null,
+    error: '상품 API 실패 ' + (main.status || main.error),
+    status: main.status || 0,
+    body: main.body || '',
+  };
+  const P = main.json || {};
+  const originProductNo = String(P.originProductNo || P.productNo || P.id || '');
+
+  // ② 상세 본문 — textContent(글) + renderContent(HTML, 상세 이미지가 여기 있다)
+  let detailText = '', detailHtml = '';
+  if (originProductNo) {
+    const c = await get(apiBase + '/v2/channels/' + channelId + '/products/' + channelProductNo
+      + '/contents/' + originProductNo + '/PC?isResponsive=true');
+    if (c.ok && c.json) {
+      detailText = String(c.json.textContent || '');
+      detailHtml = String(c.json.renderContent || '');
+    }
+  }
+  // ★ textContent 가 비어 있는 판이 있다(실측: editorType 'SEONE' 은 textContent 1자,
+  //   renderContent 11,468자). 그대로 두면 올인원이 "상품설명 0자"로 받아 상세글을 맨땅에서
+  //   지어낸다 — 그게 과거 환각의 원인이었다. HTML 에서 본문을 뽑아 채운다.
+  if (detailText.trim().length < 20 && detailHtml) {
+    try {
+      const doc = new DOMParser().parseFromString(detailHtml, 'text/html');
+      detailText = ((doc.body && doc.body.textContent) || '').split('\\n').join(' ').trim();
+    } catch (e) { /* 파싱 실패면 원래 값 그대로 */ }
+  }
+
+  // ③ 고시정보 — 쿠팡 등록에 필수인 항목(품목·중량·원산지 등)
+  let notice = null;
+  if (originProductNo) {
+    const n = await get(apiBase + '/v2/channels/' + channelId + '/products/' + originProductNo + '/provided-notice');
+    if (n.ok && n.json) notice = n.json;
+  }
+
+  // ④ 리뷰 사진 — 올인원이 **본문 교차 1순위**로 쓰는 컷이다(folder-scanner 의 review_images/).
+  //    실측(2026-08-18)으로 확정한 것:
+  //      주소  /n/v1/contents/reviews/gallery-attaches/{원상품번호}
+  //            ?checkoutMerchantNo={머천트}&searchSortType=REVIEW_RANKING&page=1&pageSize=100
+  //      응답  { contents:[{ reviewId, totalAttachCount, representAttach:{attachPath, attachType} }] }
+  //      attachPath 는 phinf.pstatic.net 의 완전한 URL, attachType 'I' 가 사진(동영상은 제외).
+  //    ★ 파라미터를 바꾸면 400 이 온다(pageSize 를 20 으로 줄였더니 400 — 실측).
+  //      머천트번호는 마크업에 없어서 **페이지가 이미 부른 주소**에서 줍는다.
+  //    ★ 머천트번호는 **상품 API 의 channel.naverPaySellerNo** 에서 얻는다(실측으로 페이지가
+  //      쓰는 checkoutMerchantNo 와 같은 값). 페이지가 부른 주소에서 줍는 방법은 리뷰 위젯이
+  //      화면에 떠야만 동작하는데, 우리는 스크롤하지 않으므로 대부분 못 줍는다(리뷰 0장).
+  //      관측값은 폴백으로만 쓴다.
+  const reviewImages = [];
+  let merchantNo = (P.channel && P.channel.naverPaySellerNo) ? String(P.channel.naverPaySellerNo) : null;
+  if (!merchantNo) {
+    for (const e of (performance.getEntriesByType('resource') || [])) {
+      const u = String(e.name || '');
+      const m = u.indexOf('checkoutMerchantNo=');
+      if (m >= 0) { merchantNo = u.slice(m + 19).split('&')[0]; break; }
+    }
+  }
+  if (originProductNo && merchantNo) {
+    const rv = await get(apiBase + '/v1/contents/reviews/gallery-attaches/' + originProductNo
+      + '?checkoutMerchantNo=' + merchantNo + '&searchSortType=REVIEW_RANKING&page=1&pageSize=100');
+    if (rv.ok && rv.json && Array.isArray(rv.json.contents)) {
+      for (const c of rv.json.contents) {
+        const a = c && c.representAttach;
+        if (!a || a.attachType !== 'I') continue;          // 'I'=사진. 동영상은 올인원이 못 쓴다
+        const p = String(a.attachPath || '');
+        if (p && reviewImages.indexOf(p) < 0) reviewImages.push(p);
+      }
+    }
+  }
+
+  // ── ⑤ 리뷰 본문 — 상세글의 '결'을 만드는 재료 ────────────────────────────
+  // 지금까지는 "후기처럼 써라"라고만 하고 진짜 후기는 주지 않았다. 구매자가 실제로 쓰는
+  // 표현과 자주 나오는 칭찬·불만을 재료로 주면 흉내가 아니라 결이 살아난다.
+  // 실측(2026-08-19): 200 · { contents:[{ reviewScore, labels:['BEST','REPURCHASE'],
+  //   reviewContent, createDate }] }. 파라미터를 바꾸면 400 이 나므로 페이지가 부른 모양 그대로 쓴다.
+  // ★ 리뷰 문장을 그대로 상세글에 넣으면 안 된다(남의 글이다). 생성 쪽에서 '자주 나오는 포인트'
+  //   로만 쓰도록 짧게 잘라 넘긴다.
+  const reviewTexts = [];
+  if (originProductNo && merchantNo) {
+    const rt = await get(apiBase + '/v1/contents/reviews/product-summary/' + originProductNo
+      + '/reviews/STORE_PICK?checkoutMerchantNo=' + merchantNo
+      + '&searchSortType=REVIEW_RANKING&page=1&pageSize=20');
+    if (rt.ok && rt.json && Array.isArray(rt.json.contents)) {
+      for (const c of rt.json.contents) {
+        const t = cut(c && c.reviewContent, 220);
+        if (t.length < 15) continue;                 // "좋아요" 한 줄짜리는 재료가 안 된다
+        reviewTexts.push({ score: Number(c.reviewScore) || 0, best: (c.labels || []).indexOf('BEST') >= 0, text: t });
+        if (reviewTexts.length >= 15) break;
+      }
+    }
+  }
+
+  // ── 상세 이미지: renderContent 를 DOMParser 로 파싱한다(정규식 금지) ──
+  const detailImages = [];
+  if (detailHtml) {
+    try {
+      const doc = new DOMParser().parseFromString(detailHtml, 'text/html');
+      for (const im of doc.querySelectorAll('img')) {
+        // ★ 상세 이미지는 **지연 로딩**이다(실측 2026-08-18): src 는 1×1 base64 자리표시자이고
+        //   진짜 주소는 data-src 에 있다. src 를 먼저 집으면 'data:' 라 전부 버려져 0장이 된다
+        //   (이 순서 하나 때문에 상세 이미지가 통째로 비어 있었다). 지연 속성을 먼저 본다.
+        const u = im.getAttribute('data-src')
+          || im.getAttribute('data-original')
+          || im.getAttribute('data-lazy-src')
+          || im.getAttribute('src')
+          || '';
+        if (!u || u.indexOf('data:') === 0) continue;
+        const abs = u.indexOf('//') === 0 ? ('https:' + u) : u;
+        if (abs.indexOf('pstatic') < 0 && abs.indexOf('phinf') < 0) continue;   // 배너·아이콘 배제
+        if (detailImages.indexOf(abs) < 0) detailImages.push(abs);
+      }
+    } catch (e) { /* 파싱 실패는 이미지 0장으로 */ }
+  }
+
+  // ── 대표 후보: 대표이미지 + 추가이미지 ──
+  const mainImages = [];
+  const push = (u) => {
+    if (!u) return;
+    const abs = String(u).indexOf('//') === 0 ? ('https:' + u) : String(u);
+    if (abs && mainImages.indexOf(abs) < 0) mainImages.push(abs);
+  };
+  // ★ 실제 필드명은 representImage 다(representativeImage 가 아니다 — 실측). 옛 이름만 보면
+  //   대표컷이 productImages 폴백으로만 잡혀 후보가 얇아진다. galleryImages 가 추가 이미지다.
+  push(P.representImage && P.representImage.url);
+  for (const im of (P.galleryImages || [])) push(im && im.url);
+  for (const im of (P.productImages || [])) push(im && (im.url || im.imageUrl));
+  push(P.representativeImageUrl || (P.representativeImage && P.representativeImage.url));  // 판이 다를 때 대비
+  for (const u of (P.optionalImageUrls || [])) push(u);
+
+  // ── 옵션 조합 — 이름/재고/추가금액. 올인원은 optionName 을 특징 힌트로 쓴다.
+  const combos = P.optionCombinations
+    || (P.productOption && P.productOption.optionCombinations)
+    || [];
+  const options = combos.map((c) => ({
+    optionName: [c.optionName1, c.optionName2, c.optionName3].filter(Boolean).join(' / '),
+    price: Number(c.price) || 0,
+    stock: Number(c.stockQuantity) || 0,
+    soldOut: !((Number(c.stockQuantity) || 0) > 0) || c.usable === false,
+  })).filter((o) => o.optionName);
+
+  // 카테고리 경로 — 올인원의 분류 힌트. 필드명이 판마다 달라 있는 것을 모아 쓴다.
+  const cat = P.category || {};
+  const categoryPath = [cat.wholeCategoryName, cat.categoryName, P.wholeCategoryName]
+    .filter(Boolean)[0] || '';
+
+  return {
+    name: cut(P.name, 200) || cut(document.title, 200),   // runOne 이 이 값으로 로드 완료를 본다
+    title: cut(P.name, 200),
+    channelId, channelProductNo, originProductNo,
+    price: Number(P.salePrice || P.dispSalePrice || 0) || 0,
+    brand: cut((P.naverShoppingSearchInfo && P.naverShoppingSearchInfo.brandName) || P.brandName || '', 60),
+    productStatusType: P.productStatusType || null,
+    stockQuantity: Number(P.stockQuantity) || 0,
+    categoryPath,
+    categoryId: cat.categoryId || cat.wholeCategoryId || '',
+    options,
+    detailText: detailText.slice(0, 20000),
+    detailImages: detailImages.slice(0, 60),
+    mainImages: mainImages.slice(0, 20),
+    // 30장이면 큐레이션에 충분하다 — 245장을 받으면 다운로드가 추출 시간을 지배한다.
+    reviewImages: reviewImages.slice(0, 30),
+    reviewTexts,
+    notice,
+    url: location.href.split('?')[0],
+  };
+})()
+`;
+
+/**
+ * 이미지 저장 정책 — **원본 그대로 두지 않는다.**
+ * ---------------------------------------------------------------------------
+ * 실측(2026-08-19, 복숭아 1건): 대표 9 + 상세 15 + 리뷰 30 = **107MB**. 리뷰컷만 83MB 였다.
+ * 상품 100개면 10GB 다. 그런데 이 사진들의 용도를 보면 그만한 해상도가 필요 없다:
+ *   · 리뷰컷  — CLIP 큐레이션 대상이자 본문에 작게 끼우는 컷. 800px 이면 충분하다.
+ *   · 상세컷  — 상세페이지 본문용. 1000px.
+ *   · 대표컷  — 쿠팡에 실제로 올라갈 수 있으니 넉넉히 1200px 로 남긴다(쿠팡 권장 1000px 이상).
+ * 줄이는 건 Electron 내장 nativeImage 로 한다 — sharp 같은 네이티브 의존성을 더하지 않는다
+ * (이 레포는 Google Drive 경로라 sharp 가 부분 동기화돼 로컬 실행이 깨진 전례가 있다).
+ */
+/** 줄이는 데 실패했는데 이보다 크면 저장하지 않는다 — 대개 애니메이션 GIF 배너다. */
+const HARD_SKIP_BYTES = 3_000_000;
+
+const IMAGE_PROFILE = {
+  //  maxSide  = 긴 변 상한.  maxBytes = 이보다 크면 크기와 무관하게 다시 굽는다.
+  //  ★ maxBytes 가 왜 필요한가(실측 2026-08-19): 상세 이미지 26장에 88MB 였는데 줄지 않았다.
+  //    **애니메이션 GIF** 라 가로세로는 작고(=상한 미달) 프레임이 많아 용량만 컸다. 크기만
+  //    보면 "이미 작다"고 건너뛰어 11MB 짜리가 그대로 남는다. 우리가 아끼려는 건 용량이므로
+  //    용량으로도 판단해야 한다. 다시 구우면 첫 프레임 JPEG 가 되는데, 상세페이지 소재로는
+  //    움직이는 배너보다 정지컷이 오히려 낫다.
+  main_: { maxSide: 1200, quality: 85, maxBytes: 2_000_000 },
+  detail_: { maxSide: 1000, quality: 80, maxBytes: 1_200_000 },
+  review_: { maxSide: 800, quality: 75, maxBytes: 800_000 },
+};
+
+/** 한 변이 maxSide 를 넘으면 비율을 지켜 줄이고 JPEG 로 다시 굽는다. 실패하면 원본을 쓴다. */
+async function shrink(buf, prefix) {
+  const prof = IMAGE_PROFILE[prefix];
+  if (!prof) return { buf, ext: null };
+  try {
+    const { nativeImage } = await import('electron');
+    const img = nativeImage.createFromBuffer(buf);
+    if (img.isEmpty()) return { buf, ext: null };
+    const { width, height } = img.getSize();
+    const longest = Math.max(width, height);
+    const tooBig = buf.length > prof.maxBytes;
+    // 크기도 작고 용량도 작으면 그냥 둔다 — 재인코딩은 화질만 깎는다.
+    if (longest <= prof.maxSide && !tooBig) return { buf, ext: null };
+    // ★ 세로로 긴 상세컷을 높이 기준으로 줄이면 가로가 뭉개져 글씨를 못 읽는다.
+    //   상세 이미지는 세로가 긴 게 정상이므로 **가로 기준**으로만 맞춘다.
+    const resized = width > prof.maxSide
+      ? img.resize({ width: prof.maxSide, quality: 'good' })
+      : (longest > prof.maxSide && height > width
+        ? img   // 가로는 이미 작다 — 높이만 크면 그대로 두고 재인코딩만 한다
+        : img.resize({ width: Math.min(width, prof.maxSide), quality: 'good' }));
+    const out = resized.toJPEG(prof.quality);
+    // 줄였는데 오히려 커졌으면(작은 PNG 등) 원본이 낫다.
+    return out.length < buf.length ? { buf: out, ext: 'jpg' } : { buf, ext: null };
+  } catch {
+    return { buf, ext: null };   // nativeImage 가 못 읽는 형식이면 원본 그대로
+  }
+}
+
+/**
+ * CDN 내려받기 전역 예산 — **앱 전체에서 동시에 나가는 이미지 요청 수**의 상한.
+ * ---------------------------------------------------------------------------
+ * 예전엔 `saveImages` 가 호출될 때마다 제 레인 6개를 새로 열었다. 그래서 실제 동시성이
+ * "지금 몇 군데서 부르고 있나"에 따라 6이 되기도, 60이 되기도 했다 — 한 상품 안에서는
+ * 대표(8장)·상세(10장)·리뷰(7장)를 차례로 받느라 레인 6개 중 절반이 늘 놀았고, 반대로
+ * 상품을 여럿 동시에 가져가면 CDN 에 한꺼번에 쏟아졌다.
+ *
+ * → 예산을 **한 곳에 모은다.** 누가 몇 군데서 부르든 총량은 CDN_LANES 로 고정되고,
+ *   일이 있는 한 그 자리는 항상 차 있다. 상품 병렬화(importProducts)가 안전해지는 근거가
+ *   이것이다 — 상품을 6개 동시에 가져가도 네트워크로 나가는 양은 지금과 똑같다.
+ *
+ * ⚠️ 네이버 **페이지** 예산(naver-gate)과는 무관하다. 여기는 pstatic CDN 이라 로그인도
+ *    안티봇도 없다(saveImage 주석 참조). 두 예산을 섞지 말 것.
+ */
+const CDN_LANES = Math.max(2, Number(process.env.MEGALOAD_CDN_LANES) || 12);
+let cdnActive = 0;
+const cdnWaiting = [];
+async function cdnAcquire() {
+  if (cdnActive < CDN_LANES) { cdnActive += 1; return; }
+  await new Promise((resolve) => cdnWaiting.push(resolve));
+  cdnActive += 1;
+}
+function cdnRelease() {
+  cdnActive -= 1;
+  const next = cdnWaiting.shift();
+  if (next) next();
+}
+
+/** 이미지 1장 저장. CDN(pstatic)이라 로그인이 필요 없다 — 네이버 페이지 예산과 무관. */
+async function saveImage(url, dir, index, prefix) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const raw = Buffer.from(await res.arrayBuffer());
+  const { buf, ext: forced } = await shrink(raw, prefix);
+
+  // 확장자는 주소에서 추론하되 이상하면 jpg 로 둔다(올인원 스캐너가 보는 건 확장자뿐이다).
+  const clean = url.split('?')[0].toLowerCase();
+  let ext = 'jpg';
+  for (const e of ['.jpg', '.jpeg', '.png', '.webp', '.gif']) {
+    if (clean.endsWith(e)) { ext = e.slice(1); break; }
+  }
+  if (forced) ext = forced;      // 다시 구웠으면 실제 형식과 확장자를 맞춘다
+
+  // ★ 줄이지도 못했는데 여전히 거대한 파일은 **버린다**(실측 2026-08-19).
+  //   원인: Electron nativeImage 는 GIF 를 디코드하지 못해 원본을 그대로 통과시킨다. 그래서
+  //   애니메이션 GIF 11장이 88MB 로 남았다. 상세페이지 소재로 쓰는 움직이는 배너는 대개
+  //   광고성이고, 그걸 살리자고 상품당 90MB 를 쓰는 건 맞바꿀 가치가 없다.
+  if (buf.length > HARD_SKIP_BYTES) {
+    const err = new Error(`용량 초과(${(buf.length / 1048576).toFixed(1)}MB) — 줄일 수 없는 형식`);
+    err.skipped = true;
+    throw err;
+  }
+
+  const name = `${prefix}${String(index + 1).padStart(3, '0')}.${ext}`;
+  writeFileSync(join(dir, name), buf);
+  return { name, bytes: buf.length, savedBytes: raw.length - buf.length };
+}
+
+/** 여러 장을 순서대로 — 동시에 쏟아부으면 CDN 이 막는다. 실패는 건너뛰고 계속한다. */
+async function saveImages(urls, dir, prefix, onLog) {
+  if (!urls.length) return 0;
+  mkdirSync(dir, { recursive: true });
+  let ok = 0;
+  let bytes = 0;
+  let saved = 0;
+  let skipped = 0;
+  // ★ 한 장씩 받으면 여기가 상세 추출의 숨은 병목이다(실측 2026-08-19).
+  //   장당 339ms · 상품 1개가 대표+상세+리뷰 67장 → **23초를 다운로드에만** 쓰고 있었다.
+  //   같은 6장을 동시에 받으니 0.42초(4.8배, 전부 성공) — 67장 환산 23초 → 5초.
+  //   다만 무제한 동시는 CDN 이 막을 수 있어 총량을 묶는다.
+  //   실패는 그 장만 건너뛰고 계속한다 — 사진 한 장 때문에 상품을 통째로 버리지 않는다.
+  //
+  // ★ 레인을 여기서 세지 않는다 — 전역 예산(cdnAcquire)이 총량을 정한다. 그래야 "대표 3장짜리
+  //   묶음이 끝날 때까지 나머지 레인이 노는" 배리어가 사라진다. 이 함수는 전부 던져 두고,
+  //   실제로 몇 개가 동시에 나갈지는 CDN_LANES 가 결정한다.
+  await Promise.all(urls.map(async (url, i) => {
+    await cdnAcquire();
+    try {
+      const r = await saveImage(url, dir, i, prefix);
+      ok += 1;
+      bytes += r.bytes;
+      saved += r.savedBytes;
+    } catch (e) {
+      skipped += 1;
+      // 용량 초과는 개별 로그를 남기지 않는다 — 아래 요약에 몇 장인지 나온다.
+      if (!e?.skipped) onLog?.(`이미지 ${i + 1} 건너뜀 — ${e?.message || e}`);
+    } finally {
+      cdnRelease();
+    }
+  }));
+  if (ok || skipped) {
+    const mb = (n) => (n / 1048576).toFixed(1);
+    onLog?.(`${prefix.replace('_', '')} ${ok}장 — ${mb(bytes)}MB`
+      + (saved > 0 ? ` (원본보다 ${mb(saved)}MB 절약)` : '')
+      + (skipped ? ` · 용량 초과 ${skipped}장 제외` : ''));
+  }
+  return ok;
+}
+
+/**
+ * 추출 결과를 올인원 폴더로 굽는다.
+ * @returns {Promise<{folder:string, mainImages:number, detailImages:number}>}
+ */
+export async function writeProductFolder(rootDir, data, { onLog } = {}) {
+  const code = data.channelProductNo || data.originProductNo || String(Date.now());
+  const folder = join(rootDir, `product_${code}`);
+  mkdirSync(folder, { recursive: true });
+
+  // 대표·상세·리뷰를 **한꺼번에** 던진다. 예전엔 세 묶음을 차례로 기다렸는데, 그 사이엔
+  //   전역 예산(CDN_LANES)이 남아돌아도 쓸 수가 없었다 — 대표 8장을 받는 동안 4자리가 놀고,
+  //   그게 끝나야 상세가 시작됐다. 세 묶음은 서로를 참조하지 않으므로 순서는 의미가 없다.
+  //   review_images/ 는 folder-scanner 가 읽는 이름이다(REVIEW_DIRS 의 첫 항목).
+  const [mainCount, detailCount, reviewCount] = await Promise.all([
+    saveImages(data.mainImages || [], join(folder, 'main_images'), 'main_', onLog),
+    saveImages(data.detailImages || [], join(folder, 'detail_images'), 'detail_', onLog),
+    saveImages(data.reviewImages || [], join(folder, 'review_images'), 'review_', onLog),
+  ]);
+
+  // 올인원 스캐너가 읽는 필드 이름에 정확히 맞춘다(folder-scanner.mjs).
+  //   name/title 중 긴 쪽이 원본 상품명이 되고, options[].optionName 이 특징 힌트가 된다.
+  const productJson = {
+    name: data.title || data.name || '',
+    title: data.title || data.name || '',
+    price: data.price || 0,
+    brand: data.brand || '',
+    tags: [],
+    options: data.options || [],
+    sourceCategory: { categoryPath: data.categoryPath || '', categoryId: data.categoryId || '' },
+    description: data.detailText || '',
+    // 구매자 후기 원문 — 상세글의 '결'을 만드는 재료다. 그대로 옮겨 쓰는 게 아니라
+    // 자주 나오는 포인트를 뽑는 데 쓴다(source-facts.mjs 가 요약한다).
+    sourceReviews: data.reviewTexts || [],
+    // 고시정보는 원본 그대로 남긴다 — 쿠팡 등록의 필수 항목(품목·중량·원산지)이 여기서 나온다.
+    providedNotice: data.notice || null,
+    certifications: [],
+    source: {
+      channel: 'naver',
+      url: data.url || '',
+      channelProductNo: data.channelProductNo || '',
+      originProductNo: data.originProductNo || '',
+      productStatusType: data.productStatusType || null,
+      stockQuantity: data.stockQuantity || 0,
+      collectedAt: new Date().toISOString(),
+    },
+  };
+  writeFileSync(join(folder, 'product.json'), JSON.stringify(productJson, null, 2), 'utf8');
+  writeFileSync(join(folder, 'product_summary.txt'), `URL: ${data.url || ''}\n`, 'utf8');
+
+  return { folder, mainImages: mainCount, detailImages: detailCount, reviewImages: reviewCount };
+}
+
+/** 상품 1건 — 페이지를 클릭 이동으로 열고 API 를 불러 폴더까지 만든다. */
+export async function extractOne(pool, url, rootDir, { onLog = () => {}, signal } = {}) {
+  // ★ 못 뽑는 주소는 **열어 보지도 않는다**(실측 2026-08-20).
+  //   추출기는 채널ID·API 접두사를 스마트스토어·브랜드스토어 기준으로만 찾는다. 마켓·윈도는
+  //   그 규칙에 없어 실패하는데, 예전엔 이 사실을 몰라 재시도 6회 × 캡차 대기까지 매달렸다
+  //   (마켓 상품 1건이 7분 넘게 창을 잡고 running 으로 남았다). 네이버 예산도 그만큼 태운다.
+  if (!isDetailExtractable(url)) {
+    const why = unsupportedReason(url);
+    onLog(`⏭ 건너뜀 — ${why}`);
+    return { ok: false, url, error: why, unsupported: true };
+  }
+  const r = await runOne(pool, url, { onLog, extract: extractDetailJs, signal });
+  if (!r?.ok) return { ok: false, url, error: r?.error || '알 수 없음' };
+  const data = r.data || {};
+  if (data.error) return { ok: false, url, error: data.error };
+  if (!(data.options || []).length && !(data.mainImages || []).length) {
+    return { ok: false, url, error: '가져온 것이 없음(옵션·이미지 0)' };
+  }
+
+  const saved = await writeProductFolder(rootDir, data, { onLog });
+  return {
+    ok: true,
+    url,
+    // 원본 추출 결과 — 서버 업로드가 이걸 그대로 쓴다(요약만으론 옵션·고시정보를 못 올린다).
+    data,
+    name: data.title || data.name,
+    price: data.price,
+    options: (data.options || []).length,
+    ...saved,
+    hasNotice: !!data.notice,
+    detailTextLen: (data.detailText || '').length,
+  };
+}
+
+export function ensureRoot(dir) {
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  return dir;
+}

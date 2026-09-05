@@ -5,7 +5,19 @@
 // 동일 로직은 src/lib/megaload/services/stock-monitor-engine.ts (서버) 와 호환.
 // ============================================================
 
-import { net } from 'electron';
+import { net, session, type Session } from 'electron';
+
+// 지속 세션 — 네이버가 내려주는 쿠키(NNB 등)를 누적 보관해 "재방문 브라우저"처럼 보이게 한다.
+// 매 요청 새 쿠키리스 클라이언트로 보이면 봇 판정↑ → 429↑. 파티션은 앱 생애 동안 유지.
+let crawlSession: Session | null = null;
+function getCrawlSession(): Session | undefined {
+  try {
+    if (!crawlSession) crawlSession = session.fromPartition('persist:naver-crawl');
+    return crawlSession;
+  } catch {
+    return undefined; // app ready 전 등 — 기본 세션으로 폴백
+  }
+}
 
 export interface FetchResult {
   status: 'in_stock' | 'sold_out' | 'unknown' | 'removed' | 'error';
@@ -13,6 +25,21 @@ export interface FetchResult {
   errorClass?: 'transient' | 'naver';
   options?: { name: string; soldOut: boolean; price?: number }[];
   mainPrice?: number;
+  // 429/503 응답의 Retry-After 헤더(ms). 존재하면 cron 이 정확히 이만큼 쉰다(추측 백오프보다 정확).
+  retryAfterMs?: number;
+}
+
+/** Retry-After 헤더 파싱 — "120"(초) 또는 HTTP-date 둘 다 허용. ms 반환, 없으면 undefined. */
+function parseRetryAfter(headers: Record<string, string | string[]> | undefined): number | undefined {
+  if (!headers) return undefined;
+  const raw = headers['retry-after'] ?? headers['Retry-After'];
+  const val = Array.isArray(raw) ? raw[0] : raw;
+  if (!val) return undefined;
+  const secs = Number(val);
+  if (Number.isFinite(secs)) return Math.max(0, Math.round(secs * 1000));
+  const dateMs = Date.parse(val);
+  if (!Number.isNaN(dateMs)) return Math.max(0, dateMs - Date.now());
+  return undefined;
 }
 
 const REMOVED_PATTERNS = [
@@ -28,19 +55,35 @@ const IN_STOCK_PATTERNS = [
 ];
 
 /** Electron net 모듈 사용 — Chromium 네트워크 스택 (TLS fingerprint 사람 모방) */
-async function fetchWithElectron(url: string): Promise<{ status: number; body: string }> {
+async function fetchWithElectron(url: string): Promise<{ status: number; body: string; headers: Record<string, string | string[]> }> {
   return new Promise((resolve, reject) => {
+    // 지속 세션으로 쿠키 누적 + 실제 크롬 요청처럼 전체 헤더 세트 부착 → 봇 판정 완화(429↓)
+    let origin = 'https://smartstore.naver.com';
+    try { origin = new URL(url).origin; } catch { /* keep default */ }
+
     const req = net.request({
       method: 'GET',
       url,
       redirect: 'follow',
+      session: getCrawlSession(),
     });
     req.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36');
     req.setHeader('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8');
     req.setHeader('Accept-Language', 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7');
+    // 실제 브라우저 내비게이션 위장 — Referer(스토어 origin) + Client Hints + Sec-Fetch
+    req.setHeader('Referer', origin + '/');
+    req.setHeader('Upgrade-Insecure-Requests', '1');
+    req.setHeader('sec-ch-ua', '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"');
+    req.setHeader('sec-ch-ua-mobile', '?0');
+    req.setHeader('sec-ch-ua-platform', '"Windows"');
+    req.setHeader('Sec-Fetch-Dest', 'document');
+    req.setHeader('Sec-Fetch-Mode', 'navigate');
+    req.setHeader('Sec-Fetch-Site', 'same-origin');
+    req.setHeader('Sec-Fetch-User', '?1');
 
     let body = '';
     let status = 0;
+    let headers: Record<string, string | string[]> = {};
     const timeout = setTimeout(() => {
       try { req.abort(); } catch { /* skip */ }
       reject(new Error('timeout'));
@@ -48,12 +91,13 @@ async function fetchWithElectron(url: string): Promise<{ status: number; body: s
 
     req.on('response', (response) => {
       status = response.statusCode;
+      headers = response.headers as Record<string, string | string[]>;
       response.on('data', (chunk) => {
         if (body.length < 500_000) body += chunk.toString('utf-8');
       });
       response.on('end', () => {
         clearTimeout(timeout);
-        resolve({ status, body });
+        resolve({ status, body, headers });
       });
     });
     req.on('error', (err) => {
@@ -148,16 +192,34 @@ function parseNaverMainPrice(html: string): number | undefined {
   return undefined;
 }
 
+/**
+ * 세션 워밍업 — www.naver.com 을 1회 로드해 NNB 등 식별 쿠키를 지속 세션에 갱신한다.
+ * NNB 는 .naver.com 전역 쿠키라 smartstore 조회에도 실려 "재방문 브라우저"처럼 보인다 → 봇 스코어↓ → 429↓.
+ * 스로틀되는 smartstore 도메인이 아니라 www.naver.com 을 치므로 조회 rate 예산을 축내지 않는다.
+ * 실패해도 무시 — 본 조회에 영향 없음.
+ */
+export async function warmUpSession(): Promise<void> {
+  try {
+    await fetchWithElectron('https://www.naver.com/');
+  } catch { /* 워밍업 실패 무시 */ }
+}
+
 /** 메인 fetch + 분류 함수 */
 export async function fetchNaverProduct(url: string): Promise<FetchResult> {
   try {
-    const { status, body } = await fetchWithElectron(url);
+    const { status, body, headers } = await fetchWithElectron(url);
 
     if (status === 404 || status === 410) {
       return { status: 'removed', matchedPattern: `HTTP ${status}` };
     }
-    if (status === 429) {
-      return { status: 'error', matchedPattern: 'HTTP 429 (속도제한)', errorClass: 'transient' };
+    if (status === 429 || status === 503) {
+      // 네이버가 Retry-After 를 주면 그만큼 정확히 쉬라고 cron 에 전달(추측 백오프보다 정확).
+      return {
+        status: 'error',
+        matchedPattern: `HTTP ${status} (속도제한)`,
+        errorClass: 'transient',
+        retryAfterMs: parseRetryAfter(headers),
+      };
     }
     if (status === 403) {
       return { status: 'error', matchedPattern: 'HTTP 403 (접근 차단)', errorClass: 'naver' };

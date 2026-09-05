@@ -49,6 +49,19 @@ export async function refresh(supabaseUrl, anonKey, refreshToken) {
   return normalizeSession(data);
 }
 
+/**
+ * refresh 실패가 "영구(재페어링 필요)"인지 "일시(재시도하면 됨)"인지 구분한다.
+ *   - 영구: refresh_token 이 폐기/무효 (400 invalid_grant / refresh_token_not_found).
+ *           이건 재시도해도 소용없고 새 로그인(페어링)만이 답.
+ *   - 일시: 네트워크 미준비(ENOTFOUND/ECONNREFUSED/timeout)·5xx·429 등.
+ *           부팅 직후 흔하며, 잠시 뒤 재시도하면 그대로 복구된다.
+ * 판단 불가하면 "일시"로 본다 — 멀쩡한 세션을 성급히 버려 재페어링을 강요하지 않기 위함.
+ */
+export function isPermanentAuthError(err) {
+  const m = String(err?.message || err || '');
+  return /invalid_grant|refresh_token_not_found|invalid refresh token|already used|400\b/i.test(m);
+}
+
 function normalizeSession(data) {
   return {
     access_token: data.access_token,
@@ -64,6 +77,7 @@ export class Session {
     this.anonKey = anonKey;
     this.filePath = filePath;
     this.s = null;
+    this._refreshing = null; // 진행 중 refresh 프로미스 (single-flight)
   }
   async loadOrLogin(email, password) {
     if (this.filePath) {
@@ -89,17 +103,48 @@ export class Session {
     };
     await this._persist();
   }
-  /** 저장된 세션만 복구 시도 (로그인 안 함). 성공 시 true */
+  /**
+   * 저장된 세션만 복구 시도 (로그인 안 함).
+   *   반환:  true  = 복구 성공 (this.s 채워짐)
+   *          false = 복구할 세션 자체가 없음/영구폐기 → 재페어링 필요 (재시도 무의미)
+   *   throw       = 일시 오류(네트워크 미준비 등) → 상위에서 백오프 재시도해야 함
+   *
+   * ★ 부팅 자가치유 핵심:
+   *   ① 저장된 access_token 이 아직 유효하면 refresh 를 아예 하지 않는다.
+   *      부팅마다 refresh 를 돌리면 1회용(rotating) refresh_token 이 매번 회전하고,
+   *      부팅 직후 네트워크 미준비/응답유실로 그 refresh 가 실패하면 저장 토큰이 죽어
+   *      "재부팅하면 매번 미연결"이 된다. 유효할 땐 굽지 않는 게 근본 예방.
+   *   ② 만료됐을 때만 refresh 하되, 일시 오류는 throw 로 올려 재시도로 자가치유한다.
+   */
   async tryRestore() {
     if (!this.filePath) return false;
+    let saved;
     try {
-      const saved = JSON.parse(await readFile(this.filePath, 'utf8'));
-      if (!saved.refresh_token) return false;
+      saved = JSON.parse(await readFile(this.filePath, 'utf8'));
+    } catch {
+      return false; // 파일 없음 → 페어링 필요
+    }
+    if (!saved.refresh_token) return false;
+
+    // ① 아직 유효 → 그대로 복구(토큰 굽지 않음).
+    if (typeof saved.expires_at === 'number' && Date.now() < saved.expires_at - 60_000) {
+      this.s = saved;
+      return true;
+    }
+
+    // ② 만료 → refresh. 실패는 영구/일시 구분.
+    try {
       this.s = await refresh(this.supabaseUrl, this.anonKey, saved.refresh_token);
       await this._persist();
       return true;
-    } catch { return false; }
+    } catch (e) {
+      if (isPermanentAuthError(e)) return false; // 토큰 폐기 → 재페어링
+      throw e;                                    // 일시 오류 → 상위 재시도
+    }
   }
+  /** 현재 access_token(JWT). 계정 식별(이메일 등)을 디코드할 때 쓴다. 없으면 null. */
+  get accessToken() { return this.s?.access_token || null; }
+
   async _persist() {
     if (this.filePath && this.s) {
       try { await writeFile(this.filePath, JSON.stringify(this.s, null, 2)); } catch { /* ignore */ }
@@ -108,8 +153,18 @@ export class Session {
   async token() {
     if (!this.s) throw new Error('세션 없음 — loadOrLogin 먼저 호출');
     if (Date.now() > this.s.expires_at - 60_000) {
-      this.s = await refresh(this.supabaseUrl, this.anonKey, this.s.refresh_token);
-      await this._persist();
+      // ★ single-flight refresh — 근본 수정.
+      //   워커 heartbeat·썸네일 pull·LLM pull·품절모니터 루프가 이 Session 하나를 공유하며
+      //   동시에 token() 을 호출한다. 만료 시 각자 refresh() 를 돌리면 같은 refresh_token 으로
+      //   중복 회전(rotation)이 일어나고, Supabase 가 재사용을 탐지해 토큰 패밀리 전체를 폐기한다
+      //   → 세션이 영구히 깨져 모든 호출이 401 ("잘 되다 갑자기 전부 401"의 원인).
+      //   진행 중인 refresh 를 하나로 합쳐(=single-flight) 직렬화하면 중복 회전이 사라진다.
+      if (!this._refreshing) {
+        this._refreshing = refresh(this.supabaseUrl, this.anonKey, this.s.refresh_token)
+          .then(async (ns) => { this.s = ns; await this._persist(); })
+          .finally(() => { this._refreshing = null; });
+      }
+      await this._refreshing;
     }
     return this.s.access_token;
   }

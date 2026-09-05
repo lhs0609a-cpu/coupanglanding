@@ -6,6 +6,8 @@ import { CHANNEL_LABELS, CHANNEL_BG_COLORS } from '@/lib/megaload/constants';
 import { CHANNEL_SETUP_GUIDES } from '@/lib/data/channel-setup-guides';
 import type { Channel } from '@/lib/megaload/types';
 import { ExternalLink, Lightbulb, AlertTriangle, Clock, CheckCircle2, Tag } from 'lucide-react';
+import EgressIpBox from './EgressIpBox';
+import GuideImageWithHotspots from './GuideImageWithHotspots';
 
 interface ChannelSetupGuideProps {
   channel: Channel;
@@ -78,6 +80,17 @@ export default function ChannelSetupGuide({ channel, isOpen, onClose }: ChannelS
               <h4 className="font-semibold text-gray-900 text-sm">{step.title}</h4>
               <p className="text-xs text-gray-500 mt-0.5 mb-2">{step.description}</p>
 
+              {/* 실제 화면 캡처 (있을 때만) */}
+              {step.imageUrl && (
+                <GuideImageWithHotspots
+                  src={step.imageUrl}
+                  alt={step.title}
+                  hotspots={step.hotspots}
+                  source={step.imageSource}
+                  maxHeight={320}
+                />
+              )}
+
               {/* 세부 설명 */}
               <ul className="space-y-1 mb-2">
                 {step.detailedInstructions.map((inst, i) => (
@@ -115,6 +128,9 @@ export default function ChannelSetupGuide({ channel, isOpen, onClose }: ChannelS
                   <p className="text-xs text-red-700">{step.warning}</p>
                 </div>
               )}
+
+              {/* 셀러가 채널 화면에 붙여넣을 우리 쪽 값 (호출 서버 IP 등) */}
+              {step.copyValueKey === 'egressIp' && <EgressIpBox />}
 
               {/* 이 단계에서 얻는 값 */}
               {step.inputFields && step.inputFields.length > 0 && (

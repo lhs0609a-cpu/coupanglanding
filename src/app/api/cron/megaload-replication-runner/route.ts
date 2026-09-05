@@ -17,7 +17,7 @@
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
-import { mapCategory } from '@/lib/megaload/services/ai.service';
+import { resolveChannelCategory } from '@/lib/megaload/services/channel-category-resolver';
 import { buildCanonical, canonicalHash } from '@/lib/megaload/services/canonical-product';
 import type { ChannelMappingContext, ChannelShippingTemplate } from '@/lib/megaload/services/canonical-product';
 import { mapForChannel } from '@/lib/megaload/services/replication-mapper';
@@ -332,7 +332,12 @@ async function processItem(supabase: SupabaseClient, ctx: ItemContext): Promise<
       return { outcome: 'needs_input', fields: guardMissing.map((m) => m.field) };
     }
 
-    // ── 카테고리 매핑 (AI + 캐시) ──
+    // ── 어댑터 (인증) — 카테고리 grounding 이 채널 실제 API 를 호출하므로 먼저 확보 ──
+    const adapter = await ctx.getAdapter(ctx.channel);
+
+    // ── 카테고리 매핑 (grounded + 캐시) ──
+    //   채널마다 카테고리 트리·코드가 전혀 다르다 → 자유생성(환각) 금지.
+    //   캐시 없으면 채널 실제 후보 중에서만 선택(resolveChannelCategory). 실패 시 null → mapper 가 needs_input.
     let channelCategoryId: string | null = null;
     let channelCategoryName: string | null = null;
     let categoryConfidence: number | null = null;
@@ -349,11 +354,12 @@ async function processItem(supabase: SupabaseClient, ctx: ItemContext): Promise<
       const c = cached as Record<string, unknown> | null;
       if (c?.channel_category_id) {
         channelCategoryId = c.channel_category_id as string;
+        channelCategoryName = (c.channel_category_name as string) ?? null;
       } else {
-        const mapping = await mapCategory(canonical.name, categoryId, ctx.channel);
-        channelCategoryId = mapping.categoryId || null;
-        channelCategoryName = mapping.categoryName || null;
-        categoryConfidence = mapping.confidence || null;
+        const resolved = await resolveChannelCategory({ adapter, channel: ctx.channel, canonical });
+        channelCategoryId = resolved?.channelCategoryId ?? null;
+        channelCategoryName = resolved?.channelCategoryName ?? null;
+        categoryConfidence = resolved?.confidence ?? null;
 
         if (channelCategoryId) {
           await supabase
@@ -379,7 +385,7 @@ async function processItem(supabase: SupabaseClient, ctx: ItemContext): Promise<
     const footerHtml = (footer?.content as string) || '';
 
     // ── Canonical → 채널 페이로드 매핑 (채널 지식은 어댑터 안에서; ACL) ──
-    const adapter = await ctx.getAdapter(ctx.channel);
+    //   (adapter 는 위 카테고리 grounding 단계에서 이미 확보)
 
     // ── 이미지 재호스팅 (네이버 등 selfHostedImages 채널) — 매핑 전 미리 업로드 ──
     let rehostedImages: Map<string, string> | undefined;

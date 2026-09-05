@@ -35,8 +35,19 @@ export interface LocalProductJson {
   description?: string;
   barcode?: string;
   originalPrice?: number;     // 정가 (할인가 표시용)
-  certifications?: { certificationType: string; certificationCode?: string }[];
+  // 두 포맷 허용: 소싱 추출({name,cert_number,verify_url}) | 쿠팡({certificationType,certificationCode})
+  certifications?: {
+    certificationType?: string; certificationCode?: string; certificationOrganization?: string;
+    name?: string; cert_number?: string; verify_url?: string;
+  }[];
   options?: { optionName: string; salePrice: number; stock?: number; barcode?: string; sku?: string }[];
+  /**
+   * 공급처가 직접 입력한 원본 상품정보제공고시(네이버 provided-notice 응답 원형).
+   * 품목·용량·원산지·생산자·보관방법이 사실 그대로 들어 있어, 상품명에서 패턴으로 뽑거나
+   * AI 로 추측한 값보다 정확하다. 구조가 몰마다 달라 원형을 그대로 들고 다니고,
+   * 쓸 때 flattenSourceNotice() 로 편다.
+   */
+  providedNotice?: unknown;
   /** 소싱 원본 카테고리 (네이버 등) */
   sourceCategory?: {
     platform?: string;      // 'naver' | 'coupang' | etc.

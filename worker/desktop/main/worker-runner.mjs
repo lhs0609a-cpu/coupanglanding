@@ -18,11 +18,34 @@ const DEFAULT_NEGATIVE =
 
 const fsp = await import('node:fs/promises');
 
+/** JWT payload 디코드(검증 없음 — 표시용 식별정보만). 실패 시 null. */
+function decodeJwt(token) {
+  try {
+    const part = String(token).split('.')[1];
+    if (!part) return null;
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+  } catch { return null; }
+}
+
 export class WorkerRunner {
-  constructor(userDataDir, { onEvent = () => {} } = {}) {
+  constructor(userDataDir, { onEvent = () => {}, appVersion = null, getLocalEndpoint = null, ensureEngine = null } = {}) {
     this.userDataDir = userDataDir;
     this.onEvent = onEvent;
+    /**
+     * 잡을 집었을 때 엔진(ComfyUI·ollama)을 켜 주는 훅 — main.mjs 가 꽂는다.
+     * ★ 유휴일 때 엔진을 내려 램을 돌려주기 때문에 반드시 필요하다. 이게 없으면 내려간 뒤
+     *   처음 들어온 잡이 실패하거나 영원히 되돌려진다.
+     */
+    this.ensureEngine = ensureEngine;
+    // 하트비트에 실어 보낼 앱 버전 — 웹이 "구버전 쓰는 중"을 실제로 감지하는 근거.
+    this.appVersion = appVersion;
+    // 하트비트에 실어 보낼 로컬 서버 {port,nonce} — 웹 올인원이 결과·이미지를 직독하는 통로.
+    this.getLocalEndpoint = getLocalEndpoint;
     this.session = null;
+    // 세션이 왜 끊겼는지(사용자에게 보여줄 문장). 정상 연결이면 null.
+    // 무음 실패를 없애기 위한 것 — 이게 없으면 "앱은 연결됨, 웹은 미연결"이 계속된다.
+    this.sessionError = null;
     this.abort = null;
     this.loopPromise = null;
     // LLM 재생성 루프(텍스트) — 썸네일 루프와 독립. 로그인되면 상시 폴링(가벼움).
@@ -31,7 +54,48 @@ export class WorkerRunner {
   }
 
   get running() { return !!this.abort; }
+  /** LLM 재생성 루프가 도는 중인가 — 엔진 유휴 반납의 안전망이 이 값을 본다. */
+  get llmRunning() { return !!this.llmAbort; }
   get loggedIn() { return !!this.session; }
+
+  /** 현재 연결된 계정 식별정보(이메일/역할/userId). 세션 없으면 null. */
+  get account() {
+    const tok = this.session?.accessToken;
+    if (!tok) return null;
+    const p = decodeJwt(tok);
+    if (!p) return null;
+    return {
+      email: p.email || p.user_metadata?.email || null,
+      userId: p.sub || null,
+      role: p.user_metadata?.role || p.role || null,
+    };
+  }
+
+  /**
+   * 로그아웃 — 저장 세션(.session.json)을 지우고 모든 루프를 멈춘다.
+   * 이후 다른 계정으로 다시 "메가로드 연결"(페어링)하면 그 계정으로 붙는다.
+   */
+  async logout() {
+    try { await this.stopLlmLoop(); } catch { /* ignore */ }
+    if (this.abort) { try { this.abort.abort(); } catch { /* ignore */ } this.abort = null; }
+    this.session = null;
+    this.sessionError = null; // 사용자가 스스로 끊은 것 — 오류가 아니다
+    try { await fsp.rm(join(this.userDataDir, '.session.json'), { force: true }); } catch { /* ignore */ }
+  }
+
+  /**
+   * 세션이 서버에서 더는 통하지 않을 때(리프레시 토큰 폐기 등) 호출.
+   * 로그아웃과 동작은 같지만 이유를 남겨 UI 가 "재연결 필요"를 띄울 수 있게 한다.
+   * 쓸모없는 토큰을 붙잡고 "연결됨"이라 우기는 것보다 미연결로 정직하게 내려가는 편이
+   * 사용자가 2클릭으로 복구할 수 있어 낫다.
+   */
+  async invalidateSession(reason) {
+    await this.logout();
+    this.sessionError = reason || '메가로드 연결이 끊겼습니다. 다시 연결해 주세요.';
+  }
+
+  /** 하트비트가 다시 성공했을 때 — 남아 있던 경고를 지운다. */
+  clearSessionError() { this.sessionError = null; }
 
   async login(supabaseUrl, anonKey, email, password) {
     const s = new Session(supabaseUrl, anonKey, join(this.userDataDir, '.session.json'));
@@ -45,18 +109,25 @@ export class WorkerRunner {
     const s = new Session(supabaseUrl, anonKey, join(this.userDataDir, '.session.json'));
     await s.seed(sessionTokens);
     this.session = s;
+    // 새 세션이 들어왔으니 "만료됐습니다" 경고는 그 자리에서 지운다. 하트비트 성공을
+    // 기다리면(최대 30초) 이미 연결된 화면에 빨간 안내가 남아 사용자가 또 누른다.
+    this.sessionError = null;
     this.startLlmLoop();
   }
 
-  /** 저장된 세션(.session.json)으로 자동 로그인 시도 — 성공 시 true */
+  /**
+   * 저장된 세션(.session.json)으로 자동 로그인 시도.
+   *   true  = 복구됨 / false = 복구할 세션 없음(재페어링 필요)
+   *   throw = 일시 오류(네트워크 미준비 등) → 호출부가 백오프 재시도.
+   * (과거엔 여기서 모든 오류를 삼켜 false 로 뭉갰다 → 부팅 직후 네트워크 미준비 한 번에
+   *  영구 미연결이 됐다. 이제 일시 오류는 위로 올려 자가치유한다.)
+   */
   async tryRestoreSession(supabaseUrl, anonKey) {
     if (!supabaseUrl || !anonKey) return false;
-    try {
-      const s = new Session(supabaseUrl, anonKey, join(this.userDataDir, '.session.json'));
-      const ok = await s.tryRestore();
-      if (ok) { this.session = s; this.startLlmLoop(); return true; }
-      return false;
-    } catch { return false; }
+    const s = new Session(supabaseUrl, anonKey, join(this.userDataDir, '.session.json'));
+    const ok = await s.tryRestore(); // 일시 오류는 throw 로 전파됨
+    if (ok) { this.session = s; this.startLlmLoop(); return true; }
+    return false;
   }
 
   /** 로그인되면 상시 도는 LLM 재생성 폴링 루프 (노출상품명/상세글/옵션/카테고리). */
@@ -71,12 +142,28 @@ export class WorkerRunner {
         session: this.session,
         workerId,
         hostname: host,
+        appVersion: this.appVersion,
+        getLocalEndpoint: this.getLocalEndpoint,
         pollMs: 700,   // 활성 시 0.7초로 빠르게 집음(루프 내부에서 장기 유휴 시 자동 백오프)
         signal: this.llmAbort.signal,
         onEvent: (e) => this.onEvent({ scope: 'llm', ...e }),
+        ensureEngine: this.ensureEngine ? () => this.ensureEngine('llm') : undefined,
       }))
       .catch((e) => this.onEvent({ type: 'warn', message: `LLM 루프 종료: ${e.message}` }))
-      .finally(() => { this.llmAbort = null; this.llmLoopPromise = null; });
+      .finally(() => {
+        this.llmAbort = null;
+        this.llmLoopPromise = null;
+        /**
+         * ★ 루프가 끝났다는 걸 **반드시** 알린다 — 엔진 붙잡기를 놓는 유일한 신호다.
+         *   유휴 반납 게이트는 claimed 에서 잡고 idle/finished/stopped 에서 놓는데,
+         *   ① LLM 루프는 정상 종료해도 finished 를 쏘지 않고 그냥 return 하고
+         *   ② 예외로 죽으면 warn 만 나간다.
+         *   둘 다 놓는 신호가 아니라서, 잡을 집은 직후 루프가 끝나면 ollama 가
+         *   **영영 안 내려간다**(사용자 눈엔 "안 쓰는데 계속 메모리를 물고 있다").
+         *   여기 finally 는 어떤 경로로 끝나든 반드시 지나므로 이 자리가 맞다.
+         */
+        this.onEvent({ scope: 'llm', type: 'finished' });
+      });
   }
 
   async stopLlmLoop() {
@@ -152,8 +239,11 @@ export class WorkerRunner {
       pollMs: pollSec * 1000,
       workerId,
       hostname: host,
+      appVersion: this.appVersion,
+      getLocalEndpoint: this.getLocalEndpoint,
       signal: this.abort.signal,
       onEvent: this.onEvent,
+      ensureEngine: this.ensureEngine ? () => this.ensureEngine('thumb') : undefined,
       // 기본: 누끼+흰배경 1:1. job.mode==='regenerate' 면 prefill+SDXL img2img+재누끼.
       // 모델(BiRefNet_lite)은 userData/hf-cache 에 최초 1회 다운로드 후 영구 캐시.
       processImage: (buf, job) => processCutoutThumbnail(buf, {
@@ -164,7 +254,14 @@ export class WorkerRunner {
         img2imgFn,
       }),
     }).catch((e) => this.onEvent({ type: 'error', message: e.message }))
-      .finally(() => { this.abort = null; this.loopPromise = null; });
+      .finally(() => {
+        this.abort = null;
+        this.loopPromise = null;
+        // 위 LLM 루프와 같은 이유. runPullLoop 은 정상 종료 때 finished 를 쏘지만
+        // **예외로 죽으면 error 만** 나가고, error 는 잡 1건 실패에도 쓰이는 이벤트라
+        // 그걸로는 놓을 수 없다(배치 중간에 엔진이 내려간다). 중복 finished 는 무해하다.
+        this.onEvent({ type: 'finished' });
+      });
   }
 
   async stop() {

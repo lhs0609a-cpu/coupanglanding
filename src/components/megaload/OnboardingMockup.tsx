@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Check, Upload, ChevronDown, Search, Clock, ShieldCheck, FileText, ZoomIn, X } from 'lucide-react';
+import type { Hotspot } from './GuideImageWithHotspots';
 
 /**
  * 입점 가이드용 "실제 화면처럼 보이는" 목업 렌더러.
@@ -304,12 +305,15 @@ export default function OnboardingMockup({
   domain,
   imageUrl,
   imageSource,
+  hotspots,
 }: {
   screen?: MockScreen;
   color: string;
   domain?: string | null;
   imageUrl?: string;
   imageSource?: string;
+  /** 캡처 위 번호 배지 — 빨간 박스만으로는 "어느 것부터"를 알 수 없는 단계에 쓴다 */
+  hotspots?: Hotspot[];
 }) {
   const [imgError, setImgError] = useState(false);
   const [zoom, setZoom] = useState(false);
@@ -345,6 +349,17 @@ export default function OnboardingMockup({
               <ZoomIn className="w-3.5 h-3.5" /> 크게 보기
             </span>
           </button>
+          {(hotspots ?? []).map((h) => (
+            <span
+              key={h.n}
+              title={h.label}
+              className="absolute -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-[#E31837] text-white
+                text-xs font-bold flex items-center justify-center shadow-lg ring-2 ring-white pointer-events-none"
+              style={{ left: `${h.x}%`, top: `${h.y}%` }}
+            >
+              {h.n}
+            </span>
+          ))}
           <figcaption className="text-[11px] text-gray-400 text-center py-1.5 px-2 border-t border-gray-100">
             실제 화면 예시{imageSource ? ` · 출처: ${imageSource}` : ''} (마켓 UI 버전에 따라 다를 수 있어요)
           </figcaption>
@@ -357,6 +372,18 @@ export default function OnboardingMockup({
         <div className="p-8 text-center text-xs text-gray-300">화면 미리보기</div>
       )}
     </div>
+      {(hotspots ?? []).length > 0 && (
+        <ol className="mt-2 space-y-1 px-1">
+          {hotspots!.map((h) => (
+            <li key={h.n} className="flex items-start gap-2 text-xs text-gray-700">
+              <span className="shrink-0 mt-0.5 w-4 h-4 rounded-full bg-[#E31837] text-white text-[10px] flex items-center justify-center font-bold">
+                {h.n}
+              </span>
+              {h.label}
+            </li>
+          ))}
+        </ol>
+      )}
 
     {/* 확대 라이트박스 */}
     {zoom && showReal && (

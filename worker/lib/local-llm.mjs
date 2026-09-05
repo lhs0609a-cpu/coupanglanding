@@ -9,6 +9,34 @@
 
 const OLLAMA = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
 
+/**
+ * llama-server 원문 오류를 사람이 읽고 **행동할 수 있는 문장**으로 바꾼다.
+ * ---------------------------------------------------------------------------
+ * 실측 사고에서 사용자가 본 화면(그대로 노출됐다):
+ *   HTTP 500: {"error":"llama-server process has terminated: exit status 1:
+ *   ggml_backend_cpu_buffer_type_alloc_buffer: failed to allocate buffer of size
+ *   3359637504\nalloc_tensor_range: failed to allocate CPU_REPACK
+ * → 원인은 "시스템 RAM 부족"인데 이 문장으로는 아무도 알 수 없다. 해석을 앞에 붙인다.
+ *   (원문은 뒤에 남긴다 — 진단에 필요하다.)
+ * @param {string} raw
+ * @returns {string}
+ */
+export function explainLlmError(raw) {
+  const s = String(raw || '');
+  // CPU 버퍼 할당 실패 = 시스템 RAM 부족(VRAM 아님). projector CPU offload 실패도 같은 뿌리.
+  if (/cpu_buffer_type_alloc_buffer|alloc_tensor_range|CPU_REPACK|projector CPU offload/i.test(s)) {
+    return '메모리(RAM) 부족으로 AI 모델을 올리지 못했습니다. 크롬(탭이 많으면 수 GB)이나 다른 AI·영상 프로그램을 닫고 다시 시도하세요'
+      + '(가상 메모리/페이지파일이 꺼져 있어도 같은 증상이 납니다). 원문: ' + s.slice(0, 200);
+  }
+  if (/cudaMalloc|CUDA (error )?out of memory|out of memory/i.test(s)) {
+    return '그래픽카드 메모리(VRAM) 부족으로 모델을 올리지 못했습니다. 다른 AI·영상 프로그램을 닫고 다시 시도하세요. 원문: ' + s.slice(0, 200);
+  }
+  if (/llama-server (process has terminated|startup failed)/i.test(s)) {
+    return 'AI 엔진(llama-server)이 시작하지 못했습니다. 메모리 부족이 가장 흔한 원인이니 다른 프로그램을 닫고 다시 시도하세요. 원문: ' + s.slice(0, 200);
+  }
+  return s;
+}
+
 /** ollama 데몬이 떠 있는지 */
 export async function isUp() {
   try {
@@ -50,18 +78,152 @@ export async function generate({ model, prompt, system, options = {}, format, ke
   };
   if (format) body.format = format;
   const t0 = Date.now();
-  const r = await fetch(`${OLLAMA}/api/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error(`[local-llm] HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  const j = await r.json();
+  // 연결 실패(fetch failed/ECONNREFUSED 등)는 ollama 가 모델 로딩 중 일시적으로 응답을 못하거나
+  // 메모리압박으로 잠깐 재시작할 때 난다 → 짧게 재시도하면 그대로 이어진다(HTTP 4xx/5xx 는 재시도 안 함).
+  let j;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const r = await fetch(`${OLLAMA}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error(`[local-llm] HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      j = await r.json();
+      break;
+    } catch (e) {
+      const msg = String(e?.message || e);
+      const networkish = !/HTTP \d{3}/.test(msg) &&
+        (/fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|network|timeout|EPIPE/i.test(msg) || e?.cause);
+      if (!networkish || attempt >= 3) throw e;
+      await new Promise((res) => setTimeout(res, 2000 * (attempt + 1))); // 2s,4s,6s
+    }
+  }
   const ms = Date.now() - t0;
   const evalCount = j.eval_count || 0;
   const evalNs = j.eval_duration || 0; // nanoseconds
   const tokPerSec = evalNs > 0 ? +(evalCount / (evalNs / 1e9)).toFixed(1) : 0;
   return { text: (j.response || '').trim(), ms, evalCount, tokPerSec };
+}
+
+/**
+ * 비전 생성 — 이미지를 "직접 보고" 판단하는 VLM 호출(ollama /api/generate + images).
+ * ---------------------------------------------------------------------------
+ * CLIP 제로샷 라벨/파일명 규칙 같은 휴리스틱이 아니라, 모델이 실제 픽셀을 보고 답한다.
+ * @param {Object} o
+ * @param {string} o.model            비전 모델(qwen2.5vl:7b 등)
+ * @param {string} o.prompt
+ * @param {string[]} o.images         base64(JPEG/PNG) 문자열 배열 — data: 접두사 없이 순수 base64
+ * @param {string} [o.system]
+ * @param {Object} [o.options]
+ * @param {string} [o.format]         'json' 이면 JSON 강제
+ * @returns {Promise<{text:string, ms:number}>}
+ */
+/**
+ * @param {number} [timeoutMs] 한 번의 비전 호출 상한. 초과하면 AbortError 로 끊는다.
+ *   GPU 없는 PC 에서 7B VLM 은 호출당 수 분이 걸린다 — 상한이 없으면 생성이 하염없이 멈춘 것처럼
+ *   보인다(느린 건 실패가 아니라서 폴백도 안 걸린다). 호출부가 이 값을 넘겨 상품 단위로
+ *   빠르게 CLIP 휴리스틱 폴백시킬 수 있게 한다. 미지정이면 무제한(기존 동작).
+ */
+export async function generateVision({ model, prompt, images = [], system, options = {}, format, keep_alive, timeoutMs } = {}) {
+  if (!model) throw new Error('[local-llm] vision model 필요');
+  const body = {
+    model,
+    prompt,
+    system,
+    images,                                // ollama: base64 배열(순수 base64)
+    stream: false,
+    keep_alive: keep_alive ?? '30m',
+    // 비전은 결정적 판정이 중요 → temperature 낮게. num_ctx 는 이미지 토큰 여유.
+    options: { temperature: 0.1, top_p: 0.9, num_ctx: 8192, num_gpu: 99, ...options },
+  };
+  if (format) body.format = format;
+  const t0 = Date.now();
+  let j;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const r = await fetch(`${OLLAMA}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
+      });
+      if (!r.ok) throw new Error(`[local-llm] vision HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      j = await r.json();
+      break;
+    } catch (e) {
+      // ⚠️ 상한 초과(Abort)는 **재시도하지 않는다**. 여기서 재시도하면 느린 PC 가 상한을
+      //    3배로 다시 기다리게 돼(2·4·6초 백오프까지) 상한을 둔 의미가 사라진다.
+      //    메시지에 'timeout' 이 들어가 아래 networkish 에 걸리므로 먼저 걸러낸다.
+      if (e?.name === 'TimeoutError' || e?.name === 'AbortError') throw e;
+      const msg = String(e?.message || e);
+      const networkish = !/HTTP \d{3}/.test(msg) &&
+        (/fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|network|timeout|EPIPE/i.test(msg) || e?.cause);
+      if (!networkish || attempt >= 3) throw e;
+      await new Promise((res) => setTimeout(res, 2000 * (attempt + 1)));
+    }
+  }
+  return { text: (j.response || '').trim(), ms: Date.now() - t0 };
+}
+
+/** 모델이 설치돼 있는지(태그 정확/접두 일치 모두 허용 — 'qwen2.5vl:7b' ↔ 'qwen2.5vl:7b-...' ). */
+export async function hasModel(model) {
+  if (!model) return false;
+  const names = await listModels();
+  const base = model.split(':')[0];
+  return names.some((n) => n === model || n.startsWith(model) || n.split(':')[0] === base);
+}
+
+/**
+ * 모델이 없으면 ollama 로 pull(스트리밍 진행 로그). 이미 있으면 즉시 true.
+ * 실패해도 throw 하지 않고 false 반환(호출부가 폴백하도록).
+ * @param {{onLog?:Function, noPull?:boolean}} [o]
+ *   noPull=true 면 **다운로드하지 않는다**(이미 있으면 그대로 씀). GPU 없는 PC 에
+ *   비전 모델 5.6GB 를 받게 해놓고 정작 판정은 상한 초과로 못 쓰는 낭비를 막는다.
+ * @returns {Promise<boolean>} 최종 사용 가능 여부
+ */
+export async function ensureModel(model, { onLog, noPull = false } = {}) {
+  if (!model) return false;
+  try {
+    if (await hasModel(model)) return true;
+    if (noPull) {
+      onLog?.(`[비전] ${model} 미설치 — 이 PC 는 GPU 가속이 없어 자동 다운로드(수 GB)를 생략합니다. 기본 방식(CLIP)으로 처리합니다.`);
+      return false;
+    }
+    onLog?.(`[비전] ${model} 미설치 — 자동 다운로드 시작(최초 1회, 수 GB)…`);
+    const r = await fetch(`${OLLAMA}/api/pull`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, stream: true }),
+    });
+    if (!r.ok || !r.body) { onLog?.(`[비전] pull 실패(HTTP ${r.status})`); return false; }
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '', lastPct = -1;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n'); buf = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const s = JSON.parse(line);
+          if (s.total && s.completed) {
+            const pct = Math.floor((s.completed / s.total) * 100);
+            if (pct >= lastPct + 10) { lastPct = pct; onLog?.(`[비전] 다운로드 ${pct}%`); }
+          }
+          if (s.error) { onLog?.(`[비전] pull 오류: ${s.error}`); return false; }
+        } catch { /* 부분 라인 무시 */ }
+      }
+    }
+    const ok = await hasModel(model);
+    onLog?.(ok ? `[비전] ${model} 준비 완료` : `[비전] ${model} 다운로드 확인 실패`);
+    return ok;
+  } catch (e) {
+    onLog?.(`[비전] 모델 준비 실패(${String(e?.message || e).slice(0, 120)}) — 휴리스틱 폴백`);
+    return false;
+  }
 }
 
 /**
@@ -105,13 +267,25 @@ export async function freeVram() {
 
 /**
  * 임베딩 (ollama /api/embed). input: string | string[].
+ *
+ * ⚠️ **상한이 반드시 있어야 한다**(실측 2026-08-25). 예전엔 `fetch` 에 signal 이 없었다.
+ *    카테고리 후보를 뽑는 이 호출은 상품마다 1회 걸리는데, 한 번이라도 응답이 안 오면
+ *    `candidatesFor` 가 거기서 영원히 서고 **생성 전체가 멈춘다** — 오류도 로그도 없이.
+ *    재현: 이 PC 에서 벤치가 첫 상품에서 CPU 1초만 쓴 채 몇 분을 매달렸다(다른 프로그램이
+ *    같은 ollama 를 쓰고 있어 임베딩 모델이 자리를 못 잡은 상태였다).
+ *    상한을 넘기면 던지고, 호출부는 **토큰 매칭으로 폴백한다**(원래 설계된 길이다).
  * @returns {Promise<number[][]>} 벡터 배열
  */
-export async function embed(model, input) {
+//    상한값은 **넉넉해야 한다** — 이건 성능 손잡이가 아니라 "영원히 멈추지 않게" 하는 안전장치다.
+//    실측: 임베딩 모델(bge-m3) 첫 호출은 적재만 16.6초다. 15초로 잡았더니 정상 PC 의 첫 상품이
+//    곧바로 상한에 걸려 **멀쩡한 임베딩 매칭을 버리고** 토큰 폴백으로 갔다(카테고리 정확도 손해).
+const EMBED_TIMEOUT_MS = Math.max(3000, Number(process.env.MEGALOAD_EMBED_TIMEOUT_MS) || 60_000);
+export async function embed(model, input, { timeoutMs } = {}) {
   const r = await fetch(`${OLLAMA}/api/embed`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, input }),
+    signal: AbortSignal.timeout(timeoutMs || EMBED_TIMEOUT_MS),
   });
   if (!r.ok) throw new Error(`[local-llm] embed HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
   const j = await r.json();

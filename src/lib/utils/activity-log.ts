@@ -22,6 +22,9 @@ export async function logActivity(supabase: SupabaseClient, params: LogParams) {
 
 /** 활동 로그 액션 한글 라벨 */
 export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
+  supplier_signup: '공급사 가입 신청',
+  supplier_approved: '공급사 승인',
+  supplier_rejected: '공급사 반려',
   approve_user: '사용자 승인',
   reject_user: '사용자 거절',
   confirm_deposit: '송금 확인',

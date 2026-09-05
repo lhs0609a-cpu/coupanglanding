@@ -19,6 +19,7 @@ import { stringToSeed } from './seeded-random';
 import { generateEAN13 } from './barcode-generator';
 import { checkCompliance, containsForbiddenTerm } from './compliance-filter';
 import { isProtectedCoupangBrand } from './brand-checker';
+import { buildSearchTags } from './search-tags';
 import type { ContentBlock } from './fragment-composer';
 
 // ---- 입력 타입 ----
@@ -111,6 +112,8 @@ export interface BuildCoupangPayloadParams {
   aiReviewTexts?: string[];
   consignmentImageUrls?: string[];
   thirdPartyImageUrls?: string[];   // 제3자 이미지 URLs (랜덤 선정된 2장)
+  originDescription?: string;        // 원본(DOM) 상품설명 텍스트 — 맨 끝 "상품 상세정보"
+  descriptionImageUrls?: string[];   // 원본 상세 설명 이미지 — 맨 끝 "상품 상세정보"
   // 구매옵션 (option-extractor 추출값 — item-level 반영용)
   extractedBuyOptions?: ExtractedBuyOption[];
   // 총 수량 (option-extractor의 totalUnitCount — perCount × count)
@@ -144,6 +147,12 @@ export interface BuildCoupangPayloadParams {
   categoryPath?: string;
   // SEO 상세페이지 신규 필드
   seoKeywords?: string[];
+  /**
+   * 검수 화면에서 확정한 검색어 태그(로컬 에이전트가 뽑은 쿠팡 연관검색어 포함).
+   * 여기 있는 말이 1순위 후보다 — 사람이 보고 넘긴 것이라 생성기 키워드보다 우선한다.
+   * 그래도 규칙 검사(금지어·타사 브랜드·중복)는 똑같이 통과해야 한다.
+   */
+  searchTagsOverride?: string[];
   faqItems?: { question: string; answer: string }[];
   closingText?: string;
   // V2: 설득형 콘텐츠 블록
@@ -272,6 +281,7 @@ export function buildCoupangProductPayload(
     detailLayoutVariant,
     categoryPath,
     seoKeywords,
+    searchTagsOverride,
     faqItems,
     closingText,
     contentBlocks,
@@ -280,6 +290,8 @@ export function buildCoupangProductPayload(
     sellerBrand,
     brandId,
     brandNameOverride,
+    originDescription,
+    descriptionImageUrls,
   } = params;
 
   // ---- 1. 상품명 정리 ----
@@ -299,7 +311,9 @@ export function buildCoupangProductPayload(
     console.warn(`[payload-builder] ⚠️ 노출명 자동생성 실패 → 원본명 폴백 "${fallbackBase.slice(0, 40)}" (productCode: ${product.productCode})`);
     effectiveDisplayName = fallbackBase;
   }
-  const productName = cleanProductName(effectiveDisplayName);
+  // ⚠️ categoryPath 를 넘긴다 — 안 넘기면 상세글에만 적용되던 카테고리 예외(도서 제목의 "치료·유기농",
+  //    생활용품의 "살균", 패션의 "베스트(조끼)")가 상품명에서만 빠져 제목이 깨진다.
+  const productName = cleanProductName(effectiveDisplayName, categoryPath);
 
   // 셀러별 고유 코드: preventionSeed(shUserId:productCode) 해시 → 4자리 hex
   // 같은 셀러+같은 상품 = 항상 같은 코드, 다른 셀러+같은 상품 = 다른 코드
@@ -311,7 +325,7 @@ export function buildCoupangProductPayload(
     : product.productCode;
 
   const resolvedSellerName = sellerProductName
-    ? cleanProductName(sellerProductName.replace(product.productCode, uniqueProductCode))
+    ? cleanProductName(sellerProductName.replace(product.productCode, uniqueProductCode), categoryPath)
     : productName;
 
   // brand: 셀러 자체 브랜드 우선 → 없으면 안전 폴백 '자체'.
@@ -395,6 +409,9 @@ export function buildCoupangProductPayload(
     emphasis: b.emphasis ? cleanText(b.emphasis) : b.emphasis,
   }));
   const safeStoryHtml = aiStoryHtml ? cleanText(aiStoryHtml) : aiStoryHtml;
+  // 원본(DOM) 상품설명 — 명시 파라미터(originDescription)로 받는다. ⚠️ product.productJson.description
+  //   은 상류(preflight)에서 LLM 스토리로 덮여 있어 여기 쓰면 본문이 중복된다. compliance 필터 통과.
+  const safeOriginDescription = originDescription ? cleanText(String(originDescription)) : undefined;
 
   if (hasRichContent) {
     detailHtml = sanitizeHtml(buildRichDetailPageHtml({
@@ -418,6 +435,8 @@ export function buildCoupangProductPayload(
         name: f.noticeCategoryDetailName,
         value: f.content,
       })),
+      originDescription: safeOriginDescription,
+      descriptionImageUrls,
     }, detailLayoutVariant));
   } else {
     detailHtml = buildSimpleDetailHtml(detailImageUrls, productName);
@@ -706,6 +725,31 @@ export function buildCoupangProductPayload(
     console.error(`[payload-builder] 🚨 건기식 unitCount=1 경고! 단위가격=${unitPrice.toLocaleString()}원 (판매가=${sellingPrice.toLocaleString()}원) → 노출제한 위험 | "${rawName}"`);
   }
 
+  // ---- 7-b. 검색어(searchTags) ----
+  // 쿠팡 검색은 카테고리·상품명·구매옵션·검색어(태그) 네 필드의 단어를 조합해 결과를 만든다.
+  // 앞의 셋은 자동으로 태그가 되지만, searchTags 는 "상품명에 못 넣은 검색어"를 추가로
+  // 인식시키는 유일한 수단이다(최대 20개). ⚠️ 지금까지 이 필드를 아예 안 보내고 있었다.
+  const searchTags = buildSearchTags({
+    productName,
+    categoryPath,
+    brand: resolvedBrand,
+    sourceName: rawName,
+    candidates: [
+      ...(searchTagsOverride || []),                                 // 검수 화면에서 확정(연관검색어)
+      ...(seoKeywords || []),                                        // 생성기 키워드
+      ...(product.productJson.tags || []),                           // 소싱 태그
+    ],
+    // ⚠️ 구매옵션값은 **후보가 아니라 제외 대상**이다. 쿠팡 검색은 카테고리·상품명·구매옵션·
+    //    검색어 네 필드를 함께 보므로, 옵션에 이미 있는 말을 태그로 또 쓰면 20칸 중 하나를
+    //    버리는 셈이 된다(예전엔 옵션값을 후보로 넣고 있었다).
+    alreadySearchable: (extractedBuyOptions || []).map((o) => String(o.value || '')),
+  });
+  console.log(`[payload-builder] 검색어 태그 ${searchTags.length}/20개: ${searchTags.join(', ')}`);
+  if (searchTags.length < 20) {
+    // 20칸을 못 채웠다는 건 후보가 규칙에 다 걸렸다는 뜻이다 — 조용히 넘기면 원인을 못 찾는다.
+    console.warn(`[payload-builder] ⚠️ 검색어 태그 ${searchTags.length}개 — 20칸을 못 채웠습니다 "${rawName}"`);
+  }
+
   // ---- 8. itemName에 구매옵션 반영 ----
   let baseItemName = productName;
   if (extractedBuyOptions && extractedBuyOptions.length > 0) {
@@ -778,6 +822,7 @@ export function buildCoupangProductPayload(
         overseasPurchased,
         pccNeeded: String(pccNeeded),  // 스펙: 문자열 "true"/"false"
         externalVendorSku: variant.sku || `${uniqueProductCode}_${idx + 1}`,
+        searchTags,
         barcode: variantBarcode,
         emptyBarcode: !variantBarcode,
         ...((!variantBarcode) ? { emptyBarcodeReason: '상품확인불가_바코드없음사유' } : {}),
@@ -808,6 +853,7 @@ export function buildCoupangProductPayload(
       overseasPurchased,
       pccNeeded: String(pccNeeded),  // 쿠팡: 문자열 "true"/"false"
       externalVendorSku: uniqueProductCode,
+      searchTags,
       barcode: resolvedBarcode,
       emptyBarcode: !hasBarcode,
       ...((!hasBarcode) ? { emptyBarcodeReason: '상품확인불가_바코드없음사유' } : {}),

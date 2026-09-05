@@ -793,3 +793,102 @@ export async function notifyBugReportStatusChanged(
     link: '/megaload/bug-reports',
   });
 }
+
+// ─── 공급사 제휴상품 (공급사에게) ───────────────────────────────
+
+/** 셀러가 내 제휴상품을 자기 채널에 올렸을 때 (공급사에게) */
+export async function notifySupplierProductListed(
+  supabase: SupabaseClient,
+  supplierProfileId: string,
+  sellerName: string,
+  productName: string,
+) {
+  return createNotification(supabase, {
+    userId: supplierProfileId,
+    type: 'system',
+    title: '내 상품을 셀러가 등록했어요',
+    message: `${sellerName} 셀러가 "${productName}"을(를) 자사 채널에 등록했습니다. 판매가 발생하면 바로 알려드릴게요.`,
+    link: '/supplier/dashboard',
+  });
+}
+
+/** 제휴상품이 팔렸을 때 (공급사에게) */
+export async function notifySupplierProductSold(
+  supabase: SupabaseClient,
+  supplierProfileId: string,
+  productName: string,
+  quantity: number,
+  retailAmount: number,
+) {
+  return createNotification(supabase, {
+    userId: supplierProfileId,
+    type: 'settlement',
+    title: '🎉 상품이 팔렸어요!',
+    message: `"${productName}" ${quantity}개가 판매되었습니다. (판매액 ${retailAmount.toLocaleString()}원) 배송완료 7일 후 정산에 확정 반영됩니다.`,
+    link: '/supplier/dashboard',
+  });
+}
+
+/** 제휴상품 재고 임박(소진 전 사전경고) (공급사에게) */
+export async function notifySupplierStockLow(
+  supabase: SupabaseClient,
+  supplierProfileId: string,
+  productName: string,
+  remaining: number,
+) {
+  return createNotification(supabase, {
+    userId: supplierProfileId,
+    type: 'system',
+    title: '📉 재고 임박',
+    message: `"${productName}"의 잔여 재고가 ${remaining}개 남았습니다. 소진되면 전 셀러 리스팅이 자동 판매중지되니 미리 보충해주세요.`,
+    link: '/supplier/dashboard',
+  });
+}
+
+/** 제휴상품 재고 소진 → 전 셀러 리스팅 자동 판매중지 (공급사에게) */
+export async function notifySupplierStockDepleted(
+  supabase: SupabaseClient,
+  supplierProfileId: string,
+  productName: string,
+) {
+  return createNotification(supabase, {
+    userId: supplierProfileId,
+    type: 'system',
+    title: '⚠️ 재고 소진 — 판매 자동중지',
+    message: `"${productName}"의 재고가 소진되어 모든 셀러 리스팅이 자동으로 판매중지되었습니다. 재고를 보충하면 다시 판매가 재개됩니다.`,
+    link: '/supplier/dashboard',
+  });
+}
+
+/** 월 정산 결과 (공급사에게) */
+export async function notifySupplierSettlement(
+  supabase: SupabaseClient,
+  supplierProfileId: string,
+  yearMonth: string,
+  netAmount: number,
+  status: 'paid' | 'no_card' | 'failed',
+) {
+  const info: Record<string, { title: string; message: string }> = {
+    paid: {
+      title: '정산 완료',
+      message: `${yearMonth} 수수료 ${netAmount.toLocaleString()}원이 등록하신 카드로 자동결제되었습니다.`,
+    },
+    no_card: {
+      title: '정산 보류 — 카드 미등록',
+      message: `${yearMonth} 수수료 ${netAmount.toLocaleString()}원이 확정되었으나 자동결제 카드가 없어 청구가 보류되었습니다. 카드를 등록해주세요.`,
+    },
+    failed: {
+      title: '정산 결제 실패',
+      message: `${yearMonth} 수수료 ${netAmount.toLocaleString()}원 자동결제가 실패했습니다. 카드 상태를 확인해주세요.`,
+    },
+  };
+  const m = info[status];
+  if (!m) return;
+  return createNotification(supabase, {
+    userId: supplierProfileId,
+    type: 'settlement',
+    title: m.title,
+    message: m.message,
+    link: '/supplier/dashboard',
+  });
+}

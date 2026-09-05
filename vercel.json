@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/megaload-cs-collect",
+      "schedule": "13 * * * *"
+    },
+    {
       "path": "/api/cron/settlement-reminders",
       "schedule": "0 15 * * *"
     },
@@ -19,6 +23,14 @@
     {
       "path": "/api/cron/megaload-stock-monitor",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/megaload-stock-reconcile",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/megaload-stock-price-backfill",
+      "schedule": "35 * * * *"
     },
     {
       "path": "/api/cron/auto-billing",

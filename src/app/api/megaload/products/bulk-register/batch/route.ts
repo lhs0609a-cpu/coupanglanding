@@ -10,7 +10,9 @@ import type { StoryBatchInput } from '@/lib/megaload/services/ai.service';
 import { logSystemError, logSystemWarn } from '@/lib/utils/system-log';
 // generateProductStoriesBatch 는 generateAiContent=true 일 때만 dynamic import — Gemini SDK 로드 비용 cold start 절감.
 import { buildProductPayload } from '@/lib/megaload/services/preflight-builder';
-import { enqueueAutoReplication } from '@/lib/megaload/services/replication-enqueue';
+import { normalizeCertifications, groundCertifications } from '@/lib/megaload/services/cert-normalizer';
+import { enqueueAutoReplication, enqueueSelectedReplication } from '@/lib/megaload/services/replication-enqueue';
+import type { Channel } from '@/lib/megaload/types';
 import { checkBrandProtection } from '@/lib/megaload/services/brand-checker';
 import { fetchEnrolledCoupangBrands, resolveCoupangBrandId, type CoupangBrand, type ResolvedBrand } from '@/lib/utils/coupang-api-client';
 import { classifyError } from '@/lib/megaload/services/error-classifier';
@@ -159,6 +161,8 @@ interface BatchProduct {
   sourcePrice: number;
   categoryCode: string;
   tags: string[];
+  /** 검수 화면에서 확정한 검색어 태그(로컬 에이전트의 쿠팡 연관검색어 포함) — 1순위 후보. */
+  searchTagsOverride?: string[];
   description: string;
   mainImages: string[];
   detailImages: string[];
@@ -171,13 +175,16 @@ interface BatchProduct {
     detailImageUrls: string[];
     reviewImageUrls: string[];
     infoImageUrls: string[];
+    descriptionImageUrls?: string[];  // 원본 상세 설명 이미지 — 맨 끝 "상품 상세정보" 섹션용
   };
+  sourceDescription?: string;         // 원본(DOM) 상품설명 텍스트 — 맨 끝 "상품 상세정보" 섹션용
   aiDisplayName?: string;
   aiSellerName?: string;
   // 추가 필드 (선택)
   originalPrice?: number;         // 정가 (할인가 표시용)
   barcode?: string;               // 바코드
-  certifications?: CertificationInfo[];  // KC인증 등
+  certifications?: CertificationInfo[];  // KC인증 등 (이미 쿠팡 포맷)
+  sourceCertifications?: unknown[];      // 소싱 추출 원본 인증({name,cert_number,…}) — 서버가 메타 grounding
   optionVariants?: OptionVariant[];      // 멀티옵션
   taxType?: 'TAX' | 'FREE' | 'ZERO';
   adultOnly?: 'EVERYONE' | 'ADULT_ONLY';
@@ -193,6 +200,8 @@ interface BatchProduct {
   shippingDaysOverride?: number;
   noticeValuesOverride?: Record<string, string>;
   attributeValuesOverride?: Record<string, string>;
+  /** 사용자가 검수 화면에서 확정/수정한 구매옵션 값(옵션명→값). preflight 가 추출값 대신 이걸 쓴다. */
+  buyOptionValuesOverride?: Record<string, string>;
   // 상세페이지 콘텐츠 오버라이드
   descriptionOverride?: string;
   storyParagraphsOverride?: string[];
@@ -216,6 +225,8 @@ interface BatchRegisterBody {
   preventionConfig?: PreventionConfig;
   products: BatchProduct[];
   thirdPartyImageUrls?: string[];
+  /** 대량등록 시 사용자가 고른 전파 대상 채널. 있으면 자동전파(auto flag) 대신 이 목록으로 즉시 전파. */
+  targetChannels?: Channel[];
 }
 
 interface ProductResult {
@@ -471,6 +482,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 인증 매칭 실패 수집 — 등록은 막지 않되 응답에 실어 검수에서 보이게 한다.
+    // (NOT_REQUIRED 로 조용히 등록되면 나중에 눈으로 찾기 어렵다)
+    const certWarnings: { productCode: string; detail: string; allFailed: boolean }[] = [];
+
     // ---- 단일 상품 등록 헬퍼 ----
     async function registerSingleProduct(product: BatchProduct, batchIndex?: number): Promise<ProductResult> {
       const productStart = Date.now();
@@ -550,12 +565,15 @@ export async function POST(req: NextRequest) {
       let detailImageUrls: string[];
       let reviewImageUrls: string[];
       let infoImageUrls: string[];
+      // 원본 상세 설명 이미지 — 본문 교차와 별개로 맨 끝 "상품 상세정보" 섹션에 노출(AllInOne 만 채움).
+      let descriptionImageUrls: string[] = [];
 
       if (product.preUploadedUrls) {
         mainImageUrls = product.preUploadedUrls.mainImageUrls.filter(Boolean);
         detailImageUrls = product.preUploadedUrls.detailImageUrls.filter(Boolean);
         reviewImageUrls = includeReviewImages ? product.preUploadedUrls.reviewImageUrls.filter(Boolean) : [];
         infoImageUrls = product.preUploadedUrls.infoImageUrls.filter(Boolean);
+        descriptionImageUrls = (product.preUploadedUrls.descriptionImageUrls || []).filter(Boolean);
 
         // 세션 복원 후 핸들 유실 시 preUploadedUrls에 detail/review가 빈 배열이지만
         // product.detailImages/reviewImages에 로컬 경로가 남아있을 수 있음 → 서버 업로드 폴백
@@ -703,6 +721,36 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // 5.8 인증(KC 등) grounding — 카테고리 메타가 "요구하는 인증 타입"에 소싱 인증번호를 붙인다.
+      //   타입을 지어내지 않는다(잘못된 타입은 등록 거부). 인증데이터 있는 상품만 메타 조회(호출 절약).
+      try {
+        const normalizedCerts = normalizeCertifications(product.sourceCertifications ?? product.certifications);
+        if (normalizedCerts.length > 0) {
+          const { items: offeredCerts } = await coupangAdapter.getCategoryCertifications(product.categoryCode);
+          const { certs, missing, actionable, unsupported, grounded } = groundCertifications(normalizedCerts, offeredCerts);
+          if (certs.length > 0) {
+            product.certifications = certs;
+            // 체크박스형(번호칸 없음)은 번호가 아니라 '체크'로 들어간 것이므로 로그도 구분한다.
+            console.log(`[batch] 인증 grounding: ${grounded.map((g) => (g.checkboxOnly ? `${g.certificationType}=체크(번호칸없음)` : `${g.certificationType}=${g.code}`)).join(', ')}`);
+          }
+          // 쿠팡에 대응 항목이 없는 인증(HACCP·할랄 등)은 사용자가 조치할 수 없다 →
+          // 사용자 경고로 올리지 않고 로그로만 남긴다(매번 뜨는 못 고치는 경고 방지).
+          if (unsupported.length > 0) {
+            console.log(`[batch] 쿠팡 미제공 인증 ${unsupported.length}건 (조치 불가, 경고 아님): ${unsupported.join(' / ')}`);
+          }
+          // 조치 가능한 누락만 경고 — 전부 실패면 NOT_REQUIRED 로 등록되고 나중에 찾기 어렵다.
+          if (actionable.length > 0) {
+            const detail = `카테고리(${product.categoryCode}) 인증 매칭 실패 ${actionable.length}건: ${actionable.join(' / ')}`;
+            console.warn(`[batch] ${detail}${missing ? ' — 전부 실패, NOT_REQUIRED 로 등록됨' : ''}`);
+            certWarnings.push({ productCode: product.productCode, detail, allFailed: missing });
+          }
+        }
+      } catch (e) {
+        const detail = `인증 grounding 오류: ${e instanceof Error ? e.message : String(e)}`;
+        console.warn(`[batch] ${detail} (NOT_REQUIRED 유지)`);
+        certWarnings.push({ productCode: product.productCode, detail, allFailed: true });
+      }
+
       // 6~9. 공유 빌더로 페이로드 빌드 (옵션 추출, 고시정보, 아이템위너 방지 포함)
       const { payload, extractedOptions } = await buildProductPayload({
         product,
@@ -717,6 +765,8 @@ export async function POST(req: NextRequest) {
         detailImageUrls,
         reviewImageUrls,
         infoImageUrls,
+        descriptionImageUrls,
+        originDescription: product.sourceDescription,
         aiStoryHtml,
         aiStoryParagraphs,
         aiReviewTexts,
@@ -1093,7 +1143,13 @@ export async function POST(req: NextRequest) {
     try {
       const newIds = results.filter((r) => r.success && r.productId).map((r) => r.productId as string);
       if (newIds.length > 0) {
-        await enqueueAutoReplication(serviceClient, shUserId, newIds);
+        // targetChannels 필드가 오면(신 클라이언트) 그 선택이 곧 전파 대상(빈 배열=전파 안 함).
+        // 필드가 없으면(구 클라이언트) 기존 자동전파(설정 기반) 유지 — 하위호환.
+        if (Array.isArray(body.targetChannels)) {
+          await enqueueSelectedReplication(serviceClient, shUserId, newIds, body.targetChannels);
+        } else {
+          await enqueueAutoReplication(serviceClient, shUserId, newIds);
+        }
       }
     } catch (e) {
       console.warn('[batch] inline 자동전파 enqueue 실패(무시, reconcile 보정):', e instanceof Error ? e.message : e);
@@ -1104,6 +1160,7 @@ export async function POST(req: NextRequest) {
       results,
       successCount,
       errorCount,
+      ...(certWarnings.length > 0 ? { certWarnings } : {}),
     });
   } catch (err) {
     void logSystemError({ source: 'megaload/bulk-register/batch', error: err }).catch(() => {});

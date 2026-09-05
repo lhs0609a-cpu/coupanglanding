@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
+import { touchTokenWorkerHeartbeat, localEndpointFromQuery } from '@/lib/megaload/desktop-heartbeat';
 import crypto from 'node:crypto';
 
 export const maxDuration = 30;
@@ -48,9 +49,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ revoked: true });
     }
 
-    // 신규 토큰 발급 (32바이트 → 64자 hex)
-    const token = crypto.randomBytes(32).toString('hex');
     const now = new Date().toISOString();
+
+    // ★ 근본원인 수정 — 발급을 멱등으로.
+    //   과거엔 이 엔드포인트가 누를 때마다 새 토큰을 생성해 DB를 덮어썼다.
+    //   → 실행 중인 도우미 앱이 들고 있던 이전 토큰이 즉시 무효화되어 매 틱 401 무한루프
+    //     ("발급"을 다시 누를수록 악화). 이제 유효한 토큰이 있으면 그대로 돌려줘
+    //     앱 ↔ DB 를 항상 일치시킨다. 진짜 재발급(도난/기기이전)은 action:'revoke' 로
+    //     폐기 후 재발급하거나 action:'rotate' 로 강제 회전.
+    const forceRotate = action === 'rotate';
+    const { data: existing } = await serviceClient
+      .from('megaload_users')
+      .select('desktop_app_token, desktop_app_token_issued_at')
+      .eq('id', shUserId)
+      .single();
+    const existingToken = (existing as { desktop_app_token?: string } | null)?.desktop_app_token || '';
+
+    if (!forceRotate && existingToken.length === 64) {
+      return NextResponse.json({
+        token: existingToken,
+        issuedAt: (existing as { desktop_app_token_issued_at?: string } | null)?.desktop_app_token_issued_at || now,
+        megaloadUserId: shUserId,
+        userEmail: user.email,
+        reused: true,
+        expiresHint: '기존 인증코드를 재사용했습니다. 실행 중인 도우미 앱과 동일한 코드라 재입력 없이 계속 유효합니다.',
+      });
+    }
+
+    // 최초 발급 또는 명시적 rotate — 신규 토큰 생성 (32바이트 → 64자 hex)
+    const token = crypto.randomBytes(32).toString('hex');
 
     const { error } = await serviceClient
       .from('megaload_users')
@@ -68,8 +95,8 @@ export async function POST(request: NextRequest) {
       issuedAt: now,
       megaloadUserId: shUserId,
       userEmail: user.email,
-      // 슬라이딩 만료: 앱이 켜져 있으면 매 검증마다 갱신되어 계속 유효.
-      expiresHint: '도우미 앱이 켜져 있으면 계속 유효합니다. 7일 이상 앱을 실행하지 않은 경우에만 재발급이 필요합니다.',
+      issued: true,
+      expiresHint: '도우미 앱이 켜져 있으면 폐기/재발급 전까지 계속 유효합니다.',
     });
   } catch (err) {
     return NextResponse.json({
@@ -115,12 +142,17 @@ export async function GET(request: NextRequest) {
   }
 
   // 영구 토큰 — 별도 만료 검사 없음. (도난 시 사용자가 web 에서 명시적 폐기.)
-  // heartbeat 만 갱신 — 대시보드 "마지막 접속" 표시용.
+  // heartbeat 갱신 — (1) 대시보드 "마지막 접속"용 컬럼 (2) 좌측 상단 배지가 읽는 워커 하트비트 테이블.
+  //   verifyToken 은 모니터링 매 틱 호출되므로(대상 0개·결과 0건이어도), 토큰 연결의 가장 확실한 생존신호.
   const nowIso = new Date().toISOString();
+  const shUserId = (shUser as { id: string }).id;
   await serviceClient
     .from('megaload_users')
     .update({ desktop_app_last_heartbeat: nowIso })
-    .eq('id', (shUser as { id: string }).id);
+    .eq('id', shUserId);
+  //   ?lport=&lnonce= 로 앱의 로컬 서버 주소도 함께 받는다 — 세션(OAuth) 하트비트가 만료로
+  //   죽어도 웹 올인원이 앱을 찾아 폴더 결과를 직독할 수 있게 하는 이중화 경로.
+  await touchTokenWorkerHeartbeat(serviceClient, shUserId, null, localEndpointFromQuery(url));
 
   return NextResponse.json({
     valid: true,
