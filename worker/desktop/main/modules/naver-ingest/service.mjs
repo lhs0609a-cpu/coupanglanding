@@ -1419,6 +1419,24 @@ let humanBlockedAt = 0;
 const HUMAN_BLOCK_QUIET_MS = 30 * 60 * 1000;
 
 /**
+ * 비밀번호가 거부된 것으로 보인 시각 — **저장을 지우는 대신 이걸 세운다.**
+ * ---------------------------------------------------------------------------
+ * ★ 왜 바꿨나(2026-09-07): 예전에는 badCredential 을 보면 그 자리에서 clearCredentials() 로
+ *   저장된 계정을 **지워 버렸다.** 재시도를 멈춘다는 판단은 옳다(반복 제출은 계정 잠금이다).
+ *   그런데 지우는 것까지 할 이유는 없었다 — 재시도만 멈추면 잠금 위험은 이미 사라진다.
+ *   게다가 그 판정이 오탐이면(로그인 화면의 "아이디 또는 비밀번호 찾기" 링크에도 걸렸다)
+ *   멀쩡한 계정이 소리 없이 사라져, 사용자는 이유도 모른 채 계정을 다시 넣어야 했다.
+ *   되돌릴 수 없는 삭제를, 틀릴 수 있는 판정에 걸어 둔 셈이다.
+ *   → 이제 저장은 그대로 두고 **자동 시도만 멈춘다.** 사람이 버튼을 누르거나 계정을 다시
+ *     저장하면 풀린다. 정말 비밀번호가 틀렸다면 사용자가 고치면 되고, 오탐이었다면
+ *     잃은 것이 없다.
+ */
+let credentialRejectedAt = 0;
+
+/** 비밀번호 거부 상태를 푼다 — 사람이 직접 나선 순간(버튼·재저장)에만 부른다. */
+function clearCredentialRejection() { credentialRejectedAt = 0; }
+
+/**
  * 로그인 실패 백오프 — **캡차를 부르는 건 로그인 시도 그 자체다.**
  * ---------------------------------------------------------------------------
  * 실측 2026-08-28. 세션이 죽어 있는 동안 이런 패턴이 찍혔다:
@@ -1463,20 +1481,30 @@ function noteLoginSuccess() {
 /** 자동 로그인이 가능한 상태인지 — 웹 화면이 버튼을 켤지 말지 판단하는 값. */
 export async function credentialStatus() {
   // 게이트 없음 — 네이버 로그인은 **모든 셀러**가 각자 해야 한다(품절 감시의 전제).
-  return { ...credentialInfo(), encryption: await encryptionAvailable() };
+  return {
+    ...credentialInfo(),
+    encryption: await encryptionAvailable(),
+    // 저장은 살아 있지만 네이버가 거부해 자동 시도를 멈춘 상태 — 화면이 이걸 말해 줘야
+    // 사용자가 "저장은 돼 있는데 왜 로그인이 안 되지"에서 멈추지 않는다.
+    rejected: !!credentialRejectedAt,
+    rejectedAt: credentialRejectedAt || 0,
+  };
 }
 
 export async function saveNaverCredential({ id, pw }) {
   // 게이트 없음 — 네이버 로그인은 **모든 셀러**가 각자 해야 한다(품절 감시의 전제).
   const info = await saveCredentials(id, pw);
+  // 방금 사람이 직접 넣었다 — 이전 거부 판정을 들고 있을 이유가 없다.
+  clearCredentialRejection();
   pushLog(`네이버 계정을 저장했습니다 (${info.idMasked}) — 이제 세션이 끊기면 도우미가 알아서 다시 로그인합니다.`);
   pushStatus();
   // 저장 즉시 한 번 시도한다 — "저장은 됐는데 되는지는 모른다"를 남기지 않는다.
-  return autoLoginNow();
+  return autoLoginNow({ byHuman: true });
 }
 
 export function clearNaverCredential() {
   // 게이트 없음 — 네이버 로그인은 **모든 셀러**가 각자 해야 한다(품절 감시의 전제).
+  clearCredentialRejection();
   clearCredentials();
   pushLog('저장된 네이버 계정을 지웠습니다 — 자동 로그인이 꺼집니다.');
   pushStatus();
@@ -1521,6 +1549,11 @@ export async function ensureNaverLogin() {
 
   if (!hasCredentials()) return { ok: false, reason: 'no-credential' };
   if (autoLoginTask.running) return { ok: false, reason: 'running' };
+  // 네이버가 이미 이 비밀번호를 거부했다 — 같은 값으로 다시 제출하면 계정 잠금으로 간다.
+  //   저장은 지우지 않았으므로(오탐일 수 있다) 사람이 다시 저장하거나 버튼을 누르면 풀린다.
+  if (credentialRejectedAt) {
+    return { ok: false, reason: 'bad-credential', rejectedAt: credentialRejectedAt };
+  }
   // ★ 연속 실패 백오프 — 로그인 시도 자체가 캡차를 부르므로, 실패가 쌓이면 간격을 벌린다.
   //   (사람이 "지금 자동 로그인"을 누르면 autoLoginNow 가 이 값을 푼다.)
   if (Date.now() < loginBackoffUntil) {
@@ -1538,7 +1571,9 @@ export async function ensureNaverLogin() {
 /** 사람이 직접 누른 경우 — 위 조용히-기다리기를 해제하고 간다. */
 export async function autoLoginNow({ byHuman = false } = {}) {
   // 사람이 화면 앞에 있으면 캡차는 막힘이 아니다 — 침묵도 백오프도 푼다.
-  if (byHuman) { humanBlockedAt = 0; noteLoginSuccess(); }
+  //   비밀번호 거부 판정도 함께 푼다. 오탐이었다면 여기서 통과할 것이고, 진짜였다면
+  //   같은 화면을 사람이 직접 보게 되므로 어느 쪽이든 사람이 판단할 수 있다.
+  if (byHuman) { humanBlockedAt = 0; clearCredentialRejection(); noteLoginSuccess(); }
   if (autoLoginTask.running) return { ok: false, reason: 'running' };
   const creds = await loadCredentials();
   if (!creds) return { ok: false, reason: 'no-credential' };
@@ -1606,10 +1641,14 @@ export async function autoLoginNow({ byHuman = false } = {}) {
 
       const ps = await sw.evaluate(loginPageStateJs).catch(() => null);
 
-      // ① 자격증명 오류 — 절대 재시도하지 않는다.
+      // ① 자격증명 오류 — 절대 재시도하지 않는다. 다만 **저장은 지우지 않는다**(위 주석 참고).
       if (ps?.badCredential) {
-        clearCredentials();
-        pushLog('❌ 저장된 네이버 아이디/비밀번호가 맞지 않습니다 — 저장을 지웠습니다. 반복 시도는 계정 잠금 위험이 있어 하지 않습니다. 계정을 다시 저장해 주세요.');
+        credentialRejectedAt = Date.now();
+        pushLog('❌ 네이버가 아이디/비밀번호를 거부했습니다'
+          + (ps.badCredentialFrom ? ` (판정: ${ps.badCredentialFrom})` : '')
+          + ' — 자동 로그인을 멈춥니다. 반복 시도는 계정 잠금 위험이 있습니다.'
+          + ' 저장된 계정은 그대로 두었으니, 비밀번호가 바뀌었다면 다시 저장해 주시고'
+          + ' 맞다고 생각되시면 "지금 네이버 로그인"을 눌러 창에서 확인해 주세요.');
         return finish({ ok: false, reason: 'bad-credential' });
       }
 
@@ -1665,10 +1704,13 @@ export async function autoLoginNow({ byHuman = false } = {}) {
           if (!cur) continue;                       // 페이지 전환 중이면 다음 회차에 다시 본다
 
           // 규칙 ① — 비밀번호 오류면 **여기서 끊는다**. 반복 제출은 계정 잠금이다.
+          //   (저장은 지우지 않는다 — credentialRejectedAt 머리말 참고)
           if (cur.badCredential) {
-            clearCredentials();
-            pushLog('❌ 저장된 네이버 아이디/비밀번호가 맞지 않습니다 — 저장을 지웠습니다. '
-              + '반복 시도는 계정 잠금 위험이 있어 하지 않습니다. 계정을 다시 저장해 주세요.');
+            credentialRejectedAt = Date.now();
+            pushLog('❌ 네이버가 아이디/비밀번호를 거부했습니다'
+              + (cur.badCredentialFrom ? ` (판정: ${cur.badCredentialFrom})` : '')
+              + ' — 자동 로그인을 멈춥니다. 저장된 계정은 그대로 두었습니다.'
+              + ' 비밀번호가 바뀌었다면 다시 저장해 주세요.');
             return finish({ ok: false, reason: 'bad-credential' });
           }
 

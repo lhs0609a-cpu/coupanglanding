@@ -224,6 +224,15 @@ export const loginPageStateJs = `
   const errEl = document.querySelector('.error_message, #err_common, .error_msg, [class*="error_"]');
   const error = ((errEl && errEl.innerText) || '').replace(/\\s+/g, ' ').trim();
   const vis = (e) => !!(e && (e.offsetWidth || e.offsetHeight));
+  /**
+   * 자격증명 오류 문구 — **동사까지 있어야** 오류로 친다.
+   * ⚠️ 예전 판정은 /아이디\\s*또는\\s*비밀번호/ 를 **본문 전체**에서 찾았다. 그 문구는 오류
+   *   메시지 말고도 "아이디 또는 비밀번호 찾기" 같은 안내·링크로 로그인 화면에 그냥 있을 수
+   *   있다. 그러면 비밀번호가 멀쩡한데도 "틀렸다"로 읽혀 저장된 계정이 지워졌고, 사용자는
+   *   영문도 모른 채 계정을 다시 넣어야 했다. 잘못/일치하지/확인 같은 동사를 같은 줄에서
+   *   요구해 그 오탐을 끊는다.
+   */
+  const BAD = /아이디[^\\n]{0,40}또는[^\\n]{0,20}비밀번호[^\\n]{0,30}(잘못|일치하지|확인)|비밀번호가\\s*일치하지|가입되지\\s*않은\\s*아이디/;
   const capEls = [...document.querySelectorAll('#captcha, .captcha, img[src*="captcha"], input#chptcha, [id*="captcha" i]')];
   const idEl = document.querySelector('input#id, input[name="id"]');
   const pwEl = document.querySelector('input#pw, input[name="pw"]');
@@ -245,7 +254,11 @@ export const loginPageStateJs = `
       || text.includes('새로운 기기') || text.includes('기기 등록') || text.includes('일회용 번호')
       || text.includes('2단계 인증') || text.includes('인증번호'),
     // 자격증명 오류 — 재시도 금지 신호.
-    badCredential: /아이디\\s*또는\\s*비밀번호|비밀번호가\\s*일치하지|가입되지\\s*않은/.test(text),
+    // ★ **에러 요소를 먼저 본다.** 바로 위에서 뽑아 두고도 예전엔 판정에 안 쓰고 본문 전체를
+    //   훑었다. 에러 박스가 안 잡힐 때만 본문으로 물러서되, 그때도 위의 엄격한 패턴을 쓴다.
+    badCredential: error ? BAD.test(error) : BAD.test(text),
+    // 어디서 판정했는지 — 오탐을 쫓을 때 이 한 글자가 로그에서 결정적이다.
+    badCredentialFrom: error ? (BAD.test(error) ? 'error' : '') : (BAD.test(text) ? 'body' : ''),
     error: error.slice(0, 200),
     textHead: text.replace(/\\s+/g, ' ').slice(0, 300),
   };

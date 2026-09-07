@@ -110,9 +110,19 @@ const asBool = (v: unknown): boolean | null => {
 export function parseNaverState(input: NaverStateInput | null | undefined) {
   if (!input) return null;
   const loggedIn = asBool(input.loggedIn);
-  if (loggedIn === null) return null;              // 로그인 여부가 없으면 의미가 없다
+  /**
+   * nv='u' = **도우미가 "모른다"고 말한 것**이고, 이건 값을 안 보낸 것과 다르다.
+   * ---------------------------------------------------------------------------
+   * 크롬이 안 떠 있으면 도우미는 쿠키를 못 읽어 로그인 여부를 알 수 없다. 예전 도우미는
+   * 그 "모름"을 '0'(로그아웃)으로 보냈고, 그래서 서버에는 실제 로그아웃과 구분이 안 됐다.
+   * 이제 'u' 로 오면 naver_logged_in 을 NULL 로 적고 naver_checked_at 은 갱신한다
+   * — "확인했는데 알 수 없었다"가 기록으로 남는다.
+   * (아무 값도 안 보내는 구버전은 여전히 null 을 반환해 컬럼을 통째로 안 건드린다.)
+   */
+  const unknown = input.loggedIn === 'u' || input.loggedIn === 'unknown';
+  if (loggedIn === null && !unknown) return null;  // 로그인 여부가 없으면 의미가 없다
   return {
-    loggedIn,
+    loggedIn: unknown ? null : loggedIn,
     persistent: asBool(input.persistent),
     credential: asBool(input.credential),
   };

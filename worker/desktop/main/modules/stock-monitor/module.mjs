@@ -121,7 +121,18 @@ function withLocalEndpoint(ctx, url) {
 function withNaverState(url, login, cred) {
   if (!login) return url;
   const b = (v) => (v ? '1' : '0');
-  return `${url}&nv=${b(login.loggedIn)}&nvp=${b(login.persistent)}&nvc=${b(cred?.has)}`;
+  /**
+   * nv 는 **세 가지 값**을 보낸다: '1'(로그인) · '0'(로그아웃) · 'u'(모름).
+   * ---------------------------------------------------------------------------
+   * ★ 왜 'u' 가 필요한가(2026-09-07): 크롬이 안 떠 있으면 쿠키를 읽을 수 없어서 상태를
+   *   **모른다**. 그런데 예전엔 참/거짓 둘뿐이라 그 "모름"이 '0'(로그아웃)으로 실려 나갔다.
+   *   그래서 서버에는 "로그인 안 한 셀러"와 "확인할 수 없었던 셀러"가 똑같이 찍혔고,
+   *   "우리 사용자들이 지금 로그인을 할 수 있는 상태인가?"라는 가장 중요한 질문에
+   *   데이터로 답할 수가 없었다. 모르는 건 모른다고 보내야 그 질문에 답할 수 있다.
+   * 서버는 'u' 를 NULL 로 기록한다(컬럼이 이미 nullable 이다).
+   */
+  const nv = login.stale && login.aged ? 'u' : b(login.loggedIn);
+  return `${url}&nv=${nv}&nvp=${b(login.persistent)}&nvc=${b(cred?.has)}`;
 }
 
 // ── 인증코드 자동 발급 ───────────────────────────────────────────────

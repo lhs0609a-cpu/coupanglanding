@@ -46,7 +46,11 @@ async function refresh() {
   $('sm-naver-logout').disabled = !nv.loggedIn;
   // 자동 로그인 — 계정이 저장돼 있으면 세션이 끊겨도 알아서 다시 로그인한다.
   const cd = s.naverCredential || {};
+  // ★ "저장은 돼 있는데 자동 로그인이 안 도는" 상태를 반드시 말해 준다. 예전에는 이 경우
+  //   저장을 몰래 지워 버려서 화면이 갑자기 "계정 미저장"으로 바뀌었고, 사용자는 자기가
+  //   지운 적도 없는 계정을 다시 넣어야 했다. 이제 지우지 않는 대신 이유를 적는다.
   $('sm-cred').textContent = !cd.encryption ? '⛔ 이 PC 는 OS 암호저장소를 못 써 저장 불가'
+    : (cd.has && cd.rejected) ? `⚠️ ${cd.idMasked} 저장됨 — 네이버가 거부해 자동 로그인을 멈췄습니다`
     : cd.has ? `✅ ${cd.idMasked} 저장됨 — 자동 로그인 켜짐`
     : '⚪ 계정 미저장 — 로그인이 풀리면 직접 다시 해야 합니다';
   $('sm-cred-save').disabled = !cd.encryption;
