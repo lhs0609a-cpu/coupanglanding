@@ -1533,10 +1533,11 @@ export default function AdminSalesOverviewPage() {
       ];
       for (const ym of [...months].reverse()) {
         const m = r.monthly.get(ym)!;
+        // CSV 에도 실패를 적는다 — 내려받아 보는 사람에게도 빈칸과 실패는 달라야 한다.
         const statusLabel = m.source === 'api'
           ? 'API 잠정'
           : m.source === 'none'
-            ? (m.isEligible ? '미제출' : '-')
+            ? (m.syncError ? `API오류(${m.syncError})` : m.isEligible ? '미제출' : '-')
             : (PAYMENT_STATUS_LABELS[m.status] || m.status);
         cells.push(String(m.revenue), String(m.deposit), statusLabel);
       }
@@ -1571,13 +1572,50 @@ export default function AdminSalesOverviewPage() {
     URL.revokeObjectURL(url);
   };
 
+  /**
+   * 수집 오류를 **사람이 할 일**로 번역한다.
+   * 원문("api: API 요청 실패 (403): Specified key is revoked.")은 그대로는 무엇을 해야
+   * 하는지 알려 주지 않는다. 키 문제는 셀러가 쿠팡 윙에서 직접 재발급해야 풀리므로,
+   * 그 사실이 한눈에 보여야 관리자가 연락을 할 수 있다. 원문은 title 툴팁에 그대로 둔다.
+   */
+  const shortSyncError = (err: string): string => {
+    const e = err.toLowerCase();
+    if (e.includes('revoked')) return '키 폐기됨 — 셀러 재발급 필요';
+    if (e.includes('expired')) return '키 만료됨 — 셀러 재발급 필요';
+    if (e.includes('rate_limited') || e.includes('429')) return '호출 한도 초과 — 자동 재시도';
+    if (e.includes('auth_failed') || e.includes('401') || e.includes('403')) return '인증 실패 — 키 확인 필요';
+    return err.replace(/^api:\s*/i, '').slice(0, 40);
+  };
+
   /** 셀 렌더링 */
   const renderCell = (m: MonthCell, ym: string) => {
     // 직전 마감월 이전(과거 마감월)은 결제 사이클이 끝났어야 하는 달.
     // 진행중월(currentMonth) 이외는 모두 closed 로 본다.
     const isClosedMonth = ym !== currentMonth;
 
+    /**
+     * ⚠️ 여기서 그냥 '-' 로 끝내면 **API 오류가 화면에서 통째로 사라진다**(실측 2026-09-07).
+     * 당월은 isEligible=false 라 이 분기로 오는데, 그 아래 'API 오류' 배지를 그릴 기회가
+     * 영영 없다. 실제로 쿠팡 키가 폐기된 셀러 둘이 31회·26회 실패하는 동안 화면은 빈칸만
+     * 보여 줬고, "왜 매출이 안 뜨지"라는 질문에 화면이 아무 답도 못 했다.
+     * 수집이 **실패한 것**과 **아직 아무 일도 없는 것**은 다르다 — 실패는 반드시 말한다.
+     */
     if (!m.isEligible && m.source === 'none') {
+      if (m.syncError) {
+        return (
+          <div className="flex flex-col items-end gap-0.5">
+            <span
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-50 text-red-700 border border-red-200"
+              title={`쿠팡 API 수집 실패 — ${m.syncError}`}
+            >
+              ⚠️ API 오류
+            </span>
+            <span className="text-[9px] text-red-500 max-w-[130px] truncate" title={m.syncError}>
+              {shortSyncError(m.syncError)}
+            </span>
+          </div>
+        );
+      }
       return <span className="text-xs text-gray-300">-</span>;
     }
     if (m.source === 'none') {

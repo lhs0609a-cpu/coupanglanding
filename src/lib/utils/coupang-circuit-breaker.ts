@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { createNotification } from '@/lib/utils/notifications';
 
 /**
  * Coupang API circuit breaker
@@ -18,10 +19,22 @@ const IP_BLOCK_PATTERNS = [
   'forbidden',
 ];
 
+/**
+ * 인증 실패 — **키를 다시 발급받아야 풀리는** 상태. 재시도로는 절대 안 풀린다.
+ * ⚠️ 'revoked' / 'expired' 가 빠져 있었다(실측 2026-09-07). 쿠팡이 돌려주는
+ *   "(403) Specified key is revoked." 와 "(401) Hmac key is expired." 중 앞엣것이
+ *   어느 패턴에도 안 맞아 transient(1시간 뒤 재시도)로 떨어졌고, 그래서 셀러 한 명당
+ *   오류가 31회·26회까지 쌓이도록 매시간 헛되이 두드렸다. 키가 폐기된 계정은
+ *   1억 번을 불러도 같은 답이 온다 — 사람이 재발급해야 끝난다.
+ */
 const AUTH_FAIL_PATTERNS = [
   'invalid access key',
   'unauthorized',
   '401',
+  'revoked',
+  'expired',
+  'invalid signature',
+  'hmac',
 ];
 
 export type BlockReason = 'ip_blocked' | 'auth_failed' | 'transient' | null;
@@ -65,11 +78,16 @@ export async function recordCoupangApiFailure(
   // 현재 카운트 조회 후 +1
   const { data: cur } = await serviceClient
     .from('pt_users')
-    .select('coupang_api_error_count')
+    .select('coupang_api_error_count, coupang_api_last_error, profile_id')
     .eq('id', ptUserId)
     .single();
 
-  const newCount = ((cur?.coupang_api_error_count as number | undefined) || 0) + 1;
+  const prev = cur as {
+    coupang_api_error_count?: number;
+    coupang_api_last_error?: string | null;
+    profile_id?: string | null;
+  } | null;
+  const newCount = (prev?.coupang_api_error_count || 0) + 1;
 
   await serviceClient
     .from('pt_users')
@@ -79,6 +97,36 @@ export async function recordCoupangApiFailure(
       coupang_api_last_error: `${ERROR_LABEL[reason]} (${errorMessage.slice(0, 200)})`.slice(0, 500),
     })
     .eq('id', ptUserId);
+
+  /**
+   * 키를 다시 발급해야만 풀리는 상태면 **셀러 본인에게 알린다.**
+   * ---------------------------------------------------------------------------
+   * ★ 왜 필요한가(실측 2026-09-07): 키가 폐기된 셀러 둘의 매출이 7월부터 안 잡히고 있었는데,
+   *   화면은 빈칸만 보여 주고 아무에게도 알리지 않았다. 셀러는 자기 매출이 안 잡히는 줄
+   *   몰랐고, 관리자는 "왜 매출이 안 뜨지"에서 멈췄다. 재발급은 **셀러만 할 수 있는 일**이라
+   *   본인에게 닿지 않으면 영원히 안 풀린다.
+   * ★ 한 사건에 한 번만 보낸다. 이전 오류가 이미 같은 인증 실패면 보내지 않는다 —
+   *   매시간 같은 알림이 쌓이면 아무도 안 읽는다. 성공하면 clearCoupangApiBlock 이
+   *   last_error 를 지우므로, 다음에 또 끊기면 그때 다시 한 번 간다.
+   * ★ 알림 실패가 차단 기록을 되돌리지는 않는다(위 update 는 이미 끝났다).
+   */
+  if (reason === 'auth_failed' && prev?.profile_id) {
+    const alreadyNotified = (prev.coupang_api_last_error || '').includes(ERROR_LABEL.auth_failed);
+    if (!alreadyNotified) {
+      try {
+        await createNotification(serviceClient, {
+          userId: prev.profile_id,
+          type: 'system',
+          title: '쿠팡 API 키를 다시 발급해 주세요',
+          message:
+            '쿠팡에서 API 키가 더 이상 유효하지 않다고 응답하고 있어 매출 자동 수집이 멈췄습니다. '
+            + '쿠팡 윙 → 판매자정보(추가판매정보)에서 OPEN API 키를 다시 발급받아 메가로드에 등록해 주세요. '
+            + '등록하시면 자동으로 다시 수집됩니다.',
+          link: '/my/settings',
+        });
+      } catch { /* 알림 실패가 차단 기록을 무르게 하지 않는다 */ }
+    }
+  }
 }
 
 /**
