@@ -42,7 +42,36 @@ const NAVER_FETCH_TIMEOUT_MS = 25000;
 const NAVER_MAX_REDIRECTS = 5;
 const NAVER_MAX_HTML_BYTES = 500_000;
 
-function fetchNaverUrl(targetUrl, redirectCount = 0) {
+/** 이미지 상한 — 상세컷은 500KB 를 넘는 일이 흔하다(HTML 상한으로는 잘린다). */
+const NAVER_MAX_IMAGE_BYTES = 10_000_000;
+
+/**
+ * 이미지 요청용 헤더 — 문서 탐색(document/navigate)이 아니라 이미지 로드로 보이게 한다.
+ * 페이지 헤더 그대로 이미지를 받으면 "문서를 여는 척하며 jpg 를 받는" 모양이라 굳이 티가 난다.
+ */
+const NAVER_IMAGE_HEADERS = {
+  ...NAVER_BROWSER_HEADERS,
+  Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+  'Sec-Fetch-Dest': 'image',
+  'Sec-Fetch-Mode': 'no-cors',
+  'Sec-Fetch-Site': 'same-site',
+  Referer: 'https://smartstore.naver.com/',
+};
+delete NAVER_IMAGE_HEADERS['Sec-Fetch-User'];
+delete NAVER_IMAGE_HEADERS['Upgrade-Insecure-Requests'];
+
+/**
+ * 네이버로 GET 한 번 — **바이트 그대로** 돌려준다.
+ * ---------------------------------------------------------------------------
+ * ★ 왜 생겼나(2026-09-08): fetchNaverUrl 은 받은 것을 toString('utf8') 해서 돌려준다.
+ *   HTML 에는 맞지만 이미지에는 치명적이다 — 바이너리가 문자열로 바뀌며 깨진다
+ *   (실측: 17,832바이트 jpg 가 16,891자로 나왔다). 게다가 상한이 500KB 라 상세컷이 잘린다.
+ *   그래서 "바이트를 바이트로" 가져오는 길을 따로 낸다. 기존 fetchNaverUrl 은 이 함수를
+ *   감싸는 얇은 껍데기가 되므로 동작이 달라지지 않는다.
+ */
+function fetchNaverRaw(targetUrl, opts = {}, redirectCount = 0) {
+  const maxBytes = opts.maxBytes || NAVER_MAX_HTML_BYTES;
+  const headers = opts.headers || NAVER_BROWSER_HEADERS;
   return new Promise((resolve, reject) => {
     let parsed;
     try {
@@ -57,11 +86,10 @@ function fetchNaverUrl(targetUrl, redirectCount = 0) {
       port: parsed.port || 443,
       path: parsed.pathname + parsed.search,
       method: 'GET',
-      headers: { ...NAVER_BROWSER_HEADERS, Host: parsed.hostname },
+      headers: { ...headers, Host: parsed.hostname },
     };
 
     const req = https.request(options, (res) => {
-      // 리다이렉트 처리
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
         res.resume();
         if (redirectCount >= NAVER_MAX_REDIRECTS) {
@@ -69,11 +97,10 @@ function fetchNaverUrl(targetUrl, redirectCount = 0) {
           return;
         }
         const nextUrl = new URL(res.headers.location, targetUrl).toString();
-        fetchNaverUrl(nextUrl, redirectCount + 1).then(resolve, reject);
+        fetchNaverRaw(nextUrl, opts, redirectCount + 1).then(resolve, reject);
         return;
       }
 
-      // 인코딩 디코더 파이프
       const encoding = (res.headers['content-encoding'] || '').toLowerCase();
       let stream = res;
       if (encoding === 'gzip') stream = res.pipe(zlib.createGunzip());
@@ -85,10 +112,10 @@ function fetchNaverUrl(targetUrl, redirectCount = 0) {
       let truncated = false;
       stream.on('data', (chunk) => {
         if (truncated) return;
-        if (bytes + chunk.length > NAVER_MAX_HTML_BYTES) {
-          chunks.push(chunk.slice(0, NAVER_MAX_HTML_BYTES - bytes));
+        if (bytes + chunk.length > maxBytes) {
+          chunks.push(chunk.slice(0, maxBytes - bytes));
           truncated = true;
-          bytes = NAVER_MAX_HTML_BYTES;
+          bytes = maxBytes;
           res.destroy();
           return;
         }
@@ -98,7 +125,8 @@ function fetchNaverUrl(targetUrl, redirectCount = 0) {
       stream.on('end', () => {
         resolve({
           statusCode: res.statusCode,
-          html: Buffer.concat(chunks).toString('utf8'),
+          buffer: Buffer.concat(chunks),
+          contentType: res.headers['content-type'] || '',
           truncated,
         });
       });
@@ -113,6 +141,20 @@ function fetchNaverUrl(targetUrl, redirectCount = 0) {
     req.end();
   });
 }
+
+/**
+ * 기존 계약 그대로 — HTML 문자열을 돌려준다. 내부만 fetchNaverRaw 로 옮겼다.
+ * (품절 동기화가 이 함수를 쓰므로 반환 모양·상한·헤더를 바꾸지 않는다)
+ */
+async function fetchNaverUrl(targetUrl, redirectCount = 0) {
+  const r = await fetchNaverRaw(
+    targetUrl,
+    { maxBytes: NAVER_MAX_HTML_BYTES, headers: NAVER_BROWSER_HEADERS },
+    redirectCount,
+  );
+  return { statusCode: r.statusCode, html: r.buffer.toString('utf8'), truncated: r.truncated };
+}
+
 
 async function readRequestBody(req) {
   return new Promise((resolve, reject) => {
@@ -230,6 +272,90 @@ const server = http.createServer(async (req, res) => {
   if (PROXY_SECRET && proxySecret !== PROXY_SECRET) {
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Invalid proxy secret' }));
+    return;
+  }
+
+  /**
+   * ── /naver-image: 네이버 CDN 이미지를 **바이트 그대로** 중계 ──
+   * ---------------------------------------------------------------------------
+   * 왜 필요한가: 네이버는 Vercel IP 를 403 으로 막는다(그래서 이 프록시가 있다).
+   * 소싱 카탈로그에서 고른 상품을 GPU·도우미 없이 서버에서 바로 등록하려면
+   * 이미지 원본을 서버가 손에 넣어야 하는데, /naver-check 는 응답을 utf8 문자열로
+   * 바꾸므로 이미지가 깨지고(실측: 17,832B → 16,891자) 상한 500KB 에서 잘린다.
+   *
+   * 응답은 base64 가 아니라 **바이너리 그대로** 돌려준다 — 33% 부풀리기와
+   * 인코딩/디코딩 왕복이 통째로 없어진다. 호출측은 arrayBuffer() 로 받으면 된다.
+   * 원본 상태코드는 X-Naver-Status 헤더로 따로 알린다(중계 성공 ≠ 네이버 성공).
+   *
+   * ⚠️ 오픈 프록시가 되지 않도록 **호스트 화이트리스트 필수**. 시크릿이 있어도
+   *    임의 URL 을 대신 받아 주는 창구를 열어 두지 않는다(/fwd 와 같은 원칙).
+   */
+  if (req.url === '/naver-image' && req.method === 'POST') {
+    const IMG_ALLOWED_HOST_SUFFIXES = ['.pstatic.net', '.naver.net', '.naver.com'];
+    try {
+      const rawBody = await readRequestBody(req);
+      let payload;
+      try {
+        payload = JSON.parse(rawBody);
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+        return;
+      }
+
+      const targetUrl = payload && typeof payload.url === 'string' ? payload.url : '';
+      let parsedTarget;
+      try {
+        parsedTarget = new URL(targetUrl);
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'url (http/https) is required' }));
+        return;
+      }
+      if (parsedTarget.protocol !== 'https:') {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'https only' }));
+        return;
+      }
+      const host = parsedTarget.hostname.toLowerCase();
+      if (!IMG_ALLOWED_HOST_SUFFIXES.some((s) => host.endsWith(s))) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'host not allowed: ' + host }));
+        return;
+      }
+
+      const startTime = Date.now();
+      const result = await fetchNaverRaw(targetUrl, {
+        maxBytes: NAVER_MAX_IMAGE_BYTES,
+        headers: NAVER_IMAGE_HEADERS,
+      });
+      const duration = Date.now() - startTime;
+      console.log(`[${new Date().toISOString()}] NAVER-IMG ${targetUrl.slice(0, 80)} → ${result.statusCode}`
+        + ` (${duration}ms, ${result.buffer.length}B${result.truncated ? ' TRUNC' : ''})`);
+
+      if (result.statusCode !== 200) {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'naver returned ' + result.statusCode, statusCode: result.statusCode }));
+        return;
+      }
+      // 잘린 이미지는 성공으로 넘기지 않는다 — 깨진 jpg 를 쿠팡에 올리는 것이 더 나쁘다.
+      if (result.truncated) {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'image too large (> ' + NAVER_MAX_IMAGE_BYTES + ' bytes)' }));
+        return;
+      }
+
+      res.writeHead(200, {
+        'Content-Type': result.contentType || 'application/octet-stream',
+        'Content-Length': result.buffer.length,
+        'X-Naver-Status': String(result.statusCode),
+      });
+      res.end(result.buffer);
+    } catch (err) {
+      console.error(`[${new Date().toISOString()}] NAVER-IMG ERROR:`, err.message);
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'naver image fetch failed: ' + err.message }));
+    }
     return;
   }
 
