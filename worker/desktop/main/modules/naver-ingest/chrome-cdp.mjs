@@ -117,7 +117,9 @@ export class ChromeBrowser {
       try { this.onExit?.(); } catch { /* 통지 실패가 종료를 되돌리지는 않는다 */ }
     });
 
-    await sleep(1200);
+    // 실행 실패로 자식 프로세스가 없어져도 시작 결과를 반드시 반환해야 한다.
+    // 백그라운드용 unref 타이머는 이 대기 중 Node 종료를 허용한다.
+    await new Promise((resolve) => setTimeout(resolve, 1200));
     let v;
     try {
       v = await this.send('Browser.getVersion', {}, undefined, 30000);
