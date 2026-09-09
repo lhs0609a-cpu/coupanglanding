@@ -11,20 +11,26 @@ import naverGate from '../../naver-gate.mjs';
 import { probeJs } from './inject.mjs';
 
 const MAX_ATTEMPTS = 6;
-const sleep = (ms) => new Promise((r) => { const t = setTimeout(r, ms); if (t?.unref) t.unref(); });
+import { setTimeout as sleep } from 'node:timers/promises';
 
 /** 스토어 ID 자리에 오면 안 되는 값 — 목록에서 딸려오는 수집 노이즈다. */
 const BAD_STORE_IDS = new Set(['search', 'products', 'category', 'best', 'new', 'sale', 'event']);
 
 export function parseProductUrl(url) {
-  const productCode = (String(url).match(/\/products\/(\d+)/) || [])[1] || null;
+  let parsed;
+  try { parsed = new URL(url); } catch { return { ok: false, error: '상품 URL 이 아닙니다' }; }
+  if (parsed.protocol !== 'https:' || !['smartstore.naver.com', 'brand.naver.com'].includes(parsed.hostname)) {
+    return { ok: false, error: '지원하지 않는 상품 URL 입니다' };
+  }
+  const match = parsed.pathname.match(/^\/([^/]+)\/products\/(\d+)\/?$/);
+  const productCode = match?.[2] || null;
   if (!productCode) return { ok: false, error: '상품 URL 이 아닙니다' };
-  const storeId = (String(url).match(/(?:smartstore|brand)\.naver\.com\/([^/]+)/) || [])[1] || null;
+  const storeId = match[1];
   // 'main' 은 리다이렉트용 URL 이라 허용해야 한다.
   if (storeId && storeId !== 'main' && BAD_STORE_IDS.has(storeId)) {
     return { ok: false, error: `잘못된 스토어 ID: ${storeId}` };
   }
-  const urlType = url.includes('brand.naver.com') ? 'brand' : 'smartstore';
+  const urlType = parsed.hostname === 'brand.naver.com' ? 'brand' : 'smartstore';
   return { ok: true, productCode, storeId, urlType };
 }
 
@@ -33,7 +39,7 @@ export function parseProductUrl(url) {
  * 창을 화면에 띄우고, 관리자가 풀어서 캡차 화면을 벗어나면 자동으로 이어간다.
  * 무인 배치에서는 waitMs 를 짧게 줘서 그냥 포기하고 다음 잡으로 넘어가게 한다.
  */
-async function waitForCaptchaCleared(sw, { waitMs, onLog, onCaptcha }) {
+async function waitForCaptchaCleared(sw, { waitMs, onLog, onCaptcha, signal }) {
   sw.status = 'captcha';
   onLog?.(`⚠️ 창 ${sw.index + 1} — 캡차가 떴습니다. 창에서 직접 풀어주세요 (자동으로 이어집니다)`);
   onCaptcha?.(sw.index);
@@ -43,7 +49,7 @@ async function waitForCaptchaCleared(sw, { waitMs, onLog, onCaptcha }) {
   await sw.show();
   const deadline = Date.now() + waitMs;
   while (Date.now() < deadline) {
-    await sleep(3000);
+    await sleep(Math.min(3000, Math.max(0, deadline - Date.now())), undefined, { signal });
     const d = await sw.detect();
     if (!d.captcha) {
       onLog?.(`✅ 창 ${sw.index + 1} — 캡차 통과, 계속합니다`);
@@ -64,6 +70,32 @@ async function waitForCaptchaCleared(sw, { waitMs, onLog, onCaptcha }) {
  *   opts.captchaWaitMs: 캡차를 사람이 풀 때까지 기다릴 시간. 0 이면 즉시 포기.
  */
 export async function openProduct(sw, url, opts = {}) {
+  const controller = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 240_000;
+  const signal = opts.signal ? AbortSignal.any([opts.signal, controller.signal]) : controller.signal;
+  let onAbort;
+  const timer = setTimeout(() => controller.abort(new Error(`시간 초과(${Math.round(timeoutMs / 1000)}초)`)), timeoutMs);
+  try {
+    signal.throwIfAborted();
+    const cancelled = new Promise((_, reject) => {
+      onAbort = () => {
+        // 진행 중인 페이지 fetch 도 끝낸다. 늦게 도착한 응답을 다음 상품이 읽으면 안 된다.
+        sw.close?.();
+        reject(signal.reason);
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+    return await Promise.race([openProductLoop(sw, url, { ...opts, signal }), cancelled]);
+  } catch (e) {
+    return { ok: false, error: opts.signal?.aborted ? 'aborted' : String(e?.message || e), retryable: !opts.signal?.aborted };
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+    if (sw.status !== 'closed') sw.status = 'idle';
+  }
+}
+
+async function openProductLoop(sw, url, opts) {
   const {
     extract = probeJs,
     captchaWaitMs = 180_000,
@@ -93,50 +125,58 @@ export async function openProduct(sw, url, opts = {}) {
         retryable: true,
       };
     }
-    await naverGate.waitCooldown(signal);
+    // 탭을 실제로 얻은 뒤, 재시도까지 매 요청마다 예산을 받는다.
+    await naverGate.acquire('ingest', { signal });
+    signal.throwIfAborted();
 
     // ── 이동 (클릭) ─────────────────────────────────────────
     sw.status = 'working';
     sw.detail = parsed.productCode;
     const nav = await sw.gotoViaClick(url, { timeoutMs: url.includes('/main/products/') ? 20000 : 15000 });
-    if (!nav.ok && !sw.url.includes('/products/')) {
+    signal.throwIfAborted();
+    if (!nav.ok || parseProductUrl(sw.url).productCode !== parsed.productCode) {
       lastError = nav.error || 'navigation failed';
       naverGate.recordFailure();
-      await sleep(2000 + Math.random() * 1500);
+      await sleep(2000 + Math.random() * 1500, undefined, { signal });
       continue;
     }
 
     // ── 판정 (캡차 먼저!) ───────────────────────────────────
     const det = await sw.detect();
+    signal.throwIfAborted();
     if (det.captcha) {
       // 캡차 대기도 전체 상한 안에서만 한다 — 남은 시간이 없으면 기다리지 않고 실패로 끝낸다.
       const waitMs = Math.min(captchaWaitMs, Math.max(0, deadline - Date.now()));
       const cleared = waitMs > 0
-        ? await waitForCaptchaCleared(sw, { waitMs, onLog, onCaptcha })
+        ? await waitForCaptchaCleared(sw, { waitMs, onLog, onCaptcha, signal })
         : false;
       if (!cleared) {
         lastError = 'CAPTCHA';
         // 캡차는 차단이 아니다 — 쿨다운을 걸지 않는다. 다만 속도는 한 단계 낮춘다.
         naverGate.recordFailure();
-        continue;
+        return { ok: false, error: lastError, retryable: false, captcha: true };
       }
+    } else if (det.loginRequired) {
+      return { ok: false, error: 'LOGIN_REQUIRED', retryable: false, loginRequired: true };
     } else if (det.blocked) {
       sawBlock = true;
       const ms = naverGate.triggerCooldown(det.is429);
       onLog(`🔴 차단 감지${det.is429 ? '(429)' : ''} — ${Math.round(ms / 1000)}초 동안 전체 정지`);
       lastError = 'BLOCKED_PAGE';
-      continue;
+      return { ok: false, error: lastError, retryable: true, blocked: true };
     }
 
     // ── 사람처럼 굴기 → 추출 ────────────────────────────────
     await sw.humanize();
+    signal.throwIfAborted();
     let data = null;
     try {
       data = await sw.evaluate(extract);
+      signal.throwIfAborted();
     } catch (e) {
       lastError = `추출 실패: ${e.message}`;
       naverGate.recordFailure();
-      await sleep(2000 + Math.random() * 1500);
+      await sleep(2000 + Math.random() * 1500, undefined, { signal });
       continue;
     }
 
@@ -163,6 +203,8 @@ export async function openProduct(sw, url, opts = {}) {
        * 답은 어차피 같고, 물러나면 240초도 함께 아낀다(큐가 다음 주기에 다시 집는다).
        */
       const apiStatus = Number(data.status) || 0;
+      if ([400, 404, 410].includes(apiStatus)) return { ok: false, error: lastError, retryable: false, apiStatus };
+      if (apiStatus === 401) return { ok: false, error: lastError, retryable: false, loginRequired: true, apiStatus };
       if (apiStatus === 419 || apiStatus === 429 || apiStatus === 418) {
         sawBlock = true;
         const ms = naverGate.triggerCooldown(apiStatus === 429);
@@ -174,7 +216,7 @@ export async function openProduct(sw, url, opts = {}) {
       }
 
       naverGate.recordFailure();
-      await sleep(2000);
+      await sleep(2000, undefined, { signal });
       continue;
     }
 
@@ -182,7 +224,7 @@ export async function openProduct(sw, url, opts = {}) {
     if (!data?.name || data.name === 'NAVER' || data.name === 'Unknown') {
       lastError = `유효하지 않은 상품명(${data?.name || '없음'}) — 페이지가 덜 로드됨`;
       naverGate.recordFailure();
-      await sleep(2000);
+      await sleep(2000, undefined, { signal });
       continue;
     }
 
@@ -212,6 +254,7 @@ export async function openProduct(sw, url, opts = {}) {
  * 중복 검사는 **이 함수 밖에서** 끝내고 들어와야 한다(예산 낭비 방지).
  */
 export async function runOne(pool, url, opts = {}) {
-  await naverGate.acquire('ingest', { signal: opts.signal });
-  return pool.withWindow('detail', (sw) => openProduct(sw, url, opts));
+  const parsed = parseProductUrl(url);
+  if (!parsed.ok) return { ok: false, error: parsed.error, retryable: false };
+  return pool.withWindow('detail', (sw) => openProduct(sw, url, opts), { signal: opts.signal });
 }

@@ -122,7 +122,7 @@ export async function GET(request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url);
-  const limit = Math.min(CLAIM_LIMIT, Math.max(1, Number(searchParams.get('limit') || '3')));
+  const limit = Math.min(CLAIM_LIMIT, Math.max(1, Math.floor(Number(searchParams.get('limit'))) || 3));
   // 미수집분까지 채울지 — 아무도 원하지 않는 상품까지 뽑는 판단이라 **관리자만** 할 수 있다.
   const includeIdle = isAdmin && searchParams.get('idle') === '1';
 
@@ -155,13 +155,21 @@ export async function GET(request: NextRequest) {
   if (dead.length) {
     await service.from('sh_naver_sourcing_products')
       .update({ detail_status: 'failed', detail_at: new Date().toISOString() })
-      .in('id', dead.map((r) => r.id));
+      .in('id', dead.map((r) => r.id))
+      .in('detail_status', statuses);
   }
   const jobs = candidates.filter((r) => isDetailExtractable(r.url)).slice(0, limit);
   if (jobs.length) {
-    await service.from('sh_naver_sourcing_products')
+    let claim = service.from('sh_naver_sourcing_products')
       .update({ detail_status: 'running', detail_at: new Date().toISOString() })
-      .in('id', jobs.map((j) => j.id));
+      .in('id', jobs.map((j) => j.id))
+      .in('detail_status', statuses);
+    if (!isAdmin) claim = claim.eq('detail_requested_by', myUserId);
+    const { data: claimed, error: claimError } = await claim.select('id, product_no, url, title');
+    if (claimError) return NextResponse.json({ error: claimError.message }, { status: 500 });
+    // UPDATE 시점까지 요청 상태였던 행만 소유한다. 다른 PC 가 먼저 집은 행은 반환하지 않는다.
+    const ids = new Set((claimed || []).map((row) => row.id));
+    return NextResponse.json({ jobs: jobs.filter((job) => ids.has(job.id)) });
   }
 
   return NextResponse.json({ jobs });

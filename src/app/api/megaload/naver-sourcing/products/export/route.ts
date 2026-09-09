@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     title: string; price: number; thumb: string | null;
     naver_category_id: string | null; category_path: string | null;
     detail_status: string;
-    detail: { options?: unknown[]; detailText?: string; notice?: unknown; brand?: string; categoryPath?: string; categoryId?: string } | null;
+    detail: { options?: unknown[]; detailText?: string; reviewTexts?: Array<{ text: string; score: number; best: boolean }>; notice?: unknown; brand?: string; categoryPath?: string; categoryId?: string } | null;
     images: { main?: string[]; detail?: string[]; review?: string[] } | null;
   };
 
@@ -68,6 +68,7 @@ export async function POST(request: NextRequest) {
     categoryId: r.detail?.categoryId || r.naver_category_id || '',
     options: r.detail?.options ?? [],
     detailText: r.detail?.detailText || '',
+    reviewTexts: r.detail?.reviewTexts || [],
     notice: r.detail?.notice ?? null,
     images: {
       main: r.images?.main?.length ? r.images.main : (r.thumb ? [r.thumb] : []),

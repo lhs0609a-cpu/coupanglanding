@@ -85,7 +85,7 @@ export default {
     'naver-ingest:credentials': () => svc.credentialStatus(),
     'naver-ingest:credentials-save': (_ctx, { id, pw } = {}) => svc.saveNaverCredential({ id, pw }),
     'naver-ingest:credentials-clear': () => svc.clearNaverCredential(),
-    'naver-ingest:login-auto': () => svc.autoLoginNow({ byHuman: true }),
+    'naver-ingest:login-auto': () => svc.requestAutoLogin(),
     'naver-ingest:detail': (_ctx, payload = {}) => svc.startDetailExtract(payload),
     'naver-ingest:detail-stop': () => svc.stopDetailExtract(),
     'naver-ingest:detail-state': () => svc.getDetailState(),

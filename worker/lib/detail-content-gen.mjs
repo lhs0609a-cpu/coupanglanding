@@ -1,12 +1,12 @@
 /**
- * 완벽 상세페이지 생성 (로컬 LLM) — "한 번 호출 = 완벽한 결과" 보장.
+ * 상세페이지 생성: 원본 근거 검증과 제한된 재시도, 실패 시 원문 기반 초안.
  * ---------------------------------------------------------------------------
  * 전략: 생성 → 자동 검증(카테고리 정합·순한국어·SEO·구매욕 구조·금지어·반복·길이)
  *       → 실패 시 "직전 문제"를 교정 지시로 주입해 재생성. 통과할 때까지(최대 maxAttempts).
  * 호출자(runContent / 오프라인 16k 사전생성)는 이 함수만 부르면 된다.
  */
 
-import { generate } from './local-llm.mjs';
+import { generate, parseJsonLoose } from './local-llm.mjs';
 import { buildDetailPrompt, pickPersona, categoryKind, leafForms, specTokens } from './ai-prompts.mjs';
 
 // 카테고리에 맞지 않는 감각 표현 = 환각(실측: 발아현미에 "과즙 같은 촉촉함"·"베어 물면 아삭",
@@ -490,21 +490,7 @@ export function repairDetail(text, { leaf, categoryPath = '', seoKeywords = [] }
     t = t.replace(/\*\*(.*?)\*\*/g, '$1').replace(/__(.*?)__/g, '$1').replace(/\*\*|__/g, '');
     fixed.push('강조기호 제거');
   }
-  // ④ SEO 검색 키워드 보강 — 부족한 키워드를 마무리 한 줄로 자연스럽게 넣는다.
-  //    본문을 다시 쓰지 않고 문장 하나를 더한다(검증 기준은 "2개 이상 등장").
-  const kws = (seoKeywords || []).filter((k) => typeof k === 'string' && k.trim().length >= 2).slice(0, 4);
-  if (kws.length >= 2) {
-    const flat = t.replace(/\s/g, '');
-    const missing = kws.filter((k) => !flat.includes(k.trim().replace(/\s/g, '')));
-    const have = kws.length - missing.length;
-    if (have < 2) {
-      const need = missing.slice(0, 2 - have);
-      if (need.length) {
-        t = `${t.replace(/\s+$/, '')}\n\n${need.join(', ')} 찾으시는 분들께도 잘 맞을 거예요.`;
-        fixed.push(`검색 키워드 보강(${need.join(', ')})`);
-      }
-    }
-  }
+  // 생성된 검색어를 맞추려고 근거 없는 추천 문장을 덧붙이지 않는다.
   // ⑤ 제목줄 제거 — 모델이 첫 줄에 "상품명 + 후기" 같은 제목을 단다(실측: "기능성 쌀 혼합곡
   //    18곡 4kg 후기"). 상세페이지 본문에 제목은 필요 없고, 상품명이 통째로 박히면 비문이다.
   {
@@ -568,6 +554,19 @@ export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = []
   const soft = [];
   const t = String(text || '');
   const book = isBookCategory(categoryPath);
+  if (/써\s*보니|먹어\s*보니|받아\s*보니|구매했|재구매했|제가\s*(?:직접|사용|먹|써)/.test(t)) {
+    issues.push('직접 구매·사용한 경험을 지어내지 말고, 확인된 특징과 선택 기준으로 설명해라.');
+  }
+  if (/완벽(?:한|합니다|해요)|(?:신선|품질|성능|효과)[^.!?\n]{0,40}보장/.test(t)) {
+    issues.push('완벽함이나 품질·효과 보장을 단정하지 말고 확인된 특징만 설명해라.');
+  }
+  // 생성된 SEO 키워드는 근거가 아니다. 원본 자료에 없는 감각·인기도를 새로 붙이지 않는다.
+  if (vocab) {
+    const claims = ['달콤', '부드러운', '아삭', '유명', '인기가 많', '무향', '방수', '밀폐', '내열',
+      '신선', '맛있', '맛을', '안전', '견고', '손상', '보관', '품질이 뛰어', '만족'];
+    const unsupported = claims.filter((claim) => t.includes(claim) && !vocab.includes(claim));
+    if (unsupported.length) issues.push(`원본 근거에 없는 특징(${unsupported.join(', ')})을 빼고 옵션·구성·포장 정보로 설명해라.`);
+  }
   const foreignBook = isForeignBook(categoryPath);
 
   if (/[一-鿿]/.test(t)) issues.push('한자(漢字)가 섞였다. 순한국어로만 다시 써라.');
@@ -631,14 +630,14 @@ export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = []
     const flat = t.replace(/\s/g, '');
     const inText = kws.filter((k) => flat.includes(k.trim().replace(/\s/g, '')));
     if (inText.length < 2) {
-      issues.push(`SEO: 검색 키워드(${kws.join(', ')}) 중 최소 2개를 본문에 자연스럽게 녹여라(현재 ${inText.length}개).`);
+      soft.push(`SEO: 검색 키워드(${kws.join(', ')}) 중 원본에 맞는 표현을 자연스럽게 활용해라(현재 ${inText.length}개).`);
     }
   }
 
   const compact = t.replace(/\s/g, '').length;
-  // 목표는 600~1200자. 예전 하한(480)은 목표보다 낮아 "짧은 글"이 그냥 통과했다 → 550 으로 올림
-  //   (600 정확히 걸면 경계에서 재생성이 잦아 느려진다 — 목표 근처까지만 강제).
-  if (compact < 550) issues.push('SEO: 본문이 너무 짧다. 공백 제외 600자 이상으로 후기톤·불릿 포함해 더 풍부하게 작성하라.');
+  // 원본 정보가 적은 상품에 긴 분량을 강제하면 반복과 허구 설명이 늘어난다.
+  // 근거 검증은 별도로 유지하고, 짧은 구조화 설명을 허용한다.
+  if (compact < 300) issues.push('본문이 너무 짧다. 확인된 옵션·구성·포장 정보를 설명해 공백 제외 350자 이상으로 작성하라.');
   if (compact > 1700) issues.push('본문이 너무 길다. 1200자 내외로 핵심만.');
   if (/\*\*|__/.test(t)) issues.push('마크다운 강조기호(**, __)를 쓰지 마라. 기호 없이 문장으로 강조하라.');
   // 카테고리 경로 문자열이 본문에 그대로 박히는 비문 차단("식품 신선식품 과일류 과일 중에서도…")
@@ -655,6 +654,7 @@ export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = []
   //    훑어 읽히므로 스캔 가능한 불릿이 없으면 전환이 안 된다.
   if (bullets < 2) issues.push(`핵심 장점 불릿이 없다. 스펙 나열이 아니라 "그래서 생활이 어떻게 편해졌는지"를 담은 불릿(- 로 시작하는 줄)을 3~5개 넣어라.`);
   else if (bullets < 3) soft.push('불릿이 부족하다. 핵심 장점 불릿을 3~5개로 늘려라.');
+  if (bullets > 5) issues.push('불릿이 너무 많다. 중복 내용을 합쳐 핵심 3~5개로 줄여라.');
   if (paras < 3) issues.push('문단 구성이 부족하다. 고민 → 장면·감각 → 핵심 장점 → 마무리로 나눠 써라.');
 
   // ── 후기 글다움 4종(soft) ──────────────────────────────────────────────
@@ -664,14 +664,10 @@ export function validateDetail(text, { leaf, categoryPath = '', seoKeywords = []
   //   (soft 배열 선언은 이 함수 맨 위로 옮겼다 — 위쪽 불릿 검사가 먼저 쓴다.)
   const cliches = AD_CLICHES.filter((c) => t.includes(c));
   if (cliches.length >= 2) {
-    soft.push(`광고 상투구(${cliches.slice(0, 3).join(', ')})를 빼고, 실제 겪은 장면과 구체적인 이득으로 바꿔라.`);
+    soft.push(`광고 상투구(${cliches.slice(0, 3).join(', ')})를 빼고, 확인된 특징과 선택 기준으로 바꿔라.`);
   }
   if (labelBulletCount(t) >= 3) {
-    soft.push('불릿을 "라벨: 설명" 형태(카탈로그체)로 쓰지 마라. 각 불릿을 "그래서 생활이 어떻게 편해졌는지" 완결된 문장으로 다시 써라.');
-  }
-  const sensoryHits = new Set(SENSORY.filter((w) => t.includes(w)));
-  if (sensoryHits.size < 2) {
-    soft.push('써본 사람의 글이 아니다. 택배를 열었을 때/처음 써봤을 때의 장면과 감각(소리·식감·촉감·향·무게 등)을 최소 두 가지 구체적으로 넣어라.');
+    soft.push('각 불릿을 확인된 특징이나 구매 시 확인할 점을 설명하는 완결된 문장으로 써라.');
   }
   // 후킹 — 첫머리가 고민/질문/장면이어야 한다(칭찬으로 시작하면 후기가 아니라 광고).
   const firstBlock = `${t.split(/\n{2,}/)[0] || ''} ${t.split(/\n{2,}/)[1] || ''}`;
@@ -804,25 +800,32 @@ export async function generatePerfectDetail({
   //    (길이 미달·한자 혼입·지시문 잔존·감각 환각)에만 1회 더 기회를 준다.
   seed, maxTokens = 1300, maxAttempts = 3, onAttempt = () => {},
 }) {
+  maxAttempts = Math.max(1, Math.min(4, Math.floor(Number(maxAttempts)) || 3));
   const realLeaf = (leaf || (categoryPath || '').split('>').pop() || originalName || '').trim();
   const persona = pickPersona(seed || originalName || categoryPath || 'seed');
   const p = { originalName, categoryPath, features, leaf: realLeaf, seoKeywords, sourceFacts };
   // 상품 자신의 영문 브랜드/모델명 — "영어 누출"로 잡히면 재생성해도 영원히 안 고쳐진다.
   const allowLatin = (String(originalName || '').match(/[A-Za-z]{2,}/g) || []);
   // 이 상품이 "아는 말" 전부 — 여기에 없는 명사가 본문의 주인공이면 딴 물건 환각이다.
-  const vocab = [originalName, categoryPath, realLeaf, ...features, ...sourceFacts, ...seoKeywords]
+  const vocab = [originalName, categoryPath, realLeaf, ...features, ...sourceFacts]
     .filter(Boolean).join(' ');
   const vctx = { leaf: realLeaf, categoryPath, seoKeywords, allowLatin, vocab, specs: specTokens(originalName) };
 
   let best = null;
   let fixNote = '';
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const { system, prompt, options } = buildDetailPrompt(p, persona, { maxTokens, fixNote });
+    const { system, prompt, options, format } = buildDetailPrompt(p, persona, { maxTokens, fixNote });
     // 재시도일수록 temperature 살짝 낮춰 안정화
-    const temperature = Math.max(0.45, (options.temperature ?? 0.75) - (attempt - 1) * 0.12);
-    const { text: raw, ms } = await generate({ model, system, prompt, options: { ...options, temperature } });
+    const temperature = Math.max(0.1, (options.temperature ?? 0.25) - (attempt - 1) * 0.08);
+    const { text: raw, ms } = await generate({ model, system, prompt, format, options: { ...options, temperature } });
+    const structured = parseJsonLoose(raw);
+    const line = (value) => String(value || '').replace(/\s+/g, ' ').replace(/^[-*•]\s*/, '').trim();
+    const draft = structured && typeof structured.intro === 'string' && typeof structured.closing === 'string'
+      && Array.isArray(structured.body) && Array.isArray(structured.bullets)
+      ? [line(structured.intro), ...structured.body.map(line), structured.bullets.map((s) => '- ' + line(s)).join('\n'), line(structured.closing)].join('\n\n')
+      : raw;
     // 생성 → **결정론적 교정** → 검증. 기계로 고칠 수 있는 결함에 LLM 을 쓰지 않는다.
-    const { text, fixed } = repairDetail(cleanDetailOutput(raw), vctx);
+    const { text, fixed } = repairDetail(cleanDetailOutput(draft), vctx);
     const { ok, issues, soft } = validateDetail(text, vctx);
     onAttempt({ attempt, ok, issues, soft, ms, chars: text.length, fixed });
 
@@ -842,11 +845,19 @@ export async function generatePerfectDetail({
     fixNote = [...issues, ...soft.slice(0, 2)].join(' ');
   }
 
-  // 통과 못 함 — 가장 결함 적은 결과 반환.
-  //   ok 는 **hard 결함 기준**이다: 문체(soft)만 남았으면 통과로 본다(검수 도배 방지).
-  const paras = best.text.split(/\n{2,}/).map((s) => s.trim()).filter((s) => s.length >= 8);
+  // 검수 실패 문장을 그대로 납품하지 않는다. 창작 없이 제공된 상품 자료로 초안을 만들고
+  // 검수 필요 상태를 유지한다. 이 초안은 분량이나 광고 문체를 맞추기 위한 허구를 추가하지 않는다.
+  const plain = (s) => String(s || '').replace(/\p{Extended_Pictographic}/gu, '').replace(/[\r\n]+/g, ' ').trim();
+  const options = [...new Set(features.map(plain).filter(Boolean))].slice(0, 8);
+  const facts = [...new Set(sourceFacts.map(plain).filter(Boolean))]
+    .filter((s) => !/원산지|국산|국내산|유기농|포도당|수액/.test(s)).slice(0, 6);
+  const draft = [plain(originalName),
+    options.length ? '구매 전 아래 옵션을 비교해 필요한 구성을 선택해 주세요.\n' + options.map((s) => '- ' + s).join('\n') : '',
+    facts.length ? '판매자가 제공한 상품 안내입니다.\n' + facts.join('\n') : '',
+    '주문할 옵션과 최종 구성은 상품 선택 화면에서 확인해 주세요.'].filter(Boolean).join('\n\n');
+  const paras = draft.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
   return {
-    text: best.text, paragraphs: paras, blocks: paragraphsToBlocks(paras),
-    attempts: maxAttempts, ok: best.issues.length === 0, issues: best.issues, soft: best.soft,
+    text: draft, paragraphs: paras, blocks: paragraphsToBlocks(paras),
+    attempts: maxAttempts, ok: false, issues: ['생성문 검수 실패 — 원문 기반 초안으로 대체함(검수 필요)', ...best.issues], soft: best.soft,
   };
 }

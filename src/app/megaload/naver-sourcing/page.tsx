@@ -98,8 +98,9 @@ function explainHelperFail(reason?: string): string {
     'human-required': '네이버가 사람 확인(보안문자·2단계)을 요구한 상태입니다 — 크롬 창에서 한 번 통과시켜 주세요.',
     'nav-failed': '네이버 로그인 화면을 열지 못했습니다(네트워크 또는 차단).',
     'fill-failed': '로그인 화면을 다루지 못했습니다 — 띄워 둔 크롬 창에서 직접 로그인해 주세요.',
-    'bad-credential': '저장된 아이디/비밀번호가 맞지 않아 저장을 지웠습니다. 계정을 다시 저장해 주세요.',
-    'human-timeout': '사람 확인을 10분 동안 기다리다 종료했습니다.',
+    'bad-credential': '네이버가 저장된 아이디/비밀번호를 거부했습니다. 직접 로그인하거나 계정 정보를 다시 저장해 주세요.',
+    'manual-active': '브라우저에서 직접 로그인 중입니다. 열린 창에서 인증을 완료해 주세요.',
+    'human-timeout': '인증 대기 시간이 끝났습니다. 로그인 창 다시 띄우기를 눌러 이어서 진행해 주세요.',
     'aborted': '자동 로그인이 중간에 끊겼습니다.',
     'unknown': '자동 로그인이 끝나지 않았습니다 — 띄워 둔 크롬 창을 확인해 주세요.',
     'backoff': '로그인 시도가 연속 실패해 잠시 쉬는 중입니다 — 시도가 잦을수록 보안문자가 더 자주 붙어서입니다. 지금 하시려면 아래 버튼을 눌러 주세요.',
@@ -581,13 +582,13 @@ export default function NaverSourcingPage() {
                 </span>
                 <button
                   onClick={() => ep && run('naver-auto', () => autoNaverLogin(ep))}
-                  disabled={busy === 'naver-auto' || status.naverLogin.auto?.running}
+                  disabled={busy === 'naver-auto'}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230] disabled:opacity-50"
                 >
                   {busy === 'naver-auto' || status.naverLogin.auto?.running
                     ? <Loader2 className="w-4 h-4 animate-spin" />
                     : <LogIn className="w-4 h-4" />}
-                  지금 자동 로그인
+                  {status.naverLogin.auto?.running ? '진행 중인 로그인 창 보기' : '지금 자동 로그인'}
                 </button>
                 <button
                   onClick={() => ep && run('cred-clear', () => clearNaverCredential(ep))}
@@ -650,20 +651,24 @@ export default function NaverSourcingPage() {
                     : <LogIn className="w-4 h-4" />}
                   저장하고 자동 로그인
                 </button>
-                <button
-                  type="button"
-                  onClick={() => ep && run('naver-login', () => naverLogin(ep))}
-                  disabled={busy === 'naver-login' || status.naverLogin.waiting}
-                  className="px-3 py-2 rounded-lg border border-amber-300 bg-white text-sm text-amber-900 hover:bg-amber-100 disabled:opacity-50"
-                >
-                  {status.naverLogin.waiting ? '창에서 로그인해 주세요…' : '창에서 직접 로그인'}
-                </button>
+
               </form>
+            )}
+            <button
+              type="button"
+              onClick={() => ep && run('naver-login', () => naverLogin(ep))}
+              disabled={busy === 'naver-login'}
+              className="mt-3 px-3 py-2 rounded-lg border border-amber-300 bg-white text-sm text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+            >
+              {status.naverLogin.waiting || status.naverLogin.auto?.running ? '로그인 창 다시 띄우기' : '브라우저에서 직접 로그인 · QR 로그인'}
+            </button>
+            {!status.naverLogin.waiting && status.naverLogin.manual?.error && (
+              <p className="mt-2 text-sm text-red-700" role="alert">{status.naverLogin.manual.error}</p>
             )}
             <p className="text-xs text-amber-800 mt-2 leading-relaxed">
               비밀번호는 <b>이 PC 의 도우미에만</b> 저장됩니다 — 우리 서버로 나가지 않고, Windows 암호저장소(DPAPI)로
               암호화돼 들어가며 다시 읽어가는 경로는 없습니다. 캡차나 2단계 인증이 뜨면 도우미 창을 띄워 사장님께 넘깁니다.
-              비밀번호가 틀리면 <b>재시도하지 않고</b> 저장을 지웁니다(계정 잠금 방지).
+              비밀번호가 거부되면 <b>자동 재시도를 멈춥니다</b>. 저장 없이 직접 로그인할 수도 있습니다.
             </p>
           </div>
         )

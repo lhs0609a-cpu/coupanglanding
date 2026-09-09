@@ -161,6 +161,7 @@ export interface IngestStatus {
     persistent?: boolean;
     checkedAt: number;
     waiting: boolean;
+    manual?: { ok: boolean; reason?: string; error?: string } | null;
     /** 저장된 계정 — 비밀번호는 절대 오지 않는다(가린 아이디만). */
     credential?: { has: boolean; idMasked: string; savedAt: number };
     auto?: { running: boolean; at: number; result: { ok: boolean; reason?: string } | null };
@@ -275,7 +276,8 @@ export async function showWindow(ep: LocalEndpoint, index: number): Promise<void
  * 완료 여부는 status.naverLogin.loggedIn 폴링으로 본다.
  */
 export async function naverLogin(ep: LocalEndpoint): Promise<void> {
-  await post(ep, 'login', {});
+  const result = await post(ep, 'login', {}) as { ok?: boolean; error?: string };
+  if (result.ok === false) throw new Error(result.error || '로그인 창을 열지 못했습니다.');
 }
 
 /** 로그인 세션 삭제 — 다른 네이버 계정으로 바꿀 때. */

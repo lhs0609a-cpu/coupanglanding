@@ -262,6 +262,7 @@ async function main() {
    */
   const VISION_GIVEUP_PRODUCTS = 2;
   let visionTimeoutProducts = 0;
+  let visionFailedProducts = 0;
   let visionOff = false;
   let visionReady = false;
   if (!cli['no-image-ai'] && !cli['no-vision']) {
@@ -349,6 +350,7 @@ async function main() {
           onTimeout: () => { timedOutHere = true; },
         });
         if (vc) {
+          visionFailedProducts = 0;
           if (vc.mainImage) p.mainImage = vc.mainImage;
           p.mainImageRanked = vc.mainRanked;
           p.mainConfident = vc.mainConfident;
@@ -380,6 +382,10 @@ async function main() {
           return;
         }
         console.log(`[${ts()}] [비전] ${p.id} 판정 실패 → 이 상품만 CLIP 폴백`);
+        if (++visionFailedProducts >= 3 && !visionOff) {
+          visionOff = true;
+          console.log(`[${ts()}] [비전] 연속 호출 실패 ${visionFailedProducts}건 — 남은 상품은 기본 이미지 판정으로 처리합니다.`);
+        }
         // ── 회로차단 — 상한 초과가 반복되면 남은 상품은 아예 시도하지 않는다 ──
         //   상품마다 상한(무GPU 90초)을 다시 태우는 것이 저사양 PC 최대 낭비였다.
         //   결과물은 어차피 CLIP 폴백이라 품질은 그대로고, 기다림만 사라진다.
@@ -506,6 +512,14 @@ async function main() {
   if (summary.failed) {
     console.log(`[${ts()}] ⚠️ 텍스트 생성 실패 ${summary.failed}/${products.length}건 — 성공분은 그대로 저장합니다.`);
     if (summary.abortReason) console.log(`[${ts()}] ⏹ ${summary.abortReason}`);
+  }
+  if (summary.failed || summary.skipped) process.exitCode = 1;
+  if (!genRecords.some(Boolean)) {
+    writeFileSync(outPrefix + '.failure.json', JSON.stringify({ at: new Date().toISOString(), summary }, null, 2), 'utf8');
+    if (recogPromise) await recogPromise;
+    await unload(model);
+    if (visionReady) await unload(visionModel);
+    throw new Error(`생성 결과 0건 — 실패 ${summary.failed}건 · 미처리 ${summary.skipped}건. ${summary.abortReason || summary.failures?.[0]?.error || ''}`);
   }
   records.push(...genRecords);
 
@@ -796,7 +810,8 @@ async function main() {
         deferThumb: !!cli['defer-thumb'],
         recogHits,
       },
-      summary: { ok: summary.ok, needsReview: summary.needsReview, failed: summary.failed || 0 },
+      summary: { ok: summary.ok, needsReview: summary.needsReview, failed: summary.failed || 0,
+        skipped: summary.skipped || 0, abortReason: summary.abortReason || null, failures: summary.failures || [] },
     };
     writeFileSync(outPrefix + '.timing.json', JSON.stringify(timing, null, 2), 'utf8');
     const s = (v) => (v / 1000).toFixed(1);

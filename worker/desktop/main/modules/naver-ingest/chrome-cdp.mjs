@@ -22,6 +22,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { detectJs, spaReadyJs } from './inject.mjs';
+import { findBrowser } from './browser-discovery.mjs';
 
 const sleep = (ms) => new Promise((r) => { const t = setTimeout(r, ms); t.unref?.(); });
 const rand = (min, max) => min + Math.random() * (max - min);
@@ -52,23 +53,12 @@ const MEDIA_BLOCK_PATTERNS = [
 ];
 
 /** 크롬 실행파일 — 설치 위치가 셋뿐이라 레지스트리까지 안 뒤져도 된다. */
-export function findChrome() {
-  const pf = process.env['ProgramFiles'] || 'C:\\Program Files';
-  const pf86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
-  const local = process.env.LOCALAPPDATA || '';
-  const candidates = process.platform === 'darwin'
-    ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
-    : [
-      join(pf, 'Google/Chrome/Application/chrome.exe'),
-      join(pf86, 'Google/Chrome/Application/chrome.exe'),
-      local && join(local, 'Google/Chrome/Application/chrome.exe'),
-    ].filter(Boolean);
-  return candidates.find((p) => existsSync(p)) || null;
-}
+export function findChrome() { return findBrowser()?.path || null; }
 
 export class ChromeBrowser {
-  constructor({ profileDir, onLog = () => {}, onExit = () => {}, windowSize = '1440,1000' } = {}) {
+  constructor({ profileDir, executablePath, onLog = () => {}, onExit = () => {}, windowSize = '1440,1000' } = {}) {
     this.profileDir = profileDir;
+    this.executablePath = executablePath;
     this.onLog = onLog;
     // 크롬이 **우리가 닫은 게 아닌데** 죽었을 때 부른다(사용자가 창을 닫음·크래시·자체 종료).
     // 이걸 안 알리면 위층이 죽은 핸들을 계속 쥔다 — 아래 exit 핸들러 주석 참고.
@@ -83,8 +73,8 @@ export class ChromeBrowser {
 
   async launch() {
     if (this.child) return this;
-    const exe = findChrome();
-    if (!exe) throw new Error('크롬을 찾지 못했습니다 — 구글 크롬을 설치해 주세요.');
+    const exe = this.executablePath || findChrome();
+    if (!exe) throw new Error('Chrome 또는 Microsoft Edge를 찾지 못했습니다. 브라우저 설치 후 다시 시도해 주세요.');
     mkdirSync(this.profileDir, { recursive: true });
 
     this.child = spawn(exe, [
@@ -99,9 +89,16 @@ export class ChromeBrowser {
       'about:blank',
     ], { stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe'] });
 
+    let launchError = null;
+    this.child.on('error', (error) => {
+      launchError = error;
+      this.child = null;
+      this._failPending('브라우저 실행 실패: ' + error.code);
+    });
     this._wr = this.child.stdio[3];
     this._rd = this.child.stdio[4];
     this._rd.on('data', (c) => this._onData(c));
+    for (const stream of [this._wr, this._rd]) stream.on('error', () => this._failPending('브라우저 연결이 종료됐습니다. 다시 로그인 창을 열어 주세요.'));
     this.child.stderr?.on('data', () => { /* 크롬 잡음은 버린다 */ });
     // ★ 프로필 점유 판정에 쓴다 — 아래 launch 실패 분기 참고.
     let exitedEarly = false;
@@ -123,7 +120,7 @@ export class ChromeBrowser {
     await sleep(1200);
     let v;
     try {
-      v = await this.send('Browser.getVersion', {}, undefined, 8000);
+      v = await this.send('Browser.getVersion', {}, undefined, 30000);
     } catch (e) {
       /**
        * ★ 여기서 십중팔구는 "이 프로필을 이미 다른 크롬이 쥐고 있다" 이다.
@@ -137,9 +134,10 @@ export class ChromeBrowser {
         || existsSync(join(this.profileDir, 'lockfile'));
       try { this.child?.kill(); } catch { /* ignore */ }
       this.child = null;
+      if (launchError) throw new Error(`브라우저 실행 권한 또는 설치 상태를 확인해 주세요 (${launchError.code || '실행 실패'}).`);
       throw new Error(locked
-        ? '도우미용 크롬이 이미 떠 있습니다 — 그 크롬 창을 닫고 다시 시도해 주세요.'
-        : `크롬에 연결하지 못했습니다 — ${e?.message || e}`);
+        ? '브라우저가 시작 직후 종료됐습니다. 도우미용 브라우저 창이 남아 있으면 닫아 주세요. 계속되면 브라우저 설치 상태와 회사 PC의 실행 정책을 확인해 주세요.'
+        : `브라우저 연결 시간이 초과됐습니다. 브라우저 업데이트와 PC 보안 정책을 확인해 주세요 — ${e?.message || e}`);
     }
     this.onLog(`크롬 연결됨 — ${v.product}`);
     return this;
@@ -277,7 +275,8 @@ export class ChromePage {
    */
   async goto(url, { timeoutMs = 30000, settleMs = 2500 } = {}) {
     this._loaded = false;
-    await this.send('Page.navigate', { url }, timeoutMs);
+    const navigation = await this.send('Page.navigate', { url }, timeoutMs);
+    if (navigation?.errorText) throw new Error('페이지 연결 실패: ' + navigation.errorText);
     const until = Date.now() + timeoutMs;
     while (!this._loaded && Date.now() < until) await sleep(120);
     await sleep(settleMs);

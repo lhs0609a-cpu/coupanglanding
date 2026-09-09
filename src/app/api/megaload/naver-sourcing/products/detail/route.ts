@@ -34,8 +34,12 @@ export async function POST(request: NextRequest) {
 
   const service = await createServiceClient();
   const { data: profile } = await service.from('profiles').select('role').eq('id', user.id).single();
-  if (profile?.role !== 'admin') {
-    return NextResponse.json({ error: '관리자만 저장할 수 있습니다.' }, { status: 403 });
+  const isAdmin = profile?.role === 'admin';
+  let myUserId: string | null = null;
+  if (!isAdmin) {
+    const { data: me } = await service.from('megaload_users').select('id').eq('profile_id', user.id).maybeSingle();
+    myUserId = me?.id ?? null;
+    if (!myUserId) return NextResponse.json({ error: '메가로드 계정이 없습니다.' }, { status: 403 });
   }
 
   let body: {
@@ -43,6 +47,9 @@ export async function POST(request: NextRequest) {
     originProductNo?: string;
     ok?: boolean;
     error?: string;
+    retryable?: boolean;
+    blocked?: boolean;
+    apiStatus?: number;
     url?: string;
     title?: string;
     price?: number;
@@ -51,6 +58,7 @@ export async function POST(request: NextRequest) {
     categoryId?: string;
     options?: Array<{ optionName: string; price: number; stock: number; soldOut: boolean }>;
     detailText?: string;
+    reviewTexts?: Array<{ text?: string; score?: number; best?: boolean }>;
     notice?: unknown;
     images?: { main?: string[]; detail?: string[]; review?: string[] };
     folderPath?: string;
@@ -58,16 +66,34 @@ export async function POST(request: NextRequest) {
   try { body = await request.json(); } catch { /* 아래에서 걸린다 */ }
 
   const productNo = String(body.productNo || '').trim();
-  if (!productNo) return NextResponse.json({ error: 'productNo 가 없습니다.' }, { status: 400 });
+  if (!/^\d+$/.test(productNo)) return NextResponse.json({ error: '유효한 productNo 가 없습니다.' }, { status: 400 });
+  if (typeof body.ok !== 'boolean') return NextResponse.json({ error: 'ok 값이 필요합니다.' }, { status: 400 });
+
+  const { data: existing, error: lookupError } = await service.from('sh_naver_sourcing_products')
+    .select('id, detail_requested_by, detail_status').eq('product_no', productNo).maybeSingle();
+  if (lookupError) return NextResponse.json({ error: lookupError.message }, { status: 500 });
+  if (!isAdmin && (!existing || existing.detail_requested_by !== myUserId || existing.detail_status !== 'running')) {
+    return NextResponse.json({ error: '본인이 요청하여 처리 중인 상품만 저장할 수 있습니다.' }, { status: 403 });
+  }
+  const updateProduct = async (patch: Record<string, unknown>) => {
+    let q = service.from('sh_naver_sourcing_products').update(patch).eq('product_no', productNo);
+    if (!isAdmin) q = q.eq('detail_requested_by', myUserId).eq('detail_status', 'running');
+    const { data, error } = await q.select('id');
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!data?.length) return NextResponse.json({ error: '작업 상태가 바뀌어 저장하지 못했습니다.' }, { status: 409 });
+    return NextResponse.json({ ok: true, status: patch.detail_status === 'failed' ? 'failed' : 'updated' });
+  };
 
   // 실패도 기록한다 — 안 그러면 실패한 상품을 매번 다시 시도하게 된다.
   if (body.ok === false) {
-    const { error } = await service
-      .from('sh_naver_sourcing_products')
-      .update({ detail_status: 'failed', detail_at: new Date().toISOString(), detail: { error: body.error || '알 수 없음' } })
-      .eq('product_no', productNo);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true, status: 'failed' });
+    return updateProduct({ detail_status: 'failed', detail_at: new Date().toISOString(), detail: {
+      error: String(body.error || '알 수 없음').slice(0, 500),
+      retryable: body.retryable === true, blocked: body.blocked === true, apiStatus: Number(body.apiStatus) || 0,
+    } });
+  }
+
+  if (!body.title?.trim() || !Array.isArray(body.images?.main) || !body.images.main.length) {
+    return NextResponse.json({ error: '상품명과 대표이미지가 필요합니다.' }, { status: 400 });
   }
 
   const patch: Record<string, unknown> = {
@@ -77,6 +103,8 @@ export async function POST(request: NextRequest) {
     detail: {
       options: body.options ?? [],
       detailText: (body.detailText || '').slice(0, 20000),
+      reviewTexts: Array.isArray(body.reviewTexts) ? body.reviewTexts.filter((s) => s && typeof s.text === 'string').slice(0, 100)
+        .map((s) => ({ text: s.text!.slice(0, 2000), score: Number(s.score) || 0, best: s.best === true })) : [],
       notice: body.notice ?? null,
       brand: body.brand || '',
       categoryPath: body.categoryPath || '',
@@ -102,14 +130,8 @@ export async function POST(request: NextRequest) {
   if (body.categoryId) patch.naver_category_id = body.categoryId;
 
   // 목록 수집을 거치지 않고 상세부터 받은 경우도 있으므로, 없으면 새로 만든다.
-  const { data: existing } = await service
-    .from('sh_naver_sourcing_products').select('id').eq('product_no', productNo).maybeSingle();
-
   if (existing) {
-    const { error } = await service
-      .from('sh_naver_sourcing_products').update(patch).eq('product_no', productNo);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true, status: 'updated' });
+    return updateProduct(patch);
   }
 
   const { error } = await service.from('sh_naver_sourcing_products').insert({

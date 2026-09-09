@@ -18,10 +18,11 @@
  *   그 값은 URL 이 아니라 **상품 API 응답의 originProductNo** 에서 받아야 한다(URL 에서 긁으면
  *   /n/v1/contents/reviews/… 에 걸려 "reviews" 를 집는다 — 실측 실패).
  */
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, mkdtempSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { runOne } from './runner.mjs';
 import { isDetailExtractable, unsupportedReason } from './store-type.mjs';
+import { downloadImage } from './image-download.mjs';
 
 /**
  * 페이지 안에서 상품 API 3종을 부른다.
@@ -101,16 +102,20 @@ export const extractDetailJs = `
     };
   }
 
+  let blockedResponse = null;
   const get = async (path) => {
+    if (blockedResponse) return blockedResponse;
     try {
-      const res = await fetch(location.origin + path, { credentials: 'include', headers: { accept: 'application/json' } });
+      const res = await fetch(location.origin + path, { credentials: 'include', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
       if (!res.ok) {
         // ★ 실패 본문을 버리지 않는다. 예전엔 status 만 들고 나와서 419 가 무슨 뜻인지
         //   **알 방법이 아예 없었다** — 네이버가 본문에 사유를 적어 보내는데 그걸 읽지
         //   않으니, 하루 종일 419 를 맞으면서도 원인을 추측만 했다(실측 2026-08-28~31).
         var body = '';
         try { body = String(await res.text()).slice(0, 300); } catch (e2) { body = ''; }
-        return { ok: false, status: res.status, body: body };
+        const failure = { ok: false, status: res.status, body: body };
+        if ([418, 419, 429].indexOf(res.status) >= 0) blockedResponse = failure;
+        return failure;
       }
       return { ok: true, status: res.status, json: await res.json() };
     } catch (e) { return { ok: false, error: String(e && e.message) }; }
@@ -265,6 +270,9 @@ export const extractDetailJs = `
   const categoryPath = [cat.wholeCategoryName, cat.categoryName, P.wholeCategoryName]
     .filter(Boolean)[0] || '';
 
+  if (blockedResponse) return { name: null, error: '상품 부가정보 API 차단 ' + blockedResponse.status,
+    status: blockedResponse.status, body: blockedResponse.body };
+
   return {
     name: cut(P.name, 200) || cut(document.title, 200),   // runOne 이 이 값으로 로드 완료를 본다
     title: cut(P.name, 200),
@@ -288,59 +296,7 @@ export const extractDetailJs = `
 })()
 `;
 
-/**
- * 이미지 저장 정책 — **원본 그대로 두지 않는다.**
- * ---------------------------------------------------------------------------
- * 실측(2026-08-19, 복숭아 1건): 대표 9 + 상세 15 + 리뷰 30 = **107MB**. 리뷰컷만 83MB 였다.
- * 상품 100개면 10GB 다. 그런데 이 사진들의 용도를 보면 그만한 해상도가 필요 없다:
- *   · 리뷰컷  — CLIP 큐레이션 대상이자 본문에 작게 끼우는 컷. 800px 이면 충분하다.
- *   · 상세컷  — 상세페이지 본문용. 1000px.
- *   · 대표컷  — 쿠팡에 실제로 올라갈 수 있으니 넉넉히 1200px 로 남긴다(쿠팡 권장 1000px 이상).
- * 줄이는 건 Electron 내장 nativeImage 로 한다 — sharp 같은 네이티브 의존성을 더하지 않는다
- * (이 레포는 Google Drive 경로라 sharp 가 부분 동기화돼 로컬 실행이 깨진 전례가 있다).
- */
-/** 줄이는 데 실패했는데 이보다 크면 저장하지 않는다 — 대개 애니메이션 GIF 배너다. */
 const HARD_SKIP_BYTES = 3_000_000;
-
-const IMAGE_PROFILE = {
-  //  maxSide  = 긴 변 상한.  maxBytes = 이보다 크면 크기와 무관하게 다시 굽는다.
-  //  ★ maxBytes 가 왜 필요한가(실측 2026-08-19): 상세 이미지 26장에 88MB 였는데 줄지 않았다.
-  //    **애니메이션 GIF** 라 가로세로는 작고(=상한 미달) 프레임이 많아 용량만 컸다. 크기만
-  //    보면 "이미 작다"고 건너뛰어 11MB 짜리가 그대로 남는다. 우리가 아끼려는 건 용량이므로
-  //    용량으로도 판단해야 한다. 다시 구우면 첫 프레임 JPEG 가 되는데, 상세페이지 소재로는
-  //    움직이는 배너보다 정지컷이 오히려 낫다.
-  main_: { maxSide: 1200, quality: 85, maxBytes: 2_000_000 },
-  detail_: { maxSide: 1000, quality: 80, maxBytes: 1_200_000 },
-  review_: { maxSide: 800, quality: 75, maxBytes: 800_000 },
-};
-
-/** 한 변이 maxSide 를 넘으면 비율을 지켜 줄이고 JPEG 로 다시 굽는다. 실패하면 원본을 쓴다. */
-async function shrink(buf, prefix) {
-  const prof = IMAGE_PROFILE[prefix];
-  if (!prof) return { buf, ext: null };
-  try {
-    const { nativeImage } = await import('electron');
-    const img = nativeImage.createFromBuffer(buf);
-    if (img.isEmpty()) return { buf, ext: null };
-    const { width, height } = img.getSize();
-    const longest = Math.max(width, height);
-    const tooBig = buf.length > prof.maxBytes;
-    // 크기도 작고 용량도 작으면 그냥 둔다 — 재인코딩은 화질만 깎는다.
-    if (longest <= prof.maxSide && !tooBig) return { buf, ext: null };
-    // ★ 세로로 긴 상세컷을 높이 기준으로 줄이면 가로가 뭉개져 글씨를 못 읽는다.
-    //   상세 이미지는 세로가 긴 게 정상이므로 **가로 기준**으로만 맞춘다.
-    const resized = width > prof.maxSide
-      ? img.resize({ width: prof.maxSide, quality: 'good' })
-      : (longest > prof.maxSide && height > width
-        ? img   // 가로는 이미 작다 — 높이만 크면 그대로 두고 재인코딩만 한다
-        : img.resize({ width: Math.min(width, prof.maxSide), quality: 'good' }));
-    const out = resized.toJPEG(prof.quality);
-    // 줄였는데 오히려 커졌으면(작은 PNG 등) 원본이 낫다.
-    return out.length < buf.length ? { buf: out, ext: 'jpg' } : { buf, ext: null };
-  } catch {
-    return { buf, ext: null };   // nativeImage 가 못 읽는 형식이면 원본 그대로
-  }
-}
 
 /**
  * CDN 내려받기 전역 예산 — **앱 전체에서 동시에 나가는 이미지 요청 수**의 상한.
@@ -357,26 +313,22 @@ async function shrink(buf, prefix) {
  * ⚠️ 네이버 **페이지** 예산(naver-gate)과는 무관하다. 여기는 pstatic CDN 이라 로그인도
  *    안티봇도 없다(saveImage 주석 참조). 두 예산을 섞지 말 것.
  */
-const CDN_LANES = Math.max(2, Number(process.env.MEGALOAD_CDN_LANES) || 12);
+const CDN_LANES = Math.max(2, Math.min(12, Math.floor(Number(process.env.MEGALOAD_CDN_LANES)) || 12));
 let cdnActive = 0;
 const cdnWaiting = [];
 async function cdnAcquire() {
   if (cdnActive < CDN_LANES) { cdnActive += 1; return; }
   await new Promise((resolve) => cdnWaiting.push(resolve));
-  cdnActive += 1;
 }
 function cdnRelease() {
-  cdnActive -= 1;
   const next = cdnWaiting.shift();
   if (next) next();
+  else cdnActive -= 1;
 }
 
 /** 이미지 1장 저장. CDN(pstatic)이라 로그인이 필요 없다 — 네이버 페이지 예산과 무관. */
-async function saveImage(url, dir, index, prefix) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const raw = Buffer.from(await res.arrayBuffer());
-  const { buf, ext: forced } = await shrink(raw, prefix);
+async function saveImage(url, dir, index, prefix, signal) {
+  const { buf, ext: forced, savedBytes } = await downloadImage(url, prefix, { signal });
 
   // 확장자는 주소에서 추론하되 이상하면 jpg 로 둔다(올인원 스캐너가 보는 건 확장자뿐이다).
   const clean = url.split('?')[0].toLowerCase();
@@ -398,11 +350,12 @@ async function saveImage(url, dir, index, prefix) {
 
   const name = `${prefix}${String(index + 1).padStart(3, '0')}.${ext}`;
   writeFileSync(join(dir, name), buf);
-  return { name, bytes: buf.length, savedBytes: raw.length - buf.length };
+  return { name, bytes: buf.length, savedBytes };
 }
 
 /** 여러 장을 순서대로 — 동시에 쏟아부으면 CDN 이 막는다. 실패는 건너뛰고 계속한다. */
-async function saveImages(urls, dir, prefix, onLog) {
+async function saveImages(urls, dir, prefix, onLog, signal) {
+  urls = [...new Set(urls.filter((url) => typeof url === 'string' && url.trim()))];
   if (!urls.length) return 0;
   mkdirSync(dir, { recursive: true });
   let ok = 0;
@@ -421,23 +374,25 @@ async function saveImages(urls, dir, prefix, onLog) {
   await Promise.all(urls.map(async (url, i) => {
     await cdnAcquire();
     try {
-      const r = await saveImage(url, dir, i, prefix);
+      signal?.throwIfAborted();
+      const r = await saveImage(url, dir, i, prefix, signal);
       ok += 1;
       bytes += r.bytes;
       saved += r.savedBytes;
     } catch (e) {
       skipped += 1;
       // 용량 초과는 개별 로그를 남기지 않는다 — 아래 요약에 몇 장인지 나온다.
-      if (!e?.skipped) onLog?.(`이미지 ${i + 1} 건너뜀 — ${e?.message || e}`);
+      if (!e?.skipped && !signal?.aborted) onLog?.(`이미지 ${i + 1} 건너뜀 — ${e?.message || e}`);
     } finally {
       cdnRelease();
     }
   }));
+  signal?.throwIfAborted();
   if (ok || skipped) {
     const mb = (n) => (n / 1048576).toFixed(1);
     onLog?.(`${prefix.replace('_', '')} ${ok}장 — ${mb(bytes)}MB`
       + (saved > 0 ? ` (원본보다 ${mb(saved)}MB 절약)` : '')
-      + (skipped ? ` · 용량 초과 ${skipped}장 제외` : ''));
+      + (skipped ? ` · 다운로드/검증 실패 ${skipped}장 제외` : ''));
   }
   return ok;
 }
@@ -446,20 +401,26 @@ async function saveImages(urls, dir, prefix, onLog) {
  * 추출 결과를 올인원 폴더로 굽는다.
  * @returns {Promise<{folder:string, mainImages:number, detailImages:number}>}
  */
-export async function writeProductFolder(rootDir, data, { onLog } = {}) {
+export async function writeProductFolder(rootDir, data, { onLog, signal } = {}) {
   const code = data.channelProductNo || data.originProductNo || String(Date.now());
-  const folder = join(rootDir, `product_${code}`);
-  mkdirSync(folder, { recursive: true });
+  if (!/^\d+$/.test(String(code))) throw new Error('유효하지 않은 상품번호');
+  signal?.throwIfAborted();
+  const destination = join(rootDir, `product_${code}`);
+  const staging = join(rootDir, '.ingest');
+  mkdirSync(staging, { recursive: true });
+  // 실패하거나 취소된 다운로드는 product_* 스캐너에 보이지 않게 준비한다.
+  const folder = mkdtempSync(join(staging, `${code}-`));
 
   // 대표·상세·리뷰를 **한꺼번에** 던진다. 예전엔 세 묶음을 차례로 기다렸는데, 그 사이엔
   //   전역 예산(CDN_LANES)이 남아돌아도 쓸 수가 없었다 — 대표 8장을 받는 동안 4자리가 놀고,
   //   그게 끝나야 상세가 시작됐다. 세 묶음은 서로를 참조하지 않으므로 순서는 의미가 없다.
   //   review_images/ 는 folder-scanner 가 읽는 이름이다(REVIEW_DIRS 의 첫 항목).
   const [mainCount, detailCount, reviewCount] = await Promise.all([
-    saveImages(data.mainImages || [], join(folder, 'main_images'), 'main_', onLog),
-    saveImages(data.detailImages || [], join(folder, 'detail_images'), 'detail_', onLog),
-    saveImages(data.reviewImages || [], join(folder, 'review_images'), 'review_', onLog),
+    saveImages(data.mainImages || [], join(folder, 'main_images'), 'main_', onLog, signal),
+    saveImages(data.detailImages || [], join(folder, 'detail_images'), 'detail_', onLog, signal),
+    saveImages(data.reviewImages || [], join(folder, 'review_images'), 'review_', onLog, signal),
   ]);
+  if (!mainCount) throw new Error('대표이미지를 저장하지 못했습니다 — 상품을 생성 완료로 처리하지 않습니다');
 
   // 올인원 스캐너가 읽는 필드 이름에 정확히 맞춘다(folder-scanner.mjs).
   //   name/title 중 긴 쪽이 원본 상품명이 되고, options[].optionName 이 특징 힌트가 된다.
@@ -490,8 +451,15 @@ export async function writeProductFolder(rootDir, data, { onLog } = {}) {
   };
   writeFileSync(join(folder, 'product.json'), JSON.stringify(productJson, null, 2), 'utf8');
   writeFileSync(join(folder, 'product_summary.txt'), `URL: ${data.url || ''}\n`, 'utf8');
-
-  return { folder, mainImages: mainCount, detailImages: detailCount, reviewImages: reviewCount };
+  signal?.throwIfAborted();
+  let backup = null;
+  if (existsSync(destination)) {
+    backup = `${folder}.previous`;
+    renameSync(destination, backup);
+  }
+  try { renameSync(folder, destination); }
+  catch (e) { if (backup && !existsSync(destination)) renameSync(backup, destination); throw e; }
+  return { folder: destination, mainImages: mainCount, detailImages: detailCount, reviewImages: reviewCount };
 }
 
 /** 상품 1건 — 페이지를 클릭 이동으로 열고 API 를 불러 폴더까지 만든다. */
@@ -506,14 +474,14 @@ export async function extractOne(pool, url, rootDir, { onLog = () => {}, signal 
     return { ok: false, url, error: why, unsupported: true };
   }
   const r = await runOne(pool, url, { onLog, extract: extractDetailJs, signal });
-  if (!r?.ok) return { ok: false, url, error: r?.error || '알 수 없음' };
+  if (!r?.ok) return { ...r, ok: false, url, error: r?.error || (signal?.aborted ? 'aborted' : '수집 창을 얻지 못했습니다') };
   const data = r.data || {};
   if (data.error) return { ok: false, url, error: data.error };
   if (!(data.options || []).length && !(data.mainImages || []).length) {
     return { ok: false, url, error: '가져온 것이 없음(옵션·이미지 0)' };
   }
 
-  const saved = await writeProductFolder(rootDir, data, { onLog });
+  const saved = await writeProductFolder(rootDir, data, { onLog, signal });
   return {
     ok: true,
     url,

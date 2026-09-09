@@ -49,11 +49,13 @@ export class TabPool {
     this.running = false;
     this._waiters = [];     // { role, resolve }
     this._statusTimer = null;
+    this._reconcileTask = null;
+    this._generation = 0;
   }
 
   /** 관리자가 설정한 탭 개수. 즉시 반영되며 실행 중에도 바꿀 수 있다. */
   setCount(n) {
-    this.configured = Math.max(WINDOW_MIN, Math.min(WINDOW_MAX, Number(n) || WINDOW_DEFAULT));
+    this.configured = Math.max(WINDOW_MIN, Math.min(WINDOW_MAX, Math.floor(Number(n)) || WINDOW_DEFAULT));
     if (this.running) this._reconcile().catch(() => {});
     return this.configured;
   }
@@ -71,6 +73,7 @@ export class TabPool {
     if (!isChromeAvailable()) { this.onLog('❌ ' + NO_CHROME); throw new Error(NO_CHROME); }
     this.running = true;
     await this._reconcile();
+    if (!this.running) return;
     // 탭 수를 주기적으로 재조정한다(차단 → 감축, 회복 → 복귀).
     this._statusTimer = setInterval(() => {
       if (!this.running) return;
@@ -82,6 +85,7 @@ export class TabPool {
 
   async stop() {
     this.running = false;
+    this._generation++;
     if (this._statusTimer) { clearInterval(this._statusTimer); this._statusTimer = null; }
     for (const s of this.slots) s.sw.close();
     this.slots = [];
@@ -91,12 +95,19 @@ export class TabPool {
   }
 
   /** 설정/게이트 상태에 맞춰 탭을 늘리거나 줄인다. */
-  async _reconcile() {
+  _reconcile() {
+    if (this._reconcileTask) return this._reconcileTask;
+    this._reconcileTask = this._reconcileSlots().finally(() => { this._reconcileTask = null; });
+    return this._reconcileTask;
+  }
+
+  async _reconcileSlots() {
+    const generation = this._generation;
     const target = this.effectiveCount;
 
     // 줄이기 — 놀고 있는 탭부터 닫는다. 작업 중인 탭은 끝난 뒤 다음 주기에 정리된다.
-    while (this.slots.length > target) {
-      const idx = [...this.slots].reverse().find((s) => !s.busy)?.index;
+    while (this.running && this.slots.length > target) {
+      const idx = [...this.slots].reverse().find((s) => !s.busy && s.index !== 0)?.index;
       if (idx === undefined) break;
       const i = this.slots.findIndex((s) => s.index === idx);
       this.slots[i].sw.close();
@@ -105,13 +116,17 @@ export class TabPool {
     }
 
     // 늘리기 — 3초 간격으로 하나씩. 탭마다 워밍업을 거친다.
-    while (this.running && this.slots.length < target) {
+    while (this.running && generation === this._generation && this.slots.length < this.effectiveCount) {
       const index = this._nextFreeIndex();
       const sw = new ChromeTab(index);
-      const slot = { sw, busy: false, role: null, index };
+      const slot = { sw, busy: true, role: 'warming', index };
       this.slots.push(slot);
       this.onLog(`창 ${index + 1} 준비 중…`);
       const ok = await sw.warmUp();
+      if (!this.running || generation !== this._generation || !this.slots.includes(slot)) {
+        sw.close();
+        break;
+      }
       if (!ok) {
         this.onLog(`창 ${index + 1} 워밍업 실패 — ${sw.lastError || '이유 불명'}. 잠시 뒤 다시 시도합니다`);
         sw.close();
@@ -135,6 +150,7 @@ export class TabPool {
    *   role: 'list' → 0번 탭 전용 / 'detail' → 나머지(없으면 0번도 허용)
    */
   _tryTake(role) {
+    if (!this.running) return null;
     if (role === 'list') return this.slots.find((s) => !s.busy && s.index === 0) || null;
     const others = this.slots.filter((s) => !s.busy && s.index !== 0);
     if (others.length) return others[0];
@@ -145,6 +161,7 @@ export class TabPool {
   }
 
   _release(slot) {
+    if (!this.running || !this.slots.includes(slot)) return;
     slot.busy = false;
     slot.role = null;
     // 대기열에서 이 탭을 쓸 수 있는 첫 요청에 넘긴다.
@@ -167,26 +184,32 @@ export class TabPool {
    *   로만 보이고 로그에도 아무것도 안 남는다. 끝나지 않는 작업은 실패보다 나쁘다.
    *   상한을 넘으면 null 을 돌려주고, 호출부는 그걸 "창을 얻지 못했습니다"로 처리한다.
    */
-  _acquire(role, timeoutMs = ACQUIRE_TIMEOUT_MS) {
+  _acquire(role, timeoutMs = ACQUIRE_TIMEOUT_MS, signal) {
+    if (!this.running || signal?.aborted) return Promise.resolve(null);
     const s = this._tryTake(role);
     if (s) { s.busy = true; s.role = role; return Promise.resolve(s); }
     return new Promise((resolve) => {
-      const w = { role, resolve: (slot) => { clearTimeout(w.timer); resolve(slot); } };
+      const finish = (slot) => {
+        clearTimeout(w.timer);
+        signal?.removeEventListener('abort', onAbort);
+        const i = this._waiters.indexOf(w);
+        if (i >= 0) this._waiters.splice(i, 1);
+        resolve(slot);
+      };
+      const onAbort = () => finish(null);
+      const w = { role, resolve: finish };
       // ★ unref 하지 않는다 — 이 타이머가 대기자를 깨우는 유일한 수단이라, unref 하면
       //   이벤트 루프가 비었다고 판단해 await 를 영영 안 푸는 경우가 생긴다
       //   (naver-gate.mjs 의 _schedulePump 가 같은 이유로 unref 를 금지한다).
-      w.timer = setTimeout(() => {
-        const i = this._waiters.indexOf(w);
-        if (i >= 0) this._waiters.splice(i, 1);
-        resolve(null);
-      }, timeoutMs);
+      w.timer = setTimeout(() => finish(null), timeoutMs);
       this._waiters.push(w);
+      signal?.addEventListener('abort', onAbort, { once: true });
     });
   }
 
   /** 탭 하나를 빌려 fn(sw) 을 실행한다. 예외가 나도 탭은 반드시 반납된다. */
-  async withWindow(role, fn, { timeoutMs } = {}) {
-    const slot = await this._acquire(role, timeoutMs);
+  async withWindow(role, fn, { timeoutMs, signal } = {}) {
+    const slot = await this._acquire(role, timeoutMs, signal);
     if (!slot) return null;          // stop() 으로 깨어난 경우
     try {
       return await fn(slot.sw, slot);

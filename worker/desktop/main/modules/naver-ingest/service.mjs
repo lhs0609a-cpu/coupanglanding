@@ -33,9 +33,10 @@ import {
 import { collectCategoryViaChrome } from './collect-list-chrome.mjs';
 import {
   initChromeSession, setAutoLoginHandler, ensureChromeLogin, ensureChromeBrowser,
-  isChromeAvailable, closeChrome,
+  isChromeAvailable, closeChrome, requestManualLogin, manualLoginState,
 } from './chrome-session.mjs';
 import { extractOne, ensureRoot, extractDetailJs, writeProductFolder } from './detail-extract.mjs';
+import { parseProductUrl } from './runner.mjs';
 import { isDetailExtractable } from './store-type.mjs';
 
 /**
@@ -225,7 +226,8 @@ async function withTempTab(label, fn) {
  * 뒤에서 갱신한다(폴링이 쿠키 I/O 때문에 느려지면 안 된다).
  */
 let loginCache = { loggedIn: false, persistent: false, at: 0 };
-let loginTask = null;
+let activeAutoLoginTab = null;
+let autoStartTask = null;
 
 function refreshLoginSoon() {
   if (Date.now() - loginCache.at < 10_000) return;
@@ -258,7 +260,8 @@ export function getStatus() {
       // 세션 쿠키면 앱을 끄는 순간 풀린다 — 로그인 여부와 따로 알려야 화면이 원인을 말할 수 있다.
       persistent: loginCache.persistent,
       checkedAt: loginCache.at,
-      waiting: !!loginTask,
+      waiting: manualLoginState().waiting,
+      manual: manualLoginState().result,
       credential: credentialInfo(),          // 비밀번호는 여기 안 실린다(가린 아이디만)
       auto: { running: autoLoginTask.running, at: autoLoginTask.at, result: autoLoginTask.result },
       // 세션 유지(keep-alive)가 실제로 도는지 — 캡차를 막는 첫 방어선이라 보이게 둔다.
@@ -783,13 +786,15 @@ async function uploadDetail(result, data) {
       review: data.reviewImages || [],
     },
     folderPath: result.folder,
-  } : { productNo: data.channelProductNo || '', ok: false, error: result.error };
+  } : { productNo: data.channelProductNo || '', ok: false, error: result.error,
+    retryable: result.retryable === true, blocked: result.blocked === true, apiStatus: result.apiStatus || 0 };
 
   try {
     const res = await fetch(`${origin}/api/megaload/naver-sourcing/products/detail`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(30_000),
     });
     if (!res.ok) return { ok: false, reason: `HTTP ${res.status}` };
     return { ok: true };
@@ -831,13 +836,18 @@ export async function startDetailExtract({ urls = [], rootDir = '', autoGenerate
         pushLog(`❌ ${detail.done}/${detail.total} 실패 — ${r.error}`);
       }
       // 건마다 바로 올린다 — 마지막에 몰아서 올리면 중간에 앱이 꺼질 때 전부 잃는다.
-      const up = await uploadDetail(r, r.data || {});
+      const up = await uploadDetail(r, { channelProductNo: parseProductUrl(url).productCode, ...(r.data || {}) });
       if (!up.ok && up.reason !== 'no-session') {
         pushLog(`⚠️ 서버 저장 실패(${up.reason}) — 폴더는 남아 있습니다: ${r.folder || ''}`);
       }
       // 폴더까지 만들고 나면 원본 data 는 메모리에 들고 있을 이유가 없다(수십 건이면 무겁다).
       delete r.data;
       detail.results.push(r);
+      if (r.blocked || r.captcha || r.loginRequired) {
+        detail.stopped = r.blocked ? '네이버 접근 제한 — 남은 상품은 재개 필요' : '네이버 인증 확인 필요';
+        pushLog(`수집 일시 중단 — ${r.error}. 미처리 ${detail.total - detail.done}건.`);
+        break;
+      }
     }
     detail.running = false;
     detail.current = '';
@@ -1041,6 +1051,7 @@ export async function importProducts({ products = [], rootDir = '', autoAllinone
           categoryId: p.categoryId || '',
           options: p.options || [],
           detailText: p.detailText || '',
+          reviewTexts: p.reviewTexts || [],
           notice: p.notice || null,
           mainImages: p.images?.main || [],
           detailImages: p.images?.detail || [],
@@ -1130,11 +1141,12 @@ async function claimJobs(limit = 3) {
     const q = `?limit=${limit}${queueOpts.idle ? '&idle=1' : ''}`;
     const res = await fetch(`${origin}/api/megaload/naver-sourcing/products/queue${q}`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(20_000),
     });
-    if (!res.ok) return [];
+    if (!res.ok) throw new Error(`요청 큐 HTTP ${res.status}`);
     const j = await res.json();
     return Array.isArray(j.jobs) ? j.jobs : [];
-  } catch { return []; }
+  } catch (e) { pushLog(`요청 큐 조회 실패 — ${e?.message || e}`); return []; }
 }
 
 /** 상세 1건 — 뽑아서 서버에 올리고 결과를 로그로 남긴다. 예외를 밖으로 던지지 않는다. */
@@ -1147,10 +1159,10 @@ async function runQueueJob(p, job, root) {
     pushLog(`⚠️ 요청 상세 저장 실패(${up.reason}) — ${job.title || job.product_no}`);
   }
   delete r.data;
-  pushLog(r.ok
+  pushLog(r.ok && up.ok
     ? `✅ 요청 처리 — ${String(job.title || '').slice(0, 34)}`
-    : `❌ 요청 처리 실패 — ${String(job.title || '').slice(0, 34)}: ${r.error}`);
-  return !!r.ok;
+    : `❌ 요청 처리 실패 — ${String(job.title || '').slice(0, 34)}: ${r.error || up.reason}`);
+  return !!r.ok && !!up.ok;
 }
 
 /**
@@ -1176,6 +1188,7 @@ async function drainQueue(p, root, want, seed = []) {
     for (;;) {
       if (buf.length) return buf.shift();
       if (dry) return null;
+      if (naverGate.state().cooling) { dry = true; return null; }
       if (detail.running || collection.running) { dry = true; return null; }
       if (Date.now() > until) { dry = true; cut = true; return null; }
       // 서버에 손을 뻗는 건 한 번에 하나만 — 동시에 부르면 창 수보다 많이 쥔다.
@@ -1212,6 +1225,7 @@ let noLoginWarned = false;
 
 async function queueTick() {
   if (queueBusy || detail.running || collection.running) return;   // 사람이 시킨 일이 우선이다
+  if (naverGate.state().cooling) return;
 
   /**
    * ★ 셀러 도우미도 **자기 요청은 자기 IP 로** 뽑는다(2026-09-02).
@@ -1343,57 +1357,25 @@ export function getCollection() {
  * 로그인 화면은 사람이 봐야 하므로 이 탭에서는 이미지를 막지 않는다(보안문자가 안 보이면 진행 불가).
  */
 export async function openNaverLogin() {
-  // 게이트 없음 — 네이버 로그인은 **모든 셀러**가 각자 해야 한다(품절 감시의 전제).
-  if (loginTask) return { ok: true, already: true };
+  if (activeAutoLoginTab?.page) {
+    activeAutoLoginTab.keepOpen = true;
+    return requestManualLogin({ page: activeAutoLoginTab.page });
+  }
+  return requestManualLogin();
+}
 
-  pushLog('네이버 로그인 창을 엽니다 — 크롬 창에서 직접 로그인하세요. 한 번만 하면 이후 수집은 무인으로 진행됩니다.');
-
-  loginTask = withTempTab('네이버 로그인 대기', async (sw) => {
-    sw.status = 'login';
-    // 보안문자가 보여야 사람이 풀 수 있다 — 이 탭에서는 이미지를 막지 않는다.
-    await sw.setMediaBlocked(false);
-    await sw.gotoViaClick('https://nid.naver.com/nidlogin.login', { skipReady: true, timeoutMs: 20000 });
-    await sw.show();
-    pushStatus();
-
-    // "로그인 상태 유지"를 대신 켠다 — 이걸 놓치면 로그인은 되는데 앱을 끄는 순간 풀린다.
-    // 화면이 아직 안 그려졌을 수 있어 잠깐씩 세 번 시도한다.
-    for (let i = 0; i < 3; i++) {
-      const k = await sw.evaluate(keepLoginJs).catch(() => null);
-      if (k?.found) {
-        // 체크를 못 켜도 로그인은 유지된다(도우미가 쿠키에 직접 만료시각을 붙인다) —
-        // 사람에게 겁을 주지 않는다. 켜면 네이버 쪽 세션도 길어지니 시도는 계속 한다.
-        if (k.now) pushLog('로그인 화면의 "로그인 상태 유지"를 켰습니다.');
-        break;
-      }
-      await new Promise((r) => { const t = setTimeout(r, 1500); t.unref?.(); });
-    }
-
-    // 최대 15분 대기. 창을 열어 둔 채 무한정 잡고 있으면 수집 창이 영영 안 돌아온다.
-    for (let i = 0; i < 180; i++) {
-      await new Promise((r) => { const t = setTimeout(r, 5000); t.unref?.(); });
-      const st = await loginState();
-      if (st.loggedIn) {
-        // 세션 쿠키로 왔으면 여기서 만료시각을 붙인다 — 사람에게 "로그인 상태 유지를 켜라"고
-        // 떠넘기던 자리다. 그 체크는 캡차 화면을 지나면 저절로 풀려서 지킬 수가 없었다.
-        const kept = st.persistent ? 0 : await persistLoginCookies().catch(() => 0);
-        loginCache = { loggedIn: true, persistent: !!(st.persistent || kept), at: Date.now() };
-        pushLog(st.persistent || kept
-          ? '✅ 네이버 로그인 완료 — 이제 목록 수집이 됩니다. 앱을 껐다 켜도 유지됩니다.'
-          : '✅ 네이버 로그인 완료 — 이제 목록 수집이 됩니다.');
-        sw.status = 'idle';
-        sw.detail = '';
-        return { ok: true, loggedIn: true };
-      }
-    }
-    pushLog('로그인 대기를 종료합니다(15분) — 필요하면 다시 눌러주세요.');
-    sw.status = 'idle';
-    return { ok: false, loggedIn: false };
-  }).finally(() => {
-    loginTask = null;
-    pushStatus();
-  });
-
+// HTTP/IPC must acknowledge startup without waiting ten minutes for human verification.
+export async function requestAutoLogin() {
+  if (manualLoginState().waiting) return openNaverLogin();
+  if (autoStartTask || autoLoginTask.running) {
+    await activeAutoLoginTab?.show();
+    return { ok: true, already: true, running: true };
+  }
+  if (!hasCredentials()) return openNaverLogin();
+  autoStartTask = autoLoginNow({ byHuman: true }).then(async (result) => {
+    if (result.reason === 'no-credential') await openNaverLogin();
+  }).catch((e) => pushLog('로그인 시작 실패: ' + String(e?.message || e)))
+    .finally(() => { autoStartTask = null; });
   return { ok: true, started: true };
 }
 
@@ -1499,7 +1481,7 @@ export async function saveNaverCredential({ id, pw }) {
   pushLog(`네이버 계정을 저장했습니다 (${info.idMasked}) — 이제 세션이 끊기면 도우미가 알아서 다시 로그인합니다.`);
   pushStatus();
   // 저장 즉시 한 번 시도한다 — "저장은 됐는데 되는지는 모른다"를 남기지 않는다.
-  return autoLoginNow({ byHuman: true });
+  return requestAutoLogin();
 }
 
 export function clearNaverCredential() {
@@ -1548,6 +1530,7 @@ export async function ensureNaverLogin() {
   }
 
   if (!hasCredentials()) return { ok: false, reason: 'no-credential' };
+  if (manualLoginState().waiting) return { ok: false, reason: 'manual-active' };
   if (autoLoginTask.running) return { ok: false, reason: 'running' };
   // 네이버가 이미 이 비밀번호를 거부했다 — 같은 값으로 다시 제출하면 계정 잠금으로 간다.
   //   저장은 지우지 않았으므로(오탐일 수 있다) 사람이 다시 저장하거나 버튼을 누르면 풀린다.
@@ -1574,18 +1557,22 @@ export async function autoLoginNow({ byHuman = false } = {}) {
   //   비밀번호 거부 판정도 함께 푼다. 오탐이었다면 여기서 통과할 것이고, 진짜였다면
   //   같은 화면을 사람이 직접 보게 되므로 어느 쪽이든 사람이 판단할 수 있다.
   if (byHuman) { humanBlockedAt = 0; clearCredentialRejection(); noteLoginSuccess(); }
+  if (manualLoginState().waiting) return { ok: false, reason: 'manual-active' };
   if (autoLoginTask.running) return { ok: false, reason: 'running' };
-  const creds = await loadCredentials();
-  if (!creds) return { ok: false, reason: 'no-credential' };
-
   autoLoginTask = { running: true, at: Date.now(), result: null };
+  const creds = await loadCredentials();
+  if (!creds) {
+    autoLoginTask = { running: false, at: Date.now(), result: { ok: false, reason: 'no-credential' } };
+    pushStatus();
+    return autoLoginTask.result;
+  }
   pushStatus();
 
   const finish = (result) => {
     // ★ 여기가 유일한 종료 지점이다 — 성공·실패·캡차·타임아웃이 전부 이 문을 지난다.
     //   그래서 백오프 집계도 여기 한 곳에서만 한다(경로마다 넣으면 반드시 하나를 빠뜨린다).
     if (result?.ok) noteLoginSuccess();
-    else if (result?.reason && result.reason !== 'running' && result.reason !== 'no-credential') {
+    else if (result?.reason && result.reason !== 'running' && result.reason !== 'no-credential' && result.reason !== 'manual-active') {
       noteLoginFailure(result.reason);
     }
     autoLoginTask = { running: false, at: Date.now(), result };
@@ -1597,12 +1584,15 @@ export async function autoLoginNow({ byHuman = false } = {}) {
     // ★ 풀에서 빌리지 않고 임시 탭을 쓴다(withTempTab 머리말 참고) — 목록 수집이 0번 탭을 쥔
     //   동안 세션이 끊기면, 풀에서 빌리는 구조로는 서로를 영원히 기다린다.
     return await withTempTab('자동 로그인', async (sw) => {
+      if (manualLoginState().waiting) return finish({ ok: false, reason: 'manual-active' });
+      activeAutoLoginTab = sw;
       sw.status = 'login';
       // 캡차가 뜨면 사람이 봐야 하므로 이 탭에서는 이미지를 막지 않는다.
       await sw.setMediaBlocked(false);
       pushLog('네이버 자동 로그인을 시도합니다…');
 
       await naverGate.acquire('ingest');
+      if (manualLoginState().waiting) { sw.keepOpen = true; return finish({ ok: false, reason: 'manual-active' }); }
       const nav = await sw.gotoViaClick('https://nid.naver.com/nidlogin.login', { skipReady: true, timeoutMs: 20000 });
       if (!nav.ok) {
         pushLog(`자동 로그인 실패 — 로그인 화면을 열지 못했습니다(${nav.error || 'unknown'}).`);
@@ -1610,6 +1600,7 @@ export async function autoLoginNow({ byHuman = false } = {}) {
       }
       await sleep(1500);
 
+      if (manualLoginState().waiting) { sw.keepOpen = true; return finish({ ok: false, reason: 'manual-active' }); }
       const filled = await sw.evaluate(naverAutoLoginJs(creds.id, creds.pw))
         .catch((e) => ({ ok: false, reason: String(e?.message || e) }));
       // 여기서 자격증명의 수명은 끝난다 — 아래로 흘려보내지 않는다.
@@ -1625,6 +1616,7 @@ export async function autoLoginNow({ byHuman = false } = {}) {
       // 제출 결과는 화면 문구가 아니라 **쿠키**로 본다(문구는 자주 바뀌고 오판한다).
       for (let i = 0; i < 25; i++) {
         await sleep(1000);
+        if (manualLoginState().waiting) { sw.keepOpen = true; return finish({ ok: false, reason: 'manual-active' }); }
         const st = await loginState();
         if (st.loggedIn) {
           loginCache = { loggedIn: true, persistent: !!st.persistent, at: Date.now() };
@@ -1684,6 +1676,7 @@ export async function autoLoginNow({ byHuman = false } = {}) {
         let cappedLogged = false;
         for (let i = 0; i < 120; i++) {
           await sleep(5000);
+          if (manualLoginState().waiting) { sw.keepOpen = true; return finish({ ok: false, reason: 'manual-active' }); }
           const st = await loginState();
           if (st.loggedIn) {
             loginCache = { loggedIn: true, persistent: !!st.persistent, at: Date.now() };
@@ -1739,6 +1732,7 @@ export async function autoLoginNow({ byHuman = false } = {}) {
               pushLog('저장된 계정이 없어 다시 입력하지 못했습니다 — 크롬 창에서 직접 로그인해 주세요.');
               continue;
             }
+            if (manualLoginState().waiting) { again.pw = ''; sw.keepOpen = true; return finish({ ok: false, reason: 'manual-active' }); }
             const re = await sw.evaluate(naverAutoLoginJs(again.id, again.pw)).catch(() => null);
             again.pw = '';
             if (!re?.ok) pushLog(`다시 입력에 실패했습니다(${re?.reason || 'unknown'}) — 크롬 창에서 직접 로그인해 주세요.`);
@@ -1758,6 +1752,8 @@ export async function autoLoginNow({ byHuman = false } = {}) {
     pushLog(`❌ 자동 로그인 실패 — ${e?.message || e}`);
     return finish({ ok: false, reason: String(e?.message || e) });
   } finally {
+    activeAutoLoginTab = null;
+    creds.pw = '';
     if (autoLoginTask.running) finish({ ok: false, reason: 'aborted' });
   }
 }

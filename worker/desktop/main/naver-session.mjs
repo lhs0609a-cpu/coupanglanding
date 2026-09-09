@@ -23,7 +23,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
-  chromeRunning, chromeSend, newTab, ensureChromeLogin, naverCookieState, setLoginPersistHandler,
+  chromeRunning, chromeSend, newTab, naverCookieState, setLoginPersistHandler, startManualLogin, manualLoginState,
 } from './modules/naver-ingest/chrome-session.mjs';
 
 /** 우리가 만료시각을 붙여 지켜 주는 쿠키 — 이 넷이 로그인의 전부다. */
@@ -233,71 +233,10 @@ export async function clearLogin() {
 // ─── 네이버 로그인 창 ────────────────────────────────────────────────────────
 // 크롬 창에서 **사람이 직접** 로그인한다. 저장된 계정이 있으면 ensureChromeLogin 이 먼저
 // 자동으로 시도하고, 그게 막힐 때만 사람을 부른다.
-let _loginBusy = false;
-/** 그 대기가 언제 시작됐나 — 멈춰 버린 대기를 털어내는 근거. */
-let _loginBusyAt = 0;
-/**
- * 대기를 스스로 포기하는 한도. ensureChromeLogin 은 사람을 최대 10분 기다리는데,
- * 그 앞에 게이트 쿨다운 대기가 더 붙을 수 있어 넉넉히 잡는다.
- */
-const LOGIN_BUSY_MAX_MS = 12 * 60_000;
-
-export function isLoginWindowOpen() {
-  return _loginBusy;
-}
-
-/**
- * 로그인을 확보한다. 즉시 반환한다(창이 떠 있는 동안 UI 를 막지 않는다) —
- * 결과는 onLog 와 loginState 로 나온다.
- */
+export function isLoginWindowOpen() { return manualLoginState().waiting; }
 export async function openLoginWindow({ onLog = () => {} } = {}) {
-  const st = await loginState();
-  if (st.loggedIn && !st.stale) {
-    onLog('이미 네이버에 로그인되어 있습니다.');
-    return { ok: true, already: true, loggedIn: true };
-  }
-  // ⚠️ 여기가 "버튼을 눌러도 아무 일도 안 난다"의 정체였다(실측 2026-09-02).
-  //    앞선 시도가 아직 돌고 있으면 **조용히 반환**했다 — 창도 안 뜨고, 로그 한 줄도 없고,
-  //    화면도 그대로다. 그 대기는 사람을 최대 10분 기다리므로, 그 10분 내내 버튼이 죽은 것처럼
-  //    보였다. 게다가 크롬 창을 닫아 버리면 대기는 계속 도는데 사람은 되돌릴 방법이 없었다.
-  //    → ① 정말 진행 중이면 **그렇다고 말하고** 창을 앞으로 끌어온다.
-  //       ② 크롬이 없거나 한도를 넘긴 대기는 **멈춘 것으로 보고 털어낸 뒤 새로 시작**한다.
-  if (_loginBusy) {
-    const stuckMs = Date.now() - _loginBusyAt;
-    let alive = false;
-    try { alive = await chromeRunning(); } catch { alive = false; }
-    if (alive && stuckMs < LOGIN_BUSY_MAX_MS) {
-      onLog('로그인 창이 이미 열려 있습니다 — 그 창에서 로그인해 주세요.'
-        + ' (창이 안 보이면 작업표시줄에서 크롬 창을 확인하세요)');
-      // ⚠️ 여기서 새 탭을 열지는 않는다 — 클릭마다 빈 탭이 쌓인다. 안내만 정확히 남긴다.
-      return { ok: true, already: true, busy: true };
-    }
-    onLog(alive
-      ? '앞선 로그인 대기가 너무 오래됐습니다 — 처음부터 다시 시작합니다.'
-      : '앞선 로그인 대기가 남아 있었지만 브라우저가 닫혀 있습니다 — 처음부터 다시 시작합니다.');
-    _loginBusy = false;
-  }
-  _loginBusy = true;
-  _loginBusyAt = Date.now();
-
-  void (async () => {
-    try {
-      const r = await ensureChromeLogin({ waitMs: 10 * 60 * 1000 });
-      if (!r.ok) { onLog('로그인 대기를 종료합니다(10분) — 필요하면 다시 눌러주세요.'); return; }
-      // ★ 여기서 **반드시** 도장을 찍는다. 예전엔 성사만 알리고 "로그인 상태 유지를 켜라"고
-      //   사람에게 떠넘겼는데, 그 체크는 캡차 화면을 지나면 저절로 풀려서 지킬 수가 없었다.
-      await persistLoginCookies().catch(() => 0);
-      const after = await loginState();
-      onLog(after.persistent
-        ? '✅ 네이버 로그인 완료 — 앱을 껐다 켜도, 재부팅해도 유지됩니다.'
-        : '✅ 네이버 로그인 완료 — 이제 스마트스토어 상품도 확인합니다.');
-    } catch (e) {
-      onLog('로그인에 실패했습니다: ' + (e?.message || e));
-    } finally {
-      _loginBusy = false;
-      _loginBusyAt = 0;
-    }
-  })();
-
+  void startManualLogin().then((result) => {
+    if (!result.ok) onLog(result.error || '로그인 창을 열지 못했습니다.');
+  }).catch((e) => onLog('로그인 창 열기 실패: ' + String(e?.message || e)));
   return { ok: true, started: true };
 }

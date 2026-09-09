@@ -221,7 +221,7 @@ class NaverGate {
     const base = is429 ? COOLDOWN_BASE_429_MS : COOLDOWN_BASE_MS;
     const cap = is429 ? COOLDOWN_CAP_429_MS : COOLDOWN_CAP_MS;
     const ms = Math.min(base * 2 ** (this.blockStreak - 1), cap) + rand(COOLDOWN_JITTER_MS);
-    this.cooldownUntil = Date.now() + ms;
+    this.cooldownUntil = Math.max(this.cooldownUntil, Date.now() + ms);
     this.recordBlock();
     this._save();
     this._emit();
@@ -257,16 +257,17 @@ class NaverGate {
 
   recordFailure() {
     // 차단이 아닌 일반 실패(타임아웃 등)는 한 단계만, 그것도 2 까지만 올린다.
-    this.level = Math.min(2, this.level + 1);
+    this.level = Math.max(this.level, Math.min(2, this.level + 1));
     this.successStreak = 0;
   }
 
   recordSuccess() {
+    // 다른 탭/품절 모니터의 늦은 성공 응답이 진행 중인 차단을 해제하면 안 된다.
+    if (this.cooldownUntil > Date.now()) return;
     this.successStreak++;
-    this.blockStreak = 0;
     const quiet = Date.now() - this.lastBlockAt > RECOVER_QUIET_MS;
-    const canRecover = this.successStreak >= RECOVER_STREAK
-      || (this.successStreak >= RECOVER_STREAK_FAST && quiet);
+    const canRecover = quiet && this.successStreak >= RECOVER_STREAK_FAST;
+    if (quiet && this.successStreak >= RECOVER_STREAK) this.blockStreak = 0;
     if (canRecover && this.level > MIN_LEVEL) {
       this.level--;
       this.successStreak = 0;

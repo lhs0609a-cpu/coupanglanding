@@ -6,7 +6,7 @@
  * 이미지(대표이미지)는 별도(ComfyUI) 단계 — 여기선 텍스트만.
  */
 import { generate, parseJsonLoose } from './local-llm.mjs';
-import { pickPersona, buildTitlePrompt, buildCategoryPrompt } from './ai-prompts.mjs';
+import { pickPersona, buildTitlePrompt, buildCategoryPrompt, specTokens } from './ai-prompts.mjs';
 import { deriveOptions } from './option-mini.mjs';
 import { generatePerfectDetail } from './detail-content-gen.mjs';
 import { checkMini } from './compliance-mini.mjs';
@@ -24,6 +24,9 @@ function deriveKeywords(product) {
 
 const AVOID = (violations) =>
   violations.length ? `\n\n[재작성] 다음 표현은 법적 위반이라 절대 쓰지 말 것: ${violations.join(', ')}. 같은 의미도 우회 금지.` : '';
+
+const nameQuantities = (s) => [...String(s || '').matchAll(/\d+(?:[.,]\d+)?(?:\s*[-~]\s*\d+(?:[.,]\d+)?)?\s*(?:kg|ml|cm|mm|g|l|개|입|매|장|봉|팩|과|병|캔|세트)(?![a-z])/gi)]
+  .map((m) => m[0].replace(/\s/g, '').toLowerCase());
 
 /** 문자열 → 결정론 해시(FNV-1a). 같은 시드 = 같은 값(재현성). */
 function seedHash(s) {
@@ -204,7 +207,7 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   ]);
 
   // 1) 노출상품명/제목 — 파싱 실패 시 원문을 그대로 저장하지 않고 복구(원문 누출 방지)
-  const titleJson = parseJsonLoose(titleRaw.text) || {};
+  let titleJson = parseJsonLoose(titleRaw.text) || {};
   let displayName = composeDisplayName(titleJson, personaSeed || product.originalName);
   // 홍보/주관 형용사·서술어·중복토큰을 먼저 정리(stripNameFiller 가 dedup 까지 수행) — 이것만이
   // 문제면 살균으로 통과시켜 원본명 폴백까지 가지 않게 한다(폴백은 원본 문장을 그대로 끌고 옴).
@@ -217,7 +220,11 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   //   정체성 검사가 없던 동안, 모델이 프롬프트 예시를 베껴 만든 "남의 상품 이름"이
   //   형식만 멀쩡하다는 이유로 전부 통과했다(실측 18%). output-quality 주석 참조.
   const nameIssues = (n) => (n
-    ? [...checkDisplayName(n).issues, ...checkNameGrounded(n, product).issues]
+    ? [...checkDisplayName(n).issues, ...checkNameGrounded(n, product).issues,
+      ...([...specTokens(n), ...nameQuantities(n)].some((spec) => ![...specTokens(product.originalName), ...nameQuantities(product.originalName)].some((own) => own.toLowerCase() === spec.toLowerCase()))
+        ? ['원본 상품명에 없는 규격을 고정값으로 넣음 — 선택 옵션을 제품 전체의 규격으로 쓰지 말 것'] : []),
+      ...(['소과', '중과', '대과', '특대과', 'A급', 'B급'].some((variant) => n.includes(variant) && !String(product.originalName).includes(variant))
+        ? ['옵션의 크기나 등급을 상품 전체의 고정 속성으로 넣지 말 것'] : [])]
     : ['빈 값']);
 
   // ⚠️ 문장체("…재배한 기능성 쌀 입니다")·단어도배·정체성 불일치·품질미달이면 1회 재생성(엄격 지시).
@@ -225,7 +232,7 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   if (nameIssues(displayName).length > 0) {
     const bad = nameIssues(displayName);
     const fixNote = `직전 결과 문제: ${bad.join(', ')}. 반드시 명사구로만(서술어·부사·조사·문장 금지), `
-      + `같은 단어 반복 금지, 50자 이상 길게, 검색되는 제품명+스펙+속성어를 나열. `
+      + `같은 단어 반복 금지, 길이를 억지로 채우지 말고 확인된 제품명과 스펙을 간결하게 나열. `
       + `core 는 반드시 "${String(product.originalName || '').slice(0, 60)}" 에 실제로 있는 명사로 시작할 것 `
       + `— 예시(와인·마늘·쌀/잡곡)나 다른 상품의 말을 쓰면 실패다.`;
     try {
@@ -233,10 +240,11 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
       const reJson = parseJsonLoose(reRaw.text) || {};
       const reName = stripNameFiller(composeDisplayName(reJson, personaSeed || product.originalName));
       if (reName && nameIssues(reName).length === 0) {
+        titleJson = reJson;
         displayName = reName;
         const reKw = Array.isArray(reJson.keywords)
           ? reJson.keywords.filter((k) => typeof k === 'string' && k.trim() && !hasForeignCJK(k)).map((k) => k.trim()) : [];
-        if (reKw.length) keywords = reKw;
+        keywords = reKw;
       }
     } catch { /* 재생성 실패는 무시하고 아래 살균/폴백 */ }
   }
@@ -253,15 +261,14 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
       : salvageDisplayName(titleJson.displayName || titleRaw.text, product.originalName);
     displaySalvaged = true;
     // 베낀 이름에서 뽑힌 키워드도 남의 상품 것이다 — 버리고 아래에서 다시 도출한다.
-    if (displayUngrounded) keywords = [];
+    keywords = [];
   }
-  const dnCheck = checkDisplayName(displayName);
   if (keywords.length === 0) keywords = deriveKeywords(product);
   // 상품명에 못 붙은 attrs(8개 중 5개만 사용)도 검색어 태그 후보로 넘긴다 — 버리지 않는다.
-  if (Array.isArray(titleJson.attrs)) {
+  if (!displaySalvaged && Array.isArray(titleJson.attrs)) {
     for (const a of titleJson.attrs) {
       const t = typeof a === 'string' ? a.trim() : '';
-      if (t && !displayName.includes(t) && !keywords.includes(t)) keywords.push(t);
+      if (t && !hasForeignCJK(t) && !displayName.includes(t) && !keywords.includes(t)) keywords.push(t);
     }
   }
   // 셀러별 노출명 유니크화 — 브랜드+제품명+스펙 코어는 유지하고, 셀러 시드로 SEO 키워드 하나를
@@ -273,6 +280,9 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   if (!usedNewSchema && (!displaySalvaged || checkDisplayName(displayName).ok)) {
     displayName = diversifyBySeller(displayName, keywords, personaSeed || product.originalName);
   }
+  keywords = [...new Set(keywords.filter((k) => typeof k === 'string' && k.trim() && !hasForeignCJK(k) && checkMini(k, ctx).ok).map((k) => k.trim()))].slice(0, 20);
+  const dnCheck = { issues: nameIssues(displayName) };
+  const finalTitleCompliance = checkMini(displayName, ctx);
 
   // 2) 카테고리 — LLM 결과를 실제 후보 코드로 강제 매핑
   const catJson = parseJsonLoose(catRaw.text) || {};
@@ -324,7 +334,7 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
   const detailCheck = { ok: detailGen.ok, issues: detailGen.ok ? [] : detailGen.issues.slice(0, 3) };
 
   const totalMs = Date.now() - t0;
-  const fields = { title: titleRaw, category: catRaw, detail: detailRaw };
+  const fields = { title: finalTitleCompliance, category: catRaw, detail: detailRaw };
   const complianceOk = Object.values(fields).every((f) => f.ok);
 
   // 원본 상품명이 카테고리 어휘뿐 = 소싱 단계에서 상품명이 깨진 것. 노출명·상세글·옵션이
@@ -363,7 +373,7 @@ export async function generateAllFields(product, { model, personaSeed, categoryC
     options,
     qualityIssues,
     compliance: { ok: complianceOk, byField: {
-      title: titleRaw.violations, category: catRaw.violations, detail: detailRaw.violations,
+      title: finalTitleCompliance.violations, category: catRaw.violations, detail: detailRaw.violations,
     } },
     timings: {
       totalMs,

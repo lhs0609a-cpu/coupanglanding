@@ -1,0 +1,4 @@
+*.log
+live-quality-*.json
+
+browser-smoke-*/

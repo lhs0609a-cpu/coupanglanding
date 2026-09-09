@@ -7,7 +7,11 @@
  * 모델 권장(4060 Ti 16GB): qwen2.5:7b-instruct (한국어 양호) 또는 exaone3.5:7.8b.
  */
 
+import { setTimeout as delay } from 'node:timers/promises';
+
 const OLLAMA = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
+const GENERATE_TIMEOUT_MS = 300_000;
+const HEALTH_TIMEOUT_MS = 5000;
 
 /**
  * llama-server 원문 오류를 사람이 읽고 **행동할 수 있는 문장**으로 바꾼다.
@@ -40,7 +44,7 @@ export function explainLlmError(raw) {
 /** ollama 데몬이 떠 있는지 */
 export async function isUp() {
   try {
-    const r = await fetch(`${OLLAMA}/api/tags`, { method: 'GET' });
+    const r = await fetch(`${OLLAMA}/api/tags`, { method: 'GET', signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) });
     return r.ok;
   } catch { return false; }
 }
@@ -48,7 +52,7 @@ export async function isUp() {
 /** 설치된 모델 목록 */
 export async function listModels() {
   try {
-    const r = await fetch(`${OLLAMA}/api/tags`);
+    const r = await fetch(`${OLLAMA}/api/tags`, { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) });
     if (!r.ok) return [];
     const j = await r.json();
     return (j.models || []).map((m) => m.name);
@@ -65,7 +69,7 @@ export async function listModels() {
  * @param {string} [o.format]   'json' 이면 JSON 강제
  * @returns {Promise<{text:string, ms:number, evalCount:number, tokPerSec:number}>}
  */
-export async function generate({ model, prompt, system, options = {}, format, keep_alive } = {}) {
+export async function generate({ model, prompt, system, options = {}, format, keep_alive, timeoutMs = GENERATE_TIMEOUT_MS, signal } = {}) {
   if (!model) throw new Error('[local-llm] model 필요');
   const body = {
     model,
@@ -78,6 +82,8 @@ export async function generate({ model, prompt, system, options = {}, format, ke
   };
   if (format) body.format = format;
   const t0 = Date.now();
+  const timed = AbortSignal.timeout(Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.floor(timeoutMs) : GENERATE_TIMEOUT_MS);
+  const requestSignal = signal ? AbortSignal.any([signal, timed]) : timed;
   // 연결 실패(fetch failed/ECONNREFUSED 등)는 ollama 가 모델 로딩 중 일시적으로 응답을 못하거나
   // 메모리압박으로 잠깐 재시작할 때 난다 → 짧게 재시도하면 그대로 이어진다(HTTP 4xx/5xx 는 재시도 안 함).
   let j;
@@ -87,16 +93,18 @@ export async function generate({ model, prompt, system, options = {}, format, ke
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: requestSignal,
       });
       if (!r.ok) throw new Error(`[local-llm] HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
       j = await r.json();
       break;
     } catch (e) {
+      if (requestSignal.aborted) throw requestSignal.reason;
       const msg = String(e?.message || e);
       const networkish = !/HTTP \d{3}/.test(msg) &&
         (/fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|network|timeout|EPIPE/i.test(msg) || e?.cause);
       if (!networkish || attempt >= 3) throw e;
-      await new Promise((res) => setTimeout(res, 2000 * (attempt + 1))); // 2s,4s,6s
+      await delay(2000 * (attempt + 1), undefined, { signal: requestSignal });
     }
   }
   const ms = Date.now() - t0;
@@ -125,7 +133,7 @@ export async function generate({ model, prompt, system, options = {}, format, ke
  *   보인다(느린 건 실패가 아니라서 폴백도 안 걸린다). 호출부가 이 값을 넘겨 상품 단위로
  *   빠르게 CLIP 휴리스틱 폴백시킬 수 있게 한다. 미지정이면 무제한(기존 동작).
  */
-export async function generateVision({ model, prompt, images = [], system, options = {}, format, keep_alive, timeoutMs } = {}) {
+export async function generateVision({ model, prompt, images = [], system, options = {}, format, keep_alive, timeoutMs = GENERATE_TIMEOUT_MS, signal } = {}) {
   if (!model) throw new Error('[local-llm] vision model 필요');
   const body = {
     model,
@@ -139,6 +147,8 @@ export async function generateVision({ model, prompt, images = [], system, optio
   };
   if (format) body.format = format;
   const t0 = Date.now();
+  const timed = AbortSignal.timeout(Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.floor(timeoutMs) : GENERATE_TIMEOUT_MS);
+  const requestSignal = signal ? AbortSignal.any([signal, timed]) : timed;
   let j;
   for (let attempt = 0; ; attempt++) {
     try {
@@ -146,12 +156,13 @@ export async function generateVision({ model, prompt, images = [], system, optio
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
+        signal: requestSignal,
       });
       if (!r.ok) throw new Error(`[local-llm] vision HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
       j = await r.json();
       break;
     } catch (e) {
+      if (requestSignal.aborted) throw requestSignal.reason;
       // ⚠️ 상한 초과(Abort)는 **재시도하지 않는다**. 여기서 재시도하면 느린 PC 가 상한을
       //    3배로 다시 기다리게 돼(2·4·6초 백오프까지) 상한을 둔 의미가 사라진다.
       //    메시지에 'timeout' 이 들어가 아래 networkish 에 걸리므로 먼저 걸러낸다.
@@ -160,7 +171,7 @@ export async function generateVision({ model, prompt, images = [], system, optio
       const networkish = !/HTTP \d{3}/.test(msg) &&
         (/fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|network|timeout|EPIPE/i.test(msg) || e?.cause);
       if (!networkish || attempt >= 3) throw e;
-      await new Promise((res) => setTimeout(res, 2000 * (attempt + 1)));
+      await delay(2000 * (attempt + 1), undefined, { signal: requestSignal });
     }
   }
   return { text: (j.response || '').trim(), ms: Date.now() - t0 };
@@ -170,8 +181,8 @@ export async function generateVision({ model, prompt, images = [], system, optio
 export async function hasModel(model) {
   if (!model) return false;
   const names = await listModels();
-  const base = model.split(':')[0];
-  return names.some((n) => n === model || n.startsWith(model) || n.split(':')[0] === base);
+  const requested = model.includes(':') ? model : `${model}:latest`;
+  return names.some((n) => (n.includes(':') ? n : `${n}:latest`) === requested);
 }
 
 /**
@@ -237,6 +248,7 @@ export async function unload(model) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, keep_alive: 0 }),
+      signal: AbortSignal.timeout(15_000),
     });
     return r.ok;
   } catch {
@@ -247,7 +259,7 @@ export async function unload(model) {
 /** 현재 VRAM/메모리에 로드돼 "떠 있는" 모델 이름 목록 (/api/ps). 베스트에포트. */
 export async function psLoaded() {
   try {
-    const r = await fetch(`${OLLAMA}/api/ps`);
+    const r = await fetch(`${OLLAMA}/api/ps`, { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) });
     if (!r.ok) return [];
     const j = await r.json();
     return (j.models || []).map((m) => m.name).filter(Boolean);

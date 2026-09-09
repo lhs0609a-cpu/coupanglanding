@@ -244,7 +244,7 @@ export async function startPairServer({
           return json(200, await naverIngest.credentialStatus());
         }
         if (req.method === 'POST' && u.pathname === '/naver-ingest/login/auto') {
-          return json(200, await naverIngest.autoLoginNow({ byHuman: true }));
+          return json(200, await naverIngest.requestAutoLogin());
         }
 
         // ── 카테고리 선택 수집 ──────────────────────────────────────────

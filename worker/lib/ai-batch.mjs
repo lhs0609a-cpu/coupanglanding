@@ -240,7 +240,7 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
     await onItem?.(i, products.length, rec, ++done);
   };
 
-  const lanes = Math.max(1, Math.min(Number(concurrency) || 1, products.length));
+  const lanes = Math.max(1, Math.min(Math.floor(Number(concurrency)) || 1, products.length));
   let cursor = 0;
   // ── 상품 단위 실패 격리 ──────────────────────────────────────────────────
   //   ⚠️ 예전엔 genOne 이 그대로 throw 했다 → lane 의 while 로 전파 → Promise.all reject →
@@ -281,7 +281,8 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
     summary: {
       total: products.length, ok, needsReview: review,
       failed: failures.length, failures: failures.slice(0, 20), abortReason,
-      avgMs: products.length ? Math.round(totalMs / products.length) : 0,
+      skipped: Math.max(0, products.length - ok - review - failures.length),
+      avgMs: ok + review ? Math.round(totalMs / (ok + review)) : 0,
       wallMs: Date.now() - t0,
       // 파일 존재가 아니라 "실제로 어떤 후보 소스를 썼는지" 집계로 보고
       candidateSource: (() => {

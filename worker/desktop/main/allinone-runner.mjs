@@ -4,6 +4,7 @@
 //   ② pair-server /allinone/generate — 웹이 업로드한 임시폴더를 생성(웹 주도).
 // ⚠️ ollama(텍스트)·ComfyUI(누끼)가 떠 있어야 함(services 로 자동 기동).
 import { spawn } from 'node:child_process';
+import { lineStream } from './line-stream.mjs';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkGpu, checkSystemRam } from './bootstrap.mjs';
@@ -502,9 +503,16 @@ export async function startGeneration({
     return `생성 프로세스가 종료됨(code=${code})`;
   };
 
-  child.stdout.on('data', handle);
-  child.stderr.on('data', handle);
-  child.on('exit', (code, signal) => {
+  const stdout = lineStream(handle);
+  const stderr = lineStream(handle);
+  child.stdout.on('data', (chunk) => stdout.write(chunk));
+  child.stderr.on('data', (chunk) => stderr.write(chunk));
+  child.stdout.on('end', () => stdout.end());
+  child.stderr.on('end', () => stderr.end());
+  let finished = false;
+  child.on('close', (code, signal) => {
+    if (finished) return;
+    finished = true;
     child = null;
     // 성공 폴더를 기억 — 웹 /allinone/manifest·file·list 가 이 폴더를 읽는다.
     if (code === 0) { try { store?.set('lastAllinoneFolder', folder); } catch { /* skip */ } }
@@ -523,6 +531,8 @@ export async function startGeneration({
     send('allinone:done', { code, reason });
   });
   child.on('error', (e) => {
+    if (finished) return;
+    finished = true;
     child = null;
     const reason = '실행 오류: ' + e.message;
     send('allinone:log', reason);

@@ -75,7 +75,7 @@ export function ancestorChain(catId) {
  * 카테고리 메뉴에서 한 칸 내려간다.
  * 링크가 아직 안 그려졌으면 상위 이름에 hover 해서 메뉴를 연 뒤 다시 본다(설계도 ③: 8회 재시도).
  */
-async function stepInto(page, node, parentName, onLog) {
+export async function stepInto(page, node, parentName, onLog = () => {}) {
   const sel = `a[href*="/ns/category/${node.id}"]`;
 
   for (let attempt = 1; attempt <= 8; attempt++) {
@@ -124,7 +124,23 @@ async function stepInto(page, node, parentName, onLog) {
       await sleep(500);
       continue;
     }
-    if (r.reason === 'no-navigation') { await sleep(800); continue; }
+    if (r.reason === 'no-navigation') {
+      // 대분류 선택은 URL 이동 없이 하위 메뉴만 여는 경우가 있다.
+      // 실제 하위 링크가 보일 때만 성공으로 인정하여 토글을 반복해서 닫지 않는다.
+      const children = (tree().map || {})[String(node.id)] || [];
+      const ids = children.map((child) => String(child.id));
+      const expanded = ids.length && await page.evaluate(`(() => {
+        const ids = ${JSON.stringify(ids)};
+        return [...document.querySelectorAll('a[href]')].some(el => {
+          const href = el.getAttribute('href') || '';
+          const hit = ids.some(id => href.includes('/ns/category/' + id));
+          const r = el.getBoundingClientRect();
+          return hit && r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+        });
+      })()`).catch(() => false);
+      if (expanded) { onLog(`  ↳ ${node.name || node.id} 하위 메뉴 열림`); return { ok: true }; }
+      await sleep(800); continue;
+    }
     await sleep(500);
   }
   // 못 찾았으면 **화면에 뭐가 있었는지** 남긴다 — 이게 없으면 다음 사람이 또 추측한다.

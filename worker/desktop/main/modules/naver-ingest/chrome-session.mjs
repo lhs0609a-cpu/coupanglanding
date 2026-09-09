@@ -21,6 +21,8 @@
 import { join } from 'node:path';
 import { ChromeBrowser, findChrome } from './chrome-cdp.mjs';
 import naverGate from '../../naver-gate.mjs';
+import { findBrowser } from './browser-discovery.mjs';
+import { ManualLogin } from './manual-login.mjs';
 
 let browser = null;
 let userDataDir = null;
@@ -60,7 +62,7 @@ async function stampLogin() {
 }
 
 export function chromeProfileDir() {
-  return join(userDataDir || '.', 'chrome-profile');
+  return join(userDataDir || '.', findBrowser()?.kind === 'edge' ? 'edge-profile' : 'chrome-profile');
 }
 
 export function isChromeAvailable() {
@@ -93,11 +95,13 @@ export async function ensureChromeBrowser() {
   //   전에는 복구되지 않았다. 살아 있는 것만 재사용한다.
   if (liveBrowser()) return browser;
   if (launching) return launching;
-  if (!findChrome()) throw new Error('구글 크롬이 설치돼 있지 않습니다 — 크롬을 설치해 주세요.');
+  const selected = findBrowser();
+  if (!selected) throw new Error('Chrome 또는 Microsoft Edge가 필요합니다. 설치 후 다시 로그인해 주세요.');
 
   launching = (async () => {
     const b = new ChromeBrowser({
       profileDir: chromeProfileDir(),
+      executablePath: selected.path,
       onLog,
       // 크롬이 우리 손 밖에서 죽으면 그 자리에서 핸들을 버린다 — 다음 호출이 새로 띄운다.
       onExit: () => {
@@ -141,11 +145,12 @@ export async function chromeSend(method, params = {}) {
  */
 export async function naverCookieState() {
   if (!liveBrowser()) return { running: false, loggedIn: false, hasAuth: false, persistent: false };
-  const r = await browser.send('Storage.getCookies').catch(() => null);
+  const r = await browser.send('Storage.getCookies', {}, undefined, 5000);
+  if (!r?.cookies) throw new Error('브라우저 로그인 상태를 읽지 못했습니다. 로그인 창을 다시 열어 주세요.');
   const all = r?.cookies || [];
   // 도메인은 '.naver.com' / 'nid.naver.com' / 'naver.com' 세 모양으로 온다.
   const isNaver = (c) => /(^|\.)naver\.com$/.test(String(c.domain || ''));
-  const pick = (n) => all.find((c) => c.name === n && c.value && isNaver(c));
+  const pick = (n) => all.find((c) => c.name === n && c.value && isNaver(c) && (c.session || c.expires === -1 || Number(c.expires) > Date.now() / 1000));
   const aut = pick('NID_AUT');
   const ses = pick('NID_SES');
   return {
@@ -203,30 +208,20 @@ export async function ensureChromeLogin({ waitMs = 300_000, tab = null } = {}) {
   st = await naverCookieState();
   if (st.loggedIn) { await stampLogin(); return { ok: true, auto: true }; }
 
-  // ② 사람 차례.
-  const own = !tab;
-  const p = tab || (await newTab());
-  try {
-    onLog('네이버 로그인이 필요합니다 — 크롬 창에서 직접 로그인해 주세요("로그인 상태 유지" 권장).');
-    await p.goto('https://nid.naver.com/nidlogin.login', { settleMs: 1500 });
-    await p.bringToFront().catch(() => {});
+  return manualLogin.wait({ waitMs });
+}
 
-    const until = Date.now() + waitMs;
-    while (Date.now() < until) {
-      await new Promise((r) => { const t = setTimeout(r, 4000); t.unref?.(); });
-      const cur = await naverCookieState().catch(() => st);
-      if (cur.loggedIn) {
-        // ★ 여기서 **반드시** 도장을 찍는다. 안 찍으면 세션 쿠키라 크롬이 닫히는 순간
-        //   방금 한 로그인이 통째로 사라진다(실측 2026-08-27).
-        await stampLogin();
-        onLog('네이버 로그인 확인됨.');
-        return { ok: true };
-      }
-    }
-    return { ok: false, error: '로그인이 확인되지 않았습니다.' };
-  } finally {
-    if (own) await p.close().catch(() => {});
-  }
+const manualLogin = new ManualLogin({
+  newPage: newTab, state: naverCookieState, persist: stampLogin,
+  log: (message) => onLog(message),
+});
+export function startManualLogin(options) { return manualLogin.start(options); }
+export function requestManualLogin(options) {
+  void manualLogin.start(options).catch((e) => onLog('로그인 창 열기 실패: ' + String(e?.message || e)));
+  return { ok: true, started: true };
+}
+export function manualLoginState() {
+  return { waiting: manualLogin.waiting, result: manualLogin.last };
 }
 
 export async function closeChrome() {

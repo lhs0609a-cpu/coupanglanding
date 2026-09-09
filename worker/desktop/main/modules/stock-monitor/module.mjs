@@ -5,13 +5,14 @@ import { fetchNaverProduct, warmUpSession } from './naver-fetch.mjs';
 // 네이버 로그인 — 스마트스토어는 비로그인 조회를 429 로 막는다(실측: brand 3/3 성공, smartstore 0/5).
 // 세션은 소싱 수집과 공유하므로 어느 쪽에서 로그인하든 양쪽 다 적용된다.
 import {
-  openLoginWindow, clearLogin, loginState, isLoginWindowOpen, persistLoginCookies,
+  clearLogin, loginState, isLoginWindowOpen, persistLoginCookies,
 } from '../../naver-session.mjs';
 // 자동 로그인 — 계정을 한 번 저장해 두면 세션이 끊겨도 도우미가 알아서 다시 로그인한다.
 // 로그인 세션이 하나이므로 구현도 한 곳(naver-ingest/service)만 두고 여기서 빌려 쓴다.
 import {
-  ensureNaverLogin, credentialStatus, saveNaverCredential, clearNaverCredential,
+  openNaverLogin, ensureNaverLogin, credentialStatus, saveNaverCredential, clearNaverCredential,
 } from '../naver-ingest/service.mjs';
+import { manualLoginState } from '../naver-ingest/chrome-session.mjs';
 
 // ── 페이싱 ──
 // 2026-08-10 실측으로 이 모듈이 별도 "메가로드 모니터링" 앱(v0.1.16)과 정책이 갈려 있던 게 드러났다.
@@ -400,7 +401,7 @@ export default {
       // 쿠키 판정이라 요청 0회 — 5초마다 물어도 네이버 예산을 쓰지 않는다.
       // ★ 물어보는 김에 아직 도장이 안 찍힌 쿠키는 여기서 찍는다(역시 요청 0회). 상시 감시가
       //   따로 돌지만, 그 사이의 짧은 순간에 화면이 "껐다 켜면 풀립니다"라고 잘못 말하는 걸 막는다.
-      naverLogin: { ...(await ensurePersistentLogin()), waiting: isLoginWindowOpen() },
+      naverLogin: { ...(await ensurePersistentLogin()), waiting: isLoginWindowOpen(), manual: manualLoginState().result },
       naverCredential: await credentialStatus().catch(() => ({ has: false, encryption: false })),
     }),
     'stock-monitor:set-token': (ctx, { token } = {}) => {
@@ -415,7 +416,7 @@ export default {
     'stock-monitor:stop': (ctx) => { stop(ctx); try { ctx.store.set('monitorEnabled', false); } catch {} return true; },
     'stock-monitor:open-web': (ctx) => { ctx.openUrl(ctx.services.webOrigin + '/megaload/desktop-app'); return true; },
     // 네이버 로그인 — 창에서 사람이 직접. 계정 정보는 이 앱을 거치지 않고 네이버로 바로 간다.
-    'stock-monitor:naver-login': (ctx) => openLoginWindow({ onLog: (m) => ctx.send('stock-monitor:log', m) }),
+    'stock-monitor:naver-login': () => openNaverLogin(),
     // 계정 저장 — 비밀번호는 OS 암호저장소(Windows DPAPI / macOS 키체인)에만 들어가고
     // 여기서 다시 읽어 나오는 경로가 없다. 암호화를 못 쓰는 PC 면 저장 자체를 거부한다.
     'stock-monitor:naver-cred-save': (_ctx, { id, pw } = {}) => saveNaverCredential({ id, pw }),

@@ -24,6 +24,7 @@ async function refresh() {
   // 로그인한 적은 있는데 그 확인이 너무 오래됐다 = **모름**. 한 번도 로그인 안 한 사람과는 다르다.
   const unknown = !!nv.aged && !!(nv.lastKnown && nv.lastKnown.loggedIn);
   $('sm-naver').textContent = nv.waiting ? '창에서 로그인해 주세요…'
+    : !confirmed && nv.manual?.error ? '로그인 확인 필요: ' + nv.manual.error
     : unknown ? '❔ 로그인 상태를 확인하지 못했습니다 — 필요하면 다시 로그인해 주세요'
     : !nv.loggedIn ? '⚠️ 로그인 안 됨 — 스마트스토어 건너뜀'
     : nv.stale ? '✅ 마지막 확인: 로그인됨 (브라우저가 꺼져 있어 지금은 미확인)'
@@ -105,7 +106,8 @@ async function requestNaverLogin(btn) {
   const prev = btn ? btn.textContent : '';
   if (btn) { btn.disabled = true; btn.textContent = '창을 여는 중…'; }
   try {
-    await api.invoke('stock-monitor:naver-login');
+    const result = await api.invoke('stock-monitor:naver-login');
+    if (result?.ok === false) throw new Error(result.error || '로그인 창을 열지 못했습니다.');
   } catch (e) {
     logLine('로그인 창을 열지 못했습니다: ' + (e && e.message ? e.message : e));
   } finally {
