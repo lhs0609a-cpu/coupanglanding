@@ -509,9 +509,12 @@ async function main() {
       console.log(`[${ts()}][텍스트 ${doneCount ?? i + 1}/${total}] ❌ 실패(${products[i]?.id || i + 1}) — ${explainLlmError(err)}`);
     },
   });
+  // 중단 사유도 사람 말로 옮긴다 — 여기가 사용자가 실제로 읽는 마지막 문장이다.
+  //   (실측 2026-09-10: 화면에 'fetch failed' 네 글자만 떠서 아무도 원인을 알 수 없었다.)
+  const abortSaid = summary.abortReason ? explainLlmError(summary.abortReason) : '';
   if (summary.failed) {
     console.log(`[${ts()}] ⚠️ 텍스트 생성 실패 ${summary.failed}/${products.length}건 — 성공분은 그대로 저장합니다.`);
-    if (summary.abortReason) console.log(`[${ts()}] ⏹ ${summary.abortReason}`);
+    if (abortSaid) console.log(`[${ts()}] ⏹ ${abortSaid}`);
   }
   if (summary.failed || summary.skipped) process.exitCode = 1;
   if (!genRecords.some(Boolean)) {
@@ -519,7 +522,8 @@ async function main() {
     if (recogPromise) await recogPromise;
     await unload(model);
     if (visionReady) await unload(visionModel);
-    throw new Error(`생성 결과 0건 — 실패 ${summary.failed}건 · 미처리 ${summary.skipped}건. ${summary.abortReason || summary.failures?.[0]?.error || ''}`);
+    throw new Error(`생성 결과 0건 — 실패 ${summary.failed}건 · 미처리 ${summary.skipped}건. `
+      + `${abortSaid || explainLlmError(summary.failures?.[0]?.error || '')}`);
   }
   records.push(...genRecords);
 

@@ -14,6 +14,30 @@ const GENERATE_TIMEOUT_MS = 300_000;
 const HEALTH_TIMEOUT_MS = 5000;
 
 /**
+ * 엔진이 작업 **도중에** 사라졌을 때 돌아오기를 기다리는 상한.
+ * ---------------------------------------------------------------------------
+ * 실측 사고(2026-09-10): 상품 50개짜리 작업이 10분쯤 돌던 중 ollama 가 내려갔다. 그때
+ * 아래 재시도는 2·4·6초, 합쳐 12초만 버텼다 — 엔진이 다시 뜨고 5GB 모델을 올리는 데는
+ * 그보다 훨씬 오래 걸린다. 그래서 상품 3개가 연달아 `fetch failed` 로 죽었고, 배치의
+ * "연속 3건 실패" 규칙에 걸려 **남은 47개가 통째로 버려졌다**(성공 0건).
+ * 엔진 확인은 시작할 때 한 번뿐이라(run-folder 의 90초 대기) 도중에 죽는 건 아무도 안 봤다.
+ * → 도중에 사라져도 시작할 때와 똑같이 기다린다. 도우미가 다시 올리면 그대로 이어진다.
+ */
+// ⚠️ 환경변수는 **부를 때마다** 읽는다. 모듈 적재 시점에 한 번 읽으면 이 상수를 바꿔
+//    확인할 방법이 없어진다(테스트가 3분을 기다리게 된다).
+const engineReturnWaitMs = () => Number(process.env.MEGALOAD_ENGINE_RETURN_WAIT_MS) || 180_000;
+/**
+ * 기다려 봤는데 안 돌아왔다 — 이 시간 동안은 나머지 상품이 기다리지 않고 곧바로 접는다.
+ * 대기 상한보다 길 이유가 없다(짧게 기다리기로 했으면 짧게 냉각한다).
+ */
+const engineGoneCooldownMs = () => Math.min(30_000, engineReturnWaitMs());
+/** 한 호출이 엔진 복귀를 기다려 주는 횟수(돌아왔다가 또 죽는 경우의 안전핀). */
+const MAX_ENGINE_RESUMES = 2;
+const ENGINE_GONE_MSG = 'AI 엔진(ollama)이 작업 도중에 내려갔고 돌아오지 않았습니다.';
+
+const engineLog = (m) => console.log(`[엔진] ${m}`);
+
+/**
  * llama-server 원문 오류를 사람이 읽고 **행동할 수 있는 문장**으로 바꾼다.
  * ---------------------------------------------------------------------------
  * 실측 사고에서 사용자가 본 화면(그대로 노출됐다):
@@ -38,6 +62,15 @@ export function explainLlmError(raw) {
   if (/llama-server (process has terminated|startup failed)/i.test(s)) {
     return 'AI 엔진(llama-server)이 시작하지 못했습니다. 메모리 부족이 가장 흔한 원인이니 다른 프로그램을 닫고 다시 시도하세요. 원문: ' + s.slice(0, 200);
   }
+  // ★ `fetch failed` 는 Node 가 "그 주소로 연결 자체가 안 됨"일 때 내는 말이다. 여기서 그
+  //   주소는 이 PC 의 ollama 한 곳뿐이라 뜻이 하나로 정해진다 — **엔진이 없다**.
+  //   그런데 그대로 노출하면 사용자에게는 네트워크·서버 문제로 읽힌다(실측 2026-09-10:
+  //   화면에 딱 'fetch failed' 네 글자만 떴고, 그걸로는 아무도 원인을 알 수 없었다).
+  if (/fetch failed|ECONNREFUSED|ECONNRESET|socket hang up/i.test(s)) {
+    return 'AI 엔진(ollama)에 연결하지 못했습니다 — 엔진이 꺼져 있거나 다시 올라오는 중입니다.'
+      + ' 메모리(RAM·VRAM)가 모자라 엔진이 꺼지는 경우가 가장 흔하니, 크롬 탭이나 다른 AI·영상 프로그램을 닫고 다시 시도하세요.'
+      + ' 원문: ' + s.slice(0, 200);
+  }
   return s;
 }
 
@@ -47,6 +80,107 @@ export async function isUp() {
     const r = await fetch(`${OLLAMA}/api/tags`, { method: 'GET', signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) });
     return r.ok;
   } catch { return false; }
+}
+
+/**
+ * 엔진이 돌아올 때까지 기다린다 — "연결 자체가 안 되는" 상태에서만 부른다.
+ * @returns {Promise<boolean>} 돌아왔으면 true
+ */
+export async function waitUntilUp({ timeoutMs = engineReturnWaitMs(), onLog = engineLog } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let announced = false;
+  for (;;) {
+    if (await isUp()) {
+      if (announced) onLog('엔진이 돌아왔습니다 — 남은 상품을 이어서 처리합니다.');
+      return true;
+    }
+    if (Date.now() >= deadline) return false;
+    if (!announced) {
+      announced = true;
+      // ⚠️ 이 문장에 '실패' 라는 낱말을 넣지 않는다 — 앱이 로그에서 그 낱말을 찾아 오류
+      //    요약(allinone-runner 의 errLines)에 담기 때문에, 회복된 일이 실패로 보고된다.
+      onLog(`엔진 응답이 끊겼습니다 — 도우미가 다시 올릴 때까지 최대 ${Math.round(timeoutMs / 1000)}초 기다립니다(작업은 이어집니다).`);
+    }
+    await delay(1500);
+  }
+}
+
+/**
+ * 여러 상품이 **동시에** 엔진이 사라진 걸 발견한다(레인 3~6개). 각자 3분씩 따로 기다리면
+ * 안 되고, 하나의 대기를 함께 기다려야 한다. 그래서 대기를 모듈 단위로 하나만 둔다.
+ *   · 호출부의 signal 은 공유 대기에 넘기지 않는다 — 한 상품이 취소됐다고 다른 상품의
+ *     대기까지 깨면 안 된다. 취소는 race 로 그 상품만 빠져나가게 한다.
+ *   · 한 번 기다려도 안 왔으면 잠시 냉각한다 — 남은 상품이 3분씩 더 매달릴 이유가 없다.
+ */
+let enginePendingWait = null;
+let engineGoneUntil = 0;
+async function awaitEngineReturn({ signal } = {}) {
+  if (Date.now() < engineGoneUntil) return false;
+  if (!enginePendingWait) {
+    enginePendingWait = waitUntilUp()
+      .then((ok) => {
+        if (!ok) engineGoneUntil = Date.now() + engineGoneCooldownMs();
+        return ok;
+      })
+      .finally(() => { enginePendingWait = null; });
+  }
+  const shared = enginePendingWait;
+  if (!signal) return shared;
+  return Promise.race([shared, new Promise((_res, rej) => {
+    if (signal.aborted) return rej(signal.reason);
+    signal.addEventListener('abort', () => rej(signal.reason), { once: true });
+  })]);
+}
+
+/**
+ * /api/generate 한 번 — 텍스트·비전이 같이 쓴다(재시도 규칙이 한 곳에만 있어야 한다).
+ * ---------------------------------------------------------------------------
+ * "연결이 안 된다"에는 서로 다른 두 가지가 섞여 있다 — 엔진이 잠깐 못 받는 것(모델 적재 중,
+ * 메모리 압박으로 순간 멈춤)과 엔진이 아예 없어진 것. 앞은 몇 초 뒤 그대로 이어지고,
+ * 뒤는 몇 초를 기다려도 소용없다. **추측하지 말고 엔진에게 직접 물어본다**(/api/tags).
+ */
+async function postGenerate(body, { timeoutMs, signal, label = '' } = {}) {
+  const budget = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.floor(timeoutMs) : GENERATE_TIMEOUT_MS;
+  let resumes = 0;
+  for (let attempt = 0; ; attempt++) {
+    // ★ 상한은 **시도마다 새로** 준다. 예전엔 루프 밖에서 한 번 만들어 모든 시도가 하나의
+    //   예산을 나눠 썼다 — 엔진 복귀를 3분 기다리면 돌아온 엔진에게 남은 시간이 거의 없어
+    //   곧바로 또 끊긴다. 기다린 시간은 생성 시간이 아니다.
+    const timed = AbortSignal.timeout(budget);
+    const requestSignal = signal ? AbortSignal.any([signal, timed]) : timed;
+    try {
+      const r = await fetch(`${OLLAMA}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: requestSignal,
+      });
+      if (!r.ok) throw new Error(`[local-llm] ${label}HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      return await r.json();
+    } catch (e) {
+      // 호출부가 끊었으면 그대로 올린다(상품 취소·전체 중단).
+      if (signal?.aborted) throw signal.reason ?? e;
+      // ⚠️ 상한 초과(Abort)는 **재시도하지 않는다**. 재시도하면 느린 PC 가 상한을 몇 배로
+      //    다시 기다리게 돼 상한을 둔 의미가 사라진다(메시지에 'timeout' 이 들어가서
+      //    아래 networkish 에 걸리므로 여기서 먼저 걸러낸다).
+      if (e?.name === 'TimeoutError' || e?.name === 'AbortError') throw e;
+      const msg = String(e?.message || e);
+      const networkish = !/HTTP \d{3}/.test(msg)
+        && (/fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|network|timeout|EPIPE/i.test(msg) || e?.cause);
+      if (!networkish) throw e;
+      if (!(await isUp())) {
+        // 엔진이 없어졌다 — 몇 초 백오프는 의미가 없다. 돌아올 때까지 기다린다.
+        if (resumes >= MAX_ENGINE_RESUMES) throw new Error(`${ENGINE_GONE_MSG} 원문: ${msg.slice(0, 120)}`);
+        resumes++;
+        if (!(await awaitEngineReturn({ signal }))) throw new Error(`${ENGINE_GONE_MSG} 원문: ${msg.slice(0, 120)}`);
+        attempt = -1;      // 돌아왔으면 재시도 횟수를 되돌린다(아래 attempt++ 로 0)
+        continue;
+      }
+      // 엔진은 살아 있다 — 예전처럼 짧게 기다렸다 다시 던진다.
+      if (attempt >= 3) throw e;
+      await delay(2000 * (attempt + 1), undefined, { signal: signal ?? undefined });
+    }
+  }
 }
 
 /** 설치된 모델 목록 */
@@ -82,31 +216,9 @@ export async function generate({ model, prompt, system, options = {}, format, ke
   };
   if (format) body.format = format;
   const t0 = Date.now();
-  const timed = AbortSignal.timeout(Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.floor(timeoutMs) : GENERATE_TIMEOUT_MS);
-  const requestSignal = signal ? AbortSignal.any([signal, timed]) : timed;
-  // 연결 실패(fetch failed/ECONNREFUSED 등)는 ollama 가 모델 로딩 중 일시적으로 응답을 못하거나
-  // 메모리압박으로 잠깐 재시작할 때 난다 → 짧게 재시도하면 그대로 이어진다(HTTP 4xx/5xx 는 재시도 안 함).
-  let j;
-  for (let attempt = 0; ; attempt++) {
-    try {
-      const r = await fetch(`${OLLAMA}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: requestSignal,
-      });
-      if (!r.ok) throw new Error(`[local-llm] HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
-      j = await r.json();
-      break;
-    } catch (e) {
-      if (requestSignal.aborted) throw requestSignal.reason;
-      const msg = String(e?.message || e);
-      const networkish = !/HTTP \d{3}/.test(msg) &&
-        (/fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|network|timeout|EPIPE/i.test(msg) || e?.cause);
-      if (!networkish || attempt >= 3) throw e;
-      await delay(2000 * (attempt + 1), undefined, { signal: requestSignal });
-    }
-  }
+  // 연결 실패(fetch failed/ECONNREFUSED 등)의 처리는 postGenerate 한 곳에 있다 —
+  // 엔진이 잠깐 못 받는 것이면 짧게 재시도하고, 아예 사라진 것이면 돌아올 때까지 기다린다.
+  const j = await postGenerate(body, { timeoutMs, signal });
   const ms = Date.now() - t0;
   const evalCount = j.eval_count || 0;
   const evalNs = j.eval_duration || 0; // nanoseconds
@@ -147,33 +259,7 @@ export async function generateVision({ model, prompt, images = [], system, optio
   };
   if (format) body.format = format;
   const t0 = Date.now();
-  const timed = AbortSignal.timeout(Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.floor(timeoutMs) : GENERATE_TIMEOUT_MS);
-  const requestSignal = signal ? AbortSignal.any([signal, timed]) : timed;
-  let j;
-  for (let attempt = 0; ; attempt++) {
-    try {
-      const r = await fetch(`${OLLAMA}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: requestSignal,
-      });
-      if (!r.ok) throw new Error(`[local-llm] vision HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
-      j = await r.json();
-      break;
-    } catch (e) {
-      if (requestSignal.aborted) throw requestSignal.reason;
-      // ⚠️ 상한 초과(Abort)는 **재시도하지 않는다**. 여기서 재시도하면 느린 PC 가 상한을
-      //    3배로 다시 기다리게 돼(2·4·6초 백오프까지) 상한을 둔 의미가 사라진다.
-      //    메시지에 'timeout' 이 들어가 아래 networkish 에 걸리므로 먼저 걸러낸다.
-      if (e?.name === 'TimeoutError' || e?.name === 'AbortError') throw e;
-      const msg = String(e?.message || e);
-      const networkish = !/HTTP \d{3}/.test(msg) &&
-        (/fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|network|timeout|EPIPE/i.test(msg) || e?.cause);
-      if (!networkish || attempt >= 3) throw e;
-      await delay(2000 * (attempt + 1), undefined, { signal: requestSignal });
-    }
-  }
+  const j = await postGenerate(body, { timeoutMs, signal, label: 'vision ' });
   return { text: (j.response || '').trim(), ms: Date.now() - t0 };
 }
 

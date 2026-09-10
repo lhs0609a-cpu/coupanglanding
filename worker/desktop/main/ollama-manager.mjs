@@ -104,6 +104,14 @@ export class OllamaManager {
     this.proc = null;
     // 이 서버가 동시에 처리하는 요청 수. 우리가 띄웠을 때만 확정값을 안다(아니면 null).
     this.numParallel = null;
+    /**
+     * 우리가 **일부러** 내렸는가. 자동 재기동이 유휴 반납과 싸우지 않게 하는 표시다.
+     * ⚠️ stop() 이 끝나는 시점에 되돌리면 안 된다 — taskkill 은 비동기라 exit 이벤트가
+     *    stop() 이 반환된 뒤에 온다. 다음 start() 까지 켜 둔 채로 둔다.
+     */
+    this._stopping = false;
+    this._restarts = 0;
+    this._restartWindowAt = 0;
   }
 
   async isUp() {
@@ -112,6 +120,7 @@ export class OllamaManager {
 
   /** 바이너리 보장 → serve 기동 → 모델 보장. 이미 떠 있으면 모델만 보장. */
   async start({ timeoutMs = 120_000 } = {}) {
+    this._stopping = false;   // 다시 쓰겠다는 뜻이다 — 이제부터의 종료는 사고다
     if (!(await this.isUp())) {
       const exe = await ensureOllama({
         installDir: this.installDir,
@@ -159,10 +168,27 @@ export class OllamaManager {
         OLLAMA_MAX_LOADED_MODELS: process.env.OLLAMA_MAX_LOADED_MODELS || '2',
       };
       this.onLog(`[ollama] serve 시작 (동시 처리 ${np}개${np > 1 ? '' : ' — VRAM 여유가 없어 순차'})`);
-      this.proc = spawn(exe, ['serve'], { env, windowsHide: true });
-      this.proc.stdout?.on('data', (d) => this.onLog('[ollama] ' + String(d).trimEnd()));
-      this.proc.stderr?.on('data', (d) => this.onLog('[ollama] ' + String(d).trimEnd()));
-      this.proc.on('exit', (c) => { this.onLog(`[ollama] 종료 (code=${c})`); this.proc = null; });
+      const proc = spawn(exe, ['serve'], { env, windowsHide: true });
+      this.proc = proc;
+      proc.stdout?.on('data', (d) => this.onLog('[ollama] ' + String(d).trimEnd()));
+      proc.stderr?.on('data', (d) => this.onLog('[ollama] ' + String(d).trimEnd()));
+      /**
+       * ★ 예전엔 여기서 로그만 찍고 끝냈다 — 그래서 엔진이 작업 도중에 죽으면 **아무도
+       *   다시 올리지 않았다**. 실측 사고(2026-09-10): 상품 50개 중 3개가 연달아
+       *   `fetch failed` 로 죽고 남은 47개가 통째로 버려졌다. 내려간 건 몇 초짜리 사고인데
+       *   결과는 작업 전체 손실이었다.
+       *   재기동은 자동으로 한다 — 도우미가 관리하는 프로세스라 사용자가 할 수 있는 일이 없다.
+       * ⚠️ this.proc 과 대조한다. 인수(_takeOverIdleOllama)나 재기동으로 **이미 다른
+       *    프로세스가 자리에 앉은 뒤** 옛 프로세스의 exit 이 늦게 오는 경우가 있는데,
+       *    그때 this.proc = null 로 지우면 살아 있는 서버를 없는 것으로 만든다.
+       */
+      proc.on('exit', (c) => {
+        const ours = this.proc === proc;
+        if (ours) this.proc = null;
+        this.onLog(`[ollama] 종료 (code=${c})`);
+        if (!ours || this._stopping) return;   // 우리가 일부러 내린 것(유휴 반납·앱 종료)
+        this._autoRestart(c).catch(() => { /* 아래에서 이미 알린다 */ });
+      });
 
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
@@ -198,6 +224,41 @@ export class OllamaManager {
   }
 
   /**
+   * 엔진이 예기치 않게 꺼졌다 — 다시 올린다.
+   * ---------------------------------------------------------------------------
+   * 거의 항상 메모리(RAM·VRAM) 부족이다. 그래서 **무한히 다시 올리면 안 된다** — 올릴 때마다
+   * 5GB 모델을 적재하다 또 죽는 걸 반복하며 PC 만 더 힘들게 한다. 몇 번 해 보고 안 되면
+   * 그만두고, 사람이 할 수 있는 일(프로그램 닫기)을 말한다. 창은 다음 작업 때 다시 열린다.
+   */
+  static RESTART_LIMIT = 3;
+  static RESTART_WINDOW_MS = 10 * 60_000;
+
+  async _autoRestart(code) {
+    const now = Date.now();
+    if (now - (this._restartWindowAt || 0) > OllamaManager.RESTART_WINDOW_MS) {
+      this._restartWindowAt = now;
+      this._restarts = 0;
+    }
+    if (this._restarts >= OllamaManager.RESTART_LIMIT) {
+      this.onLog('❌ AI 엔진이 자꾸 꺼져 자동 재기동을 그만둡니다 — 메모리(RAM·VRAM) 부족이 가장 흔한 원인입니다.'
+        + ' 크롬 탭이나 다른 AI·영상 프로그램을 닫고 작업을 다시 시작해 주세요.');
+      return;
+    }
+    this._restarts++;
+    this.onLog(`⚠️ AI 엔진이 예기치 않게 꺼졌습니다(code=${code}) — 다시 올립니다`
+      + ` (${this._restarts}/${OllamaManager.RESTART_LIMIT}). 진행 중인 작업은 엔진이 돌아오면 이어집니다.`);
+    await sleep(1500);
+    // 그 사이에 유휴 반납이 걸렸거나 누가 이미 올렸으면 그대로 둔다.
+    if (this._stopping || this.proc) return;
+    try {
+      await this.start();
+      this.onLog('✅ AI 엔진 재기동 완료 — 작업을 이어갑니다.');
+    } catch (e) {
+      this.onLog(`❌ AI 엔진을 다시 올리지 못했습니다 — ${String(e?.message || e).slice(0, 200)}`);
+    }
+  }
+
+  /**
    * 남이 띄운 ollama 가 요청을 하나씩만 처리할 때, **유휴 상태면** 우리가 인수한다.
    * ---------------------------------------------------------------------------
    * 왜 이렇게까지 하나: 슬롯 1개는 이 프로젝트의 실측으로 2.0~2.4배 손해다
@@ -229,6 +290,9 @@ export class OllamaManager {
 
     this.onLog(`[속도] 실행 중인 ollama 가 요청을 하나씩만 처리합니다 — 유휴 상태라 `
       + `동시 ${want}개로 다시 띄웁니다(텍스트 생성이 약 2배 빨라집니다).`);
+    // 인수는 지금 떠 있는 서버를 **일부러** 죽이는 일이다(우리 것일 수도 있다).
+    // 자동 재기동이 이걸 사고로 오해하면 바로 아래 start() 와 겹쳐 두 번 뜬다.
+    this._stopping = true;
     try {
       const { execFile } = await import('node:child_process');
       // ⚠️ windowsHide 를 빠뜨리면 **검은 콘솔 창이 깜빡인다**. Electron 메인에는 콘솔이 없어서
@@ -385,6 +449,9 @@ export class OllamaManager {
   static FOREIGN_GIVEUP = 3;
 
   async stop({ includeForeign = false } = {}) {
+    // ★ 자동 재기동에게 "이건 사고가 아니다"라고 알린다. 이 표시가 없으면 유휴 반납이
+    //   내린 엔진을 곧바로 다시 올려, 메모리를 돌려주는 기능이 통째로 무력해진다.
+    this._stopping = true;
     const pid = this.proc?.pid;
     this.proc = null;
     if (pid) {

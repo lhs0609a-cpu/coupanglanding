@@ -10,7 +10,7 @@ import { ChromeTab } from '../desktop/main/modules/naver-ingest/chrome-tab.mjs';
 import { openProduct, parseProductUrl } from '../desktop/main/modules/naver-ingest/runner.mjs';
 import { extractOne, writeProductFolder } from '../desktop/main/modules/naver-ingest/detail-extract.mjs';
 import { downloadImage } from '../desktop/main/modules/naver-ingest/image-download.mjs';
-import { generate, generateVision, hasModel } from '../lib/local-llm.mjs';
+import { generate, generateVision, hasModel, explainLlmError } from '../lib/local-llm.mjs';
 import { generateAllFields } from '../lib/ai-generator.mjs';
 import { buildDetailPrompt, pickPersona } from '../lib/ai-prompts.mjs';
 import { validateDetail, generatePerfectDetail } from '../lib/detail-content-gen.mjs';
@@ -176,6 +176,50 @@ test('AI 텍스트와 비전 요청은 시간 초과 시 재시도하지 않는�
   } finally { clearInterval(alive); }
 });
 
+/**
+ * 실측 사고(2026-09-10): 상품 50개 작업이 10분쯤 돌던 중 ollama 가 내려갔다. 재시도가
+ * 12초에서 끝나 상품 3개가 연달아 `fetch failed` 로 죽었고, 배치의 "연속 3건 실패" 규칙에
+ * 걸려 **남은 47개가 통째로 버려졌다**(성공 0건). 엔진이 다시 뜨는 데 걸리는 시간이
+ * 재시도 창보다 길다는 것 하나가 작업 전체를 날린 것이다.
+ */
+test('엔진이 도중에 내려가도 돌아오면 그 상품부터 이어서 생성한다', async (t) => {
+  let down = true;
+  let generateCalls = 0;
+  setTimeout(() => { down = false; }, 300);   // 도우미가 엔진을 다시 올린 시점
+  t.mock.method(globalThis, 'fetch', async (u) => {
+    // 엔진이 없는 동안은 연결 자체가 안 된다 — Node 가 내는 것과 같은 모양의 오류.
+    if (down) throw Object.assign(new TypeError('fetch failed'), { cause: new Error('ECONNREFUSED') });
+    if (String(u).endsWith('/api/tags')) return Response.json({ models: [{ name: 'test:7b' }] });
+    generateCalls++;
+    return Response.json({ response: '살아난 뒤 생성' });
+  });
+  const t0 = Date.now();
+  const { text } = await generate({ model: 'test', prompt: 'x', timeoutMs: 5000 });
+  assert.equal(text, '살아난 뒤 생성');
+  assert.equal(generateCalls, 1, '엔진이 돌아온 뒤 실제 생성은 한 번만');
+  assert.ok(Date.now() - t0 >= 300, '엔진이 돌아올 때까지 기다렸어야 한다');
+});
+
+test('엔진이 끝내 안 돌아오면 fetch failed 대신 원인을 말한다', async (t) => {
+  const saved = process.env.MEGALOAD_ENGINE_RETURN_WAIT_MS;
+  process.env.MEGALOAD_ENGINE_RETURN_WAIT_MS = '200';
+  t.mock.method(globalThis, 'fetch', async () => {
+    throw Object.assign(new TypeError('fetch failed'), { cause: new Error('ECONNREFUSED') });
+  });
+  try {
+    await assert.rejects(
+      generate({ model: 'test', prompt: 'x', timeoutMs: 500 }),
+      // 사용자가 읽는 문장에 '엔진' 과 할 수 있는 일이 들어 있어야 한다.
+      (e) => /엔진/.test(e.message) && /메모리|다시/.test(explainLlmError(e.message)),
+    );
+  } finally {
+    if (saved === undefined) delete process.env.MEGALOAD_ENGINE_RETURN_WAIT_MS;
+    else process.env.MEGALOAD_ENGINE_RETURN_WAIT_MS = saved;
+    // 다음 테스트가 냉각에 걸리지 않게 잠깐 흘려보낸다(위에서 200ms 로 줄여 뒀다).
+    await new Promise((r) => setTimeout(r, 250));
+  }
+});
+
 test('다른 크기의 모델을 설치된 요청 모델로 오판하지 않는다', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => Response.json({ models: [{ name: 'qwen:3b' }] }));
   assert.equal(await hasModel('qwen:7b'), false); assert.equal(await hasModel('qwen:3b'), true);
@@ -268,6 +312,29 @@ test('모델 연속 실패로 중단된 배치의 미처리 건수를 빠뜨리�
   const { summary } = await generateBatch(products, { model: 'test', concurrency: 1 });
   assert.equal(summary.failed, 3); assert.equal(summary.skipped, 4);
   assert.equal(summary.ok, 0); assert.ok(summary.abortReason);
+});
+
+/**
+ * 이 사고의 핵심은 "3건이 실패했다"가 아니라 **"남은 47건이 버려졌다"** 였다.
+ * 엔진이 잠깐 사라졌다가 돌아오는 동안 배치가 스스로 접지 않는지를 건다.
+ */
+test('엔진이 배치 중간에 잠깐 사라져도 남은 상품을 버리지 않는다', async (t) => {
+  const products = Array.from({ length: 7 }, (_, i) => ({ id: String(i), originalName: '유리 냉수통 1L', categoryPath: '주방>냉수통' }));
+  let calls = 0;
+  let downUntilCall = 0;
+  t.mock.method(globalThis, 'fetch', async (u) => {
+    calls++;
+    // 두 번째 상품을 만들기 시작할 무렵 엔진이 내려간다 — 그 뒤 6번의 호출은 연결 자체가 안 된다
+    // (/api/tags 도 마찬가지다. 엔진이 없으면 헬스체크도 실패한다).
+    if (calls === 6) downUntilCall = calls + 6;
+    if (calls <= downUntilCall) throw Object.assign(new TypeError('fetch failed'), { cause: new Error('ECONNREFUSED') });
+    if (String(u).endsWith('/api/tags')) return Response.json({ models: [{ name: 'test:7b' }] });
+    return Response.json({ response: '신선한 유리 냉수통 1L 입니다.' });
+  });
+  const { summary } = await generateBatch(products, { model: 'test', concurrency: 1 });
+  assert.equal(summary.abortReason, null, '엔진이 돌아왔으므로 배치를 접으면 안 된다');
+  assert.equal(summary.skipped, 0, '건너뛴 상품이 있으면 안 된다');
+  assert.equal(summary.ok + summary.needsReview, 7);
 });
 
 test('생성 0건이면 CLI가 실패로 종료하고 기존 결과를 보존한다', async () => {
