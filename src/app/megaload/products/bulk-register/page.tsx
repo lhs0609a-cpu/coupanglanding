@@ -10,7 +10,7 @@ export default function BulkRegisterPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">대량 상품 등록</h1>
           <p className="text-sm text-gray-500 mt-1">
-            로컬 소싱 폴더에서 상품을 스캔하여 쿠팡에 대량 등록합니다.
+            소싱 폴더 또는 네이버 카탈로그 상품을 불러와 직접 검수하고 쿠팡에 등록합니다.
           </p>
         </div>
         <Link href="/megaload/products" className="text-sm text-gray-500 hover:text-gray-700 transition">

@@ -5,6 +5,10 @@ const BUILD_SHA = (process.env.VERCEL_GIT_COMMIT_SHA || 'local').slice(0, 7);
 const BUILD_TIME = new Date().toISOString();
 
 const nextConfig: NextConfig = {
+  // Dynamic local-folder reads must not bundle the development image collection into APIs.
+  outputFileTracingExcludes: {
+    '/*': ['./stock-image-bank/**/*'],
+  },
   env: {
     NEXT_PUBLIC_BUILD_SHA: BUILD_SHA,
     NEXT_PUBLIC_BUILD_TIME: BUILD_TIME,

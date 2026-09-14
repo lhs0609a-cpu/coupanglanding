@@ -3,3 +3,5 @@ test-*.ts
 scripts/
 proxy/
 .claude/
+# Local source image collection; runtime images are served from Storage/CDN.
+stock-image-bank/**

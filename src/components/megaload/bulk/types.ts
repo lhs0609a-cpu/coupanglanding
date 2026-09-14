@@ -15,6 +15,7 @@ export interface PriceBracket {
 }
 
 export interface PreviewProduct {
+  catalogSource?: { id: string; categoryPath: string; options: unknown[]; notice: unknown };
   productCode: string;
   /** product_summary.txt에서 추출한 원본 상품 URL */
   sourceUrl?: string;

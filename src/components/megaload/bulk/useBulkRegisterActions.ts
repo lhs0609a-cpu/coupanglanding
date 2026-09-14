@@ -19,6 +19,7 @@ import { addRecentPath } from './BulkStep1Settings';
 import { isAgriProduct, resolveAgriWeight } from './option-candidates';
 import { createClient } from '@/lib/supabase/client';
 import { saveDraft, loadDraft, clearDraft } from '@/lib/megaload/bulk-draft-store';
+import { catalogImage } from '@/lib/megaload/catalog-manual-import';
 
 // 로컬 GPU(LLM) 재생성/재매칭 대상
 export type LlmTask = 'display_name' | 'content' | 'options' | 'category';
@@ -2106,6 +2107,8 @@ export function useBulkRegisterActions() {
       setScanError(`"${dirName}" 폴더에 product_* 하위 폴더가 없습니다.`);
       return;
     }
+    setRestoreCandidate(null);
+    restoreDataRef.current = null;
     if (tpImages.length > 0) setThirdPartyImages(tpImages);
 
     const editableProducts: EditableProduct[] = scanned.map((sp) => {
@@ -2114,6 +2117,7 @@ export function useBulkRegisterActions() {
       const rawBrand = sp.productJson.brand || '';
       const resolvedBrand = isValidBrand(rawBrand) ? rawBrand : extractBrandFromName(rawName);
       return {
+        catalogSource: sp.productJson.catalogSource,
         productCode: sp.productCode,
         sourceUrl: sp.sourceUrl,
         name: rawName || `product_${sp.productCode}`,
@@ -2202,7 +2206,12 @@ export function useBulkRegisterActions() {
           const { scannedMainImages, scannedDetailImages, scannedInfoImages, scannedReviewImages, ...rest } = p;
           const mainExcludeMap: Record<number, string> = {};
           scannedMainImages?.forEach((img, idx) => { if (img.autoExcludeReason) mainExcludeMap[idx] = img.autoExcludeReason; });
-          return { ...rest, _persistedMainExcludeMap: mainExcludeMap };
+          return {
+            ...rest, _persistedMainExcludeMap: mainExcludeMap,
+            ...(p.catalogSource ? { _catalogImages: {
+              main: scannedMainImages, detail: scannedDetailImages, info: scannedInfoImages, review: scannedReviewImages,
+            } } : {}),
+          };
         }),
         imagePreuploadCache: imagePreuploadCacheRef.current, // CDN URL은 직렬화 가능 → 복원 시 이미지 유지
       };
@@ -2263,7 +2272,8 @@ export function useBulkRegisterActions() {
     (async () => {
       try {
         const res = await fetch('/api/megaload/settings/bulk-register-prefs');
-        if (!res.ok || cancelled) return;
+        if (cancelled) return;
+        if (!res.ok) { setServerPrefsLoaded(true); return; }
         const { prefs } = await res.json();
         if (!prefs || cancelled) { setServerPrefsLoaded(true); return; }
         if (prefs.returnCharge !== undefined && prefs.returnCharge > 0) setReturnCharge(prefs.returnCharge);
@@ -2370,6 +2380,22 @@ export function useBulkRegisterActions() {
       const excludeMap = p._persistedMainExcludeMap;
       const cleanedP = { ...p } as EditableProduct & { _persistedMainExcludeMap?: Record<number, string> };
       delete cleanedP._persistedMainExcludeMap;
+      // Catalog images remain readable after refresh; restore lazy readers without a folder picker.
+      if (cleanedP.catalogSource) {
+        const stored = (p as EditableProduct & { _catalogImages?: Record<string, ScannedImageFile[]> })._catalogImages;
+        const restoreImages = (group: string) => (stored?.[group] || []).flatMap((img) => {
+          if (!img.objectUrl?.startsWith('/api/megaload/naver-sourcing/products/image?')) return [];
+          const params = new URL(img.objectUrl, window.location.origin).searchParams;
+          const kind = params.get('group');
+          if (kind !== 'main' && kind !== 'detail' && kind !== 'review') return [];
+          return [{ ...img, handle: catalogImage(params.get('id') || '', kind, Number(params.get('index'))).handle }];
+        });
+        cleanedP.scannedMainImages = restoreImages('main');
+        cleanedP.scannedDetailImages = restoreImages('detail');
+        cleanedP.scannedInfoImages = restoreImages('info');
+        cleanedP.scannedReviewImages = restoreImages('review');
+        delete (cleanedP as EditableProduct & { _catalogImages?: unknown })._catalogImages;
+      }
       const cachedMain = restoredCache[p.uid]?.mainImageUrls;
       if (cachedMain && cachedMain.length > 0) {
         const mockScanned = cachedMain.map((url, idx) => {

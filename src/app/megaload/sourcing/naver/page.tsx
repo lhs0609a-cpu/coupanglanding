@@ -22,6 +22,7 @@ import NaverCategoryTree, { type CategoryCount } from '@/components/megaload/Nav
 import SkipReviewRiskModal, { type SkipReviewOptions } from '@/components/megaload/SkipReviewRiskModal';
 import { armHandoff, peekHandoff, clearHandoff } from '@/lib/megaload/autopilot-handoff';
 import { saveRunTiming } from '@/lib/megaload/run-timing';
+import { CATALOG_MANUAL_KEY } from '@/lib/megaload/catalog-manual-import';
 import { UNCLASSIFIED, PATH_SEP, type CategoryNode } from '@/lib/megaload/naver-category-tree';
 
 interface SourcedProduct {
@@ -891,6 +892,21 @@ export default function NaverSourcingCatalogPage() {
               ? '상세페이지 만드는 중…'
               : `선택한 ${picked.size.toLocaleString()}개 올인원으로 등록하기`}
         </button>
+        <button
+          type="button"
+          disabled={!picked.size || importing || !!imp?.running || genRunning || !!pendingIds.length}
+          onClick={() => {
+            if (picked.size > 200) { setErr('수동등록은 한 번에 200개까지 선택해주세요.'); return; }
+            try {
+              const token = crypto.randomUUID();
+              sessionStorage.setItem(CATALOG_MANUAL_KEY + token, JSON.stringify({ ids: [...picked], at: Date.now() }));
+              router.push(`/megaload/products/bulk-register?catalog=${token}`);
+            } catch { setErr('선택 정보를 저장하지 못했습니다. 브라우저 저장공간 설정을 확인해주세요.'); }
+          }}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-blue-300 bg-blue-50 text-blue-800 text-sm font-medium hover:bg-blue-100 disabled:opacity-40"
+        >
+          선택한 {picked.size.toLocaleString()}개 수동등록
+        </button>
         {isAdmin && !!picked.size && !importing && (
           <button
             onClick={removePicked}
@@ -924,7 +940,7 @@ export default function NaverSourcingCatalogPage() {
         <span className="text-xs text-gray-500">
           {autoOn
             ? <>고르면 <b>가져오기 → 생성 → 등록</b>까지 사람 손 없이 갑니다 — <b className="text-[#E31837]">검수 화면을 거치지 않습니다.</b> 등록 직전 10초 동안은 취소할 수 있습니다.</>
-            : <>누르면 <b>가져오기 → 상세페이지 생성 → 검수</b>까지 저절로 이어집니다(진행률·남은시간이 아래에 뜹니다). 네이버 로그인은 필요 없습니다.</>}
+            : <>올인원 등록은 <b>가져오기 → 상세페이지 생성 → 검수</b>까지 이어집니다. 수동등록은 기존 대량등록 화면에서 <b>설정 → 직접 검수 → 등록</b> 순서로 진행합니다.</>}
         </span>
         {/* ── 누르기 전에 말한다 — "이만큼은 기다려야 한다" ────────────────────
             상세가 없는 것을 고르면 그 수만큼 대기가 붙는다. 사람은 그걸 모른 채 눌렀다가

@@ -8,6 +8,7 @@ import { useBulkRegisterActions } from './bulk/useBulkRegisterActions';
 import { useThumbnailCache } from './bulk/useThumbnailCache';
 import { useStockCheck } from './bulk/useStockCheck';
 import BulkStep1Settings from './bulk/BulkStep1Settings';
+import CatalogManualImport from './bulk/CatalogManualImport';
 import BulkStep2Review from './bulk/BulkStep2Review';
 import BulkStep3Progress from './bulk/BulkStep3Progress';
 import AutoModeModal from './bulk/AutoModeModal';
@@ -267,6 +268,10 @@ export default function BulkRegisterPanel() {
 
   return (
     <div className="space-y-6">
+      {step === 1 && <CatalogManualImport
+        ready={actions.serverPrefsLoaded && !actions.loadingShipping && !!actions.selectedOutbound && !!actions.selectedReturn}
+        onImport={actions.startFromScannedResult}
+      />}
       {/* Step indicator */}
       <div className="flex items-center gap-2">
         {[

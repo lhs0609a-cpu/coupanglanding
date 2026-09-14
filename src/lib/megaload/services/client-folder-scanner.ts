@@ -18,7 +18,7 @@ export type AutoExcludeReason =
 
 export interface ScannedImageFile {
   name: string;
-  handle: FileSystemFileHandle;
+  handle: Pick<FileSystemFileHandle, 'getFile'>;
   /** 스캔 시점에 생성된 objectURL — 핸들 만료와 무관하게 이미지 표시 가능 */
   objectUrl?: string;
   /** 자동 제외 권장 사유 (스코어링 단계에서 태그) */
@@ -39,6 +39,7 @@ export interface ScannedProduct {
   /** product_summary.txt에서 추출한 원본 상품 URL */
   sourceUrl?: string;
   productJson: {
+    catalogSource?: { id: string; categoryPath: string; options: unknown[]; notice: unknown };
     name?: string;
     title?: string;
     price?: number;
@@ -250,7 +251,7 @@ async function scanSingleProduct(
   // dHash 는 rawMainImages 준비 후. 대량 배치(>30)는 스킵(메인스레드 O(N²)) — 파일명 광고 필터로 대체.
   const mainImages = options.skipDhash ? rawMainImages : await filterMainImageOutliers(rawMainImages, name);
 
-  let reviewImages = reviewImagesInit;
+  const reviewImages = reviewImagesInit;
   let detailImages = detailImagesInit;
 
   // 상세페이지 본문 이미지 소스 폴백 (우선순위):

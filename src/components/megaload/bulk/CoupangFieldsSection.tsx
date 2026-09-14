@@ -920,6 +920,23 @@ export default function CoupangFieldsSection({
 
       {/* Quick Summary Card */}
       <QuickSummaryCard items={summaryItems} scrollToSection={scrollToSection} />
+      {product.catalogSource && (
+        <details className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs">
+          <summary className="cursor-pointer font-semibold text-blue-900">네이버 원본 옵션·고시정보 확인</summary>
+          <p className="mt-2 text-blue-900">{product.catalogSource.categoryPath}</p>
+          <p className="mt-1 text-gray-600">원본 정보를 참고하여 아래 쿠팡 옵션과 상품정보제공고시를 확인해주세요.</p>
+          <div className="mt-2 space-y-1 whitespace-pre-wrap break-words">
+            {product.catalogSource.options.map((option, i) => (
+              <p key={i}>{typeof option === 'string' ? option : option && typeof option === 'object'
+                ? Object.values(option).filter((v) => typeof v === 'string' || typeof v === 'number').join(' · ') : ''}</p>
+            ))}
+            <p>{typeof product.catalogSource.notice === 'string' ? product.catalogSource.notice
+              : product.catalogSource.notice && typeof product.catalogSource.notice === 'object'
+                ? Object.entries(product.catalogSource.notice).map(([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`).join('\n')
+                : '수집된 고시정보가 없습니다.'}</p>
+          </div>
+        </details>
+      )}
 
       {/* 필수 미입력 — 등록 차단 항목을 스크롤 없이 맨 위에서 바로 채우게 노출 */}
       {meta && (missingRequiredAttrs.length > 0 || missingRequiredNotices.length > 0) && (

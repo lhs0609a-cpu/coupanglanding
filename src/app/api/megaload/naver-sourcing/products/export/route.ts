@@ -25,7 +25,8 @@ export async function POST(request: NextRequest) {
 
   let body: { ids?: string[] } = {};
   try { body = await request.json(); } catch { /* 아래에서 걸린다 */ }
-  const ids = (body.ids ?? []).filter((s) => typeof s === 'string' && s);
+  if (!Array.isArray(body?.ids)) return NextResponse.json({ error: '상품 목록이 올바르지 않습니다.' }, { status: 400 });
+  const ids = [...new Set(body.ids.filter((s) => typeof s === 'string' && s))];
   if (!ids.length) return NextResponse.json({ error: '선택된 상품이 없습니다.' }, { status: 400 });
   if (ids.length > MAX_EXPORT) {
     return NextResponse.json({ error: `한 번에 ${MAX_EXPORT}개까지만 가져올 수 있습니다.` }, { status: 400 });
