@@ -394,14 +394,17 @@ function streamStatic(
     async start(controller) {
       controller.enqueue(encoder.encode(sse('meta', { conversationId })));
       controller.enqueue(encoder.encode(sse('delta', { text })));
+      // LLM 키가 없을 때도 문서로 바로 갈 수 있게 이동 버튼을 붙인다.
+      // 링크가 없으면 사용자는 요약만 읽고 그 자리에서 막힌다.
+      const actions: AssistantAction[] = [];
+      for (const s of sources) {
+        if (s.href && !actions.some((a) => a.href === s.href)) {
+          actions.push({ kind: 'navigate', label: linkLabel(s.href), href: s.href });
+        }
+      }
+      actions.push({ kind: 'kakao', label: '카톡 상담 열기', href: 'https://open.kakao.com/o/skLRf9li' });
       controller.enqueue(
-        encoder.encode(
-          sse('done', {
-            sources,
-            actions: [{ kind: 'kakao', label: '카톡 상담 열기', href: 'https://open.kakao.com/o/skLRf9li' }],
-            conversationId,
-          }),
-        ),
+        encoder.encode(sse('done', { sources, actions: actions.slice(0, 5), conversationId })),
       );
       if (serviceClient && conversationId) {
         try {
