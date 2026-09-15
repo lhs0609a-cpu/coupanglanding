@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Loader2, ExternalLink, PackageSearch, ChevronLeft, ChevronRight, Download, AlertTriangle, Trash2 } from 'lucide-react';
+import { Search, Loader2, ExternalLink, PackageSearch, ChevronLeft, ChevronRight, Download, AlertTriangle, Trash2, PencilLine } from 'lucide-react';
 import { findHelper, fetchCollection, startImport, fetchImportState, fetchStatus, kickQueue, type ImportState, type GenState } from '@/lib/megaload/naver-ingest-local';
 import { isDetailExtractable, naverStoreType, STORE_TYPE_LABEL } from '@/lib/megaload/naver-store-type';
 import NaverCategoryTree, { type CategoryCount } from '@/components/megaload/NaverCategoryTree';
@@ -162,6 +162,9 @@ export default function NaverSourcingCatalogPage() {
   const [autoOn, setAutoOn] = useState(false);
   const [autoOpen, setAutoOpen] = useState(false);
   const [helperOnline, setHelperOnline] = useState(false);
+  // 도우미가 켜져 있는가 — 올인원은 도우미 없이는 시작조차 못 한다(runImport 첫 줄에서 막힌다).
+  // 그 사실을 **누르기 전에** 카드에 적어 준다. 도우미가 없는 사람이 가야 할 곳은 수동등록이다.
+  const [helperProbe, setHelperProbe] = useState<'checking' | 'on' | 'off'>('checking');
   // 상세를 요청해 둔 상품 — 준비되면 자동으로 이어서 등록한다.
   const [pendingIds, setPendingIds] = useState<string[]>([]);
   // 그 기다림에도 시계를 붙인다 — 실측 1~1분 반이 걸리는데 아무 표시가 없으면 멈춘 걸로 보인다.
@@ -436,12 +439,14 @@ export default function NaverSourcingCatalogPage() {
       if (peekHandoff()) setAutoOn(true);
       try {
         const helper = await findHelper();
-        if (!helper || !alive) return;
+        if (!alive) return;
+        setHelperProbe(helper ? 'on' : 'off');   // 등록 카드가 이걸로 "지금 되는 길"을 말한다
+        if (!helper) return;
         setHelperOnline(true);        // 모달이 "재생성까지 되는지"를 이걸로 안내한다
         const st = await fetchImportState(helper.ep);
         if (!alive || !st) return;
         if (st.running || st.gen?.running) setImp(st);
-      } catch { /* 도우미 미실행은 정상 상황이다 */ }
+      } catch { if (alive) setHelperProbe('off'); /* 도우미 미실행은 정상 상황이다 */ }
     })();
     return () => { alive = false; };
   }, []);
@@ -864,84 +869,135 @@ export default function NaverSourcingCatalogPage() {
 
       {/* 카탈로그와 올인원을 잇는 지점.
           서버에서 오는 건 URL·JSON 뿐이고, 이미지는 내 PC 도우미가 CDN 에서 직접 받는다. */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4 mb-4 flex items-center gap-3 flex-wrap">
-        <button
-          onClick={() => setPicked((prev) => {
-            // 상세를 못 뽑는 상품·이미 올린 상품은 전체 선택에서 빠진다(selectTargets).
-            const all = selectTargets.length > 0 && selectTargets.every((x) => prev.has(x.id));
-            const next = new Set(prev);
-            for (const x of selectTargets) { if (all) next.delete(x.id); else next.add(x.id); }
-            return next;
-          })}
-          disabled={!pickableCount}
-          className="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40"
-        >
-          {pickableCount > 0 && selectTargets.every((x) => picked.has(x.id))
-            ? '이 페이지 선택 해제'
-            : `이 페이지 전체 선택 (${pickableCount}개)`}
-        </button>
-        <button
-          onClick={runImport}
-          disabled={!picked.size || importing || !!imp?.running || genRunning || !!pendingIds.length}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#E31837] text-white text-sm font-medium hover:bg-[#c41230] disabled:opacity-40"
-        >
-          {importing || imp?.running || genRunning || pendingIds.length ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-          {pendingIds.length
-            ? '상세 준비 중…'
-            : genRunning
-              ? '상세페이지 만드는 중…'
-              : `선택한 ${picked.size.toLocaleString()}개 올인원으로 등록하기`}
-        </button>
-        <button
-          type="button"
-          disabled={!picked.size || importing || !!imp?.running || genRunning || !!pendingIds.length}
-          onClick={() => {
-            if (picked.size > 200) { setErr('수동등록은 한 번에 200개까지 선택해주세요.'); return; }
-            try {
-              const token = crypto.randomUUID();
-              sessionStorage.setItem(CATALOG_MANUAL_KEY + token, JSON.stringify({ ids: [...picked], at: Date.now() }));
-              router.push(`/megaload/products/bulk-register?catalog=${token}`);
-            } catch { setErr('선택 정보를 저장하지 못했습니다. 브라우저 저장공간 설정을 확인해주세요.'); }
-          }}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-blue-300 bg-blue-50 text-blue-800 text-sm font-medium hover:bg-blue-100 disabled:opacity-40"
-        >
-          선택한 {picked.size.toLocaleString()}개 수동등록
-        </button>
-        {isAdmin && !!picked.size && !importing && (
+      <div className="rounded-xl border border-gray-200 bg-white p-4 mb-4 flex flex-col gap-3">
+        {/* ── 등록하는 길은 **둘**이다 ────────────────────────────────────────
+            예전엔 버튼 여섯 개(전체선택·올인원·수동·삭제·선택해제·무인)가 한 줄에 같은 크기로
+            섞여 있었다. "무엇으로 올릴까"라는 결정이 잡일 버튼 사이에 묻혔고, 수동등록은
+            아이콘도 없는 연한 파란 버튼이라 곁다리로 보였다.
+            결정은 카드 두 장으로 떼어 내고, 잡일은 아래 줄로 내린다. */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          {/* 올인원 — 상세페이지까지 자동으로 만든다. ★ 도우미(PC 앱)가 없으면 시작조차 못 한다. */}
           <button
-            onClick={removePicked}
-            disabled={deleting}
-            title="카탈로그에서 지웁니다 — 잘못 수집된 상품을 치울 때 씁니다"
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-200 bg-white text-red-700 text-sm font-medium hover:bg-red-50 disabled:opacity-40"
+            onClick={runImport}
+            disabled={!picked.size || importing || !!imp?.running || genRunning || !!pendingIds.length}
+            className="text-left rounded-xl border-2 border-[#E31837] bg-[#E31837] p-3.5 text-white transition-colors hover:bg-[#c41230] disabled:opacity-40"
           >
-            {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-            선택 {picked.size.toLocaleString()}개 삭제
+            <span className="flex items-center gap-2 text-sm font-bold">
+              {importing || imp?.running || genRunning || pendingIds.length
+                ? <Loader2 className="w-4 h-4 animate-spin flex-none" />
+                : <Download className="w-4 h-4 flex-none" />}
+              올인원으로 등록
+              <span className="ml-auto rounded-md bg-white/20 px-1.5 py-0.5 text-xs font-semibold tabular-nums">
+                {picked.size.toLocaleString()}개
+              </span>
+            </span>
+            <span className="mt-1.5 block text-xs text-white/90">
+              {pendingIds.length
+                ? '상세 준비 중…'
+                : genRunning
+                  ? '상세페이지 만드는 중…'
+                  : importing || imp?.running
+                    ? '가져오는 중…'
+                    : autoOn
+                      ? '가져오기 → 생성 → 바로 등록 (검수 없음)'
+                      : '가져오기 → 상세페이지 자동 생성 → 검수'}
+            </span>
+            {/* 도우미 상태를 여기 적는 이유: 없으면 누르는 순간 막힌다. 막히고 나서 알면 늦다. */}
+            <span className="mt-1.5 flex items-center gap-1.5 text-[11px] text-white/90">
+              <span className={`inline-block w-1.5 h-1.5 rounded-full flex-none ${
+                helperProbe === 'on' ? 'bg-emerald-300' : helperProbe === 'off' ? 'bg-amber-300' : 'bg-white/50'}`} />
+              {helperProbe === 'on'
+                ? '도우미 실행 중'
+                : helperProbe === 'off'
+                  ? '도우미가 꺼져 있습니다 — 켜야 실행됩니다'
+                  : '도우미 확인 중…'}
+            </span>
           </button>
-        )}
-        {!!picked.size && !importing && (
-          <button onClick={() => setPicked(new Set())} className="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-500 hover:bg-gray-50">
-            선택 해제
+          {/* 수동등록 — 도우미도 GPU 생성도 없이, 원본 그대로 가져와 사람이 고친다. */}
+          <button
+            type="button"
+            disabled={!picked.size || importing || !!imp?.running || genRunning || !!pendingIds.length}
+            onClick={() => {
+              if (picked.size > 200) { setErr('수동등록은 한 번에 200개까지 선택해주세요.'); return; }
+              try {
+                const token = crypto.randomUUID();
+                sessionStorage.setItem(CATALOG_MANUAL_KEY + token, JSON.stringify({ ids: [...picked], at: Date.now() }));
+                router.push(`/megaload/products/bulk-register?catalog=${token}`);
+              } catch { setErr('선택 정보를 저장하지 못했습니다. 브라우저 저장공간 설정을 확인해주세요.'); }
+            }}
+            className="text-left rounded-xl border-2 border-blue-400 bg-blue-50 p-3.5 text-blue-900 transition-colors hover:bg-blue-100 disabled:opacity-40"
+          >
+            <span className="flex items-center gap-2 text-sm font-bold">
+              <PencilLine className="w-4 h-4 flex-none" />
+              직접 검수해서 등록
+              <span className="ml-auto rounded-md border border-blue-200 bg-white px-1.5 py-0.5 text-xs font-semibold tabular-nums">
+                {picked.size.toLocaleString()}개
+              </span>
+            </span>
+            <span className="mt-1.5 block text-xs text-blue-800">
+              원본 그대로 가져와 상품명·가격·이미지를 내가 고쳐서 등록
+            </span>
+            <span className="mt-1.5 flex items-center gap-1.5 text-[11px] text-blue-700">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 flex-none" />
+              도우미 없이 됩니다
+            </span>
           </button>
+        </div>
+        {/* 무인 자동등록이 켜져 있으면 그건 경고다 — 카드 밑에 크게 남긴다. */}
+        {autoOn && (
+          <span className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-[#E31837]">
+            지금은 <b>가져오기 → 생성 → 등록</b>까지 사람 손 없이 갑니다 — <b>검수 화면을 거치지 않습니다.</b> 등록 직전 10초 동안은 취소할 수 있습니다.
+          </span>
         )}
-        {/* 무인 자동등록 — 검수 화면까지 가는 대신 **등록까지** 간다.
-            위험을 감수하는 경로라 주 버튼과 헷갈리지 않게 외곽선으로만 표시한다. */}
-        <button
-          onClick={toggleAuto}
-          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
-            autoOn
-              ? 'border-[#E31837] bg-red-50 text-[#E31837]'
-              : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}
-          title={autoOn
-            ? '지금은 검수 화면을 거치지 않고 바로 등록합니다. 누르면 끕니다.'
-            : '검수 화면을 거치지 않고 바로 쿠팡에 등록합니다. 위험 동의가 필요합니다.'}
-        >
-          {autoOn ? '🤖 무인 자동등록 켜짐' : '무인 자동등록'}
-        </button>
-        <span className="text-xs text-gray-500">
-          {autoOn
-            ? <>고르면 <b>가져오기 → 생성 → 등록</b>까지 사람 손 없이 갑니다 — <b className="text-[#E31837]">검수 화면을 거치지 않습니다.</b> 등록 직전 10초 동안은 취소할 수 있습니다.</>
-            : <>올인원 등록은 <b>가져오기 → 상세페이지 생성 → 검수</b>까지 이어집니다. 수동등록은 기존 대량등록 화면에서 <b>설정 → 직접 검수 → 등록</b> 순서로 진행합니다.</>}
-        </span>
+        {/* ── 잡일 줄 — 고르고 치우는 버튼들. 결정 버튼과 무게를 다르게 둔다. ── */}
+        <div className="flex items-center gap-2 flex-wrap border-t border-gray-100 pt-3">
+          <button
+            onClick={() => setPicked((prev) => {
+              // 상세를 못 뽑는 상품·이미 올린 상품은 전체 선택에서 빠진다(selectTargets).
+              const all = selectTargets.length > 0 && selectTargets.every((x) => prev.has(x.id));
+              const next = new Set(prev);
+              for (const x of selectTargets) { if (all) next.delete(x.id); else next.add(x.id); }
+              return next;
+            })}
+            disabled={!pickableCount}
+            className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+          >
+            {pickableCount > 0 && selectTargets.every((x) => picked.has(x.id))
+              ? '이 페이지 선택 해제'
+              : `이 페이지 전체 선택 (${pickableCount}개)`}
+          </button>
+          {!!picked.size && !importing && (
+            <button onClick={() => setPicked(new Set())} className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-500 hover:bg-gray-50">
+              선택 해제
+            </button>
+          )}
+          {isAdmin && !!picked.size && !importing && (
+            <button
+              onClick={removePicked}
+              disabled={deleting}
+              title="카탈로그에서 지웁니다 — 잘못 수집된 상품을 치울 때 씁니다"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 bg-white text-red-700 text-xs font-medium hover:bg-red-50 disabled:opacity-40"
+            >
+              {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+              선택 {picked.size.toLocaleString()}개 삭제
+            </button>
+          )}
+          <span className="flex-1" />
+          {/* 무인 자동등록 — 검수 화면까지 가는 대신 **등록까지** 간다.
+              위험을 감수하는 경로라 등록 카드와 헷갈리지 않게 외곽선으로만 표시한다. */}
+          <button
+            onClick={toggleAuto}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+              autoOn
+                ? 'border-[#E31837] bg-red-50 text-[#E31837]'
+                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}
+            title={autoOn
+              ? '지금은 검수 화면을 거치지 않고 바로 등록합니다. 누르면 끕니다.'
+              : '검수 화면을 거치지 않고 바로 쿠팡에 등록합니다. 위험 동의가 필요합니다.'}
+          >
+            {autoOn ? '🤖 무인 자동등록 켜짐' : '무인 자동등록'}
+          </button>
+        </div>
         {/* ── 누르기 전에 말한다 — "이만큼은 기다려야 한다" ────────────────────
             상세가 없는 것을 고르면 그 수만큼 대기가 붙는다. 사람은 그걸 모른 채 눌렀다가
             0단계에서 몇 분을 흘려보냈다. 숫자와 함께, 한 번에 고칠 수 있는 길을 같이 준다. */}
