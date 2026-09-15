@@ -13,7 +13,7 @@ import {
 
 // 공급사 가입/상품등록 진입점 → 공급사 전용 회원가입(서류 제출 → 관리자 승인 → 로그인).
 // 파트너(pt_user) 회원가입과 분리된 별도 페이지.
-// (카톡 상담은 우측 하단 KakaoChatFloat 버튼으로 별도 유지)
+// (상담은 우측 하단 AI 상담 버튼 → 패널 안의 "사람 상담"으로 연결)
 const SIGNUP_URL = '/supplier/signup';
 
 const fadeUp = { hidden: { opacity: 0, y: 28 }, visible: (i = 0) => ({ opacity: 1, y: 0, transition: { duration: 0.6, delay: i * 0.08, ease: [0.22, 1, 0.36, 1] } }) };

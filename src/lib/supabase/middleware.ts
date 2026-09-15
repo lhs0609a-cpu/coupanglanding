@@ -15,6 +15,9 @@ const LOCK_ALLOWLIST_PREFIXES: string[] = [
   '/api/admin/',              // 관리자 (별도 role 체크)
   '/api/webhook/',            // 외부 웹훅 (해당 경로에서 인증)
   '/api/tax-invoices',        // 내부 호출
+  // AI 상담 — 결제 락이 걸린 순간이야말로 "어떻게 풀죠?"를 물어야 하는 때다.
+  // POST 지만 상담 메시지 저장이 전부라 락으로 막을 이유가 없다.
+  '/api/assistant/',
 ];
 
 /**
@@ -47,6 +50,10 @@ const PUBLIC_API_PREFIXES: string[] = [
   // 릴리스 워크플로(GitHub Actions)가 업데이트 소식을 공지로 올리는 경로.
   //   브라우저가 아니라 CI 가 부르므로 쿠키가 없다. 라우트에서 Bearer CRON_SECRET 을 검증한다.
   '/api/megaload/release-notes',
+  // AI 상담 — 공개 랜딩(/pt, /program, /start, /guide)에서 비로그인 방문자도 써야 한다.
+  // 라우트 안에서 getUser() 로 로그인 여부를 다시 판별하고, 비로그인이면
+  // 개인 데이터 툴을 아예 붙이지 않는다(toolSpecs 분기).
+  '/api/assistant/',
 ];
 
 /**

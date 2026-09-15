@@ -38,6 +38,7 @@ import {
   PlaySquare,
   ShoppingBag,
   EyeOff,
+  Bot,
 } from 'lucide-react';
 
 const navItems = [
@@ -76,6 +77,7 @@ const navItems = [
   { href: '/admin/supplier-catalog', label: '공급사 상품 검수', icon: ClipboardList },
   { href: '/admin/megaload-meta-audit', label: '카테고리 메타 감사', icon: Activity },
   { href: '/admin/system-logs', label: '시스템 로그', icon: AlertTriangle },
+  { href: '/admin/assistant', label: 'AI 상담 운영', icon: Bot },
   { href: '/admin/faqs', label: 'FAQ 관리', icon: HelpCircle },
   { href: '/admin/activity-log', label: '활동 로그', icon: ScrollText },
   { href: '/admin/settings', label: '설정', icon: Settings },
