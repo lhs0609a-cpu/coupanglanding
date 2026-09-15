@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getKb } from '@/lib/assistant/kb';
-import { resolveSurface } from '@/lib/assistant/kb/pages';
+import { resolvePage, resolveSurface } from '@/lib/assistant/kb/pages';
 import { pageRelevantEntries, searchKb } from '@/lib/assistant/retrieval';
 import { buildSystemPrompt, extractPathLinks } from '@/lib/assistant/prompt';
 import { resolveLlmConfig, streamRound, type ChatMsg } from '@/lib/assistant/llm';
@@ -322,26 +322,20 @@ export async function POST(request: NextRequest) {
   });
 }
 
-const LABELS: Record<string, string> = {
-  '/megaload/products/bulk-register': '상품등록 열기',
-  '/megaload/products': '상품관리 열기',
-  '/megaload/orders': '주문관리 열기',
-  '/megaload/channels': '채널관리 열기',
-  '/megaload/stock-monitor': '품절동기화 열기',
-  '/megaload/cs': '문의관리 열기',
-  '/megaload/bug-reports': '오류문의 열기',
-  '/megaload/settings': '설정 열기',
-  '/my/report': '매출 정산 열기',
-  '/my/emergency': '긴급 대응 열기',
-  '/my/promotion': '프로모션 열기',
-  '/my/support': '1:1 문의 열기',
-  '/my/settings': '계정 설정 열기',
-  '/my/penalty': '페널티 트래커 열기',
-};
-
+/**
+ * 이동 버튼 라벨 — PAGE_MAP 의 화면 이름을 쓴다.
+ * 경로를 그대로 노출하면("/megaload/products/channel-status 열기") 초보에게 아무 의미가 없다.
+ * PAGE_MAP 에 없는 경로(가이드 문서 링크 등)는 마지막 세그먼트로 그럭저럭 읽히게 만든다.
+ */
 function linkLabel(href: string): string {
   const base = href.split('?')[0];
-  return LABELS[base] || `${base} 열기`;
+  const page = resolvePage(base);
+  if (page) return `${page.name} 열기`;
+
+  const seg = base.split('/').filter(Boolean).pop() || base;
+  // 슬러그(coupang-api-setup)를 사람이 읽을 형태로
+  const pretty = decodeURIComponent(seg).replace(/[-_]/g, ' ');
+  return `${pretty} 열기`;
 }
 
 async function persist(
