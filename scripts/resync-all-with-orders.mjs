@@ -236,18 +236,23 @@ for (const u of users) {
     const ordersVal = orders?.totalSales ?? 0;
     console.log(`  ${ym}: settlement=₩${settleVal.toLocaleString()} orders=₩${ordersVal.toLocaleString()} → effective=₩${effective.toLocaleString()}${settlementError ? ` [s-err: ${settlementError.slice(0, 50)}]` : ''}${ordersError ? ` [o-err: ${ordersError.slice(0, 50)}]` : ''}`);
 
+    // 실패한 쪽 매출 컬럼은 보내지 않는다 — 0 으로 덮으면 이미 기록된 매출이 사라진다.
     await supabase.from('api_revenue_snapshots').upsert({
       pt_user_id: u.id,
       year_month: ym,
-      total_sales: settlement?.totalSales ?? 0,
-      total_commission: settlement?.totalCommission ?? 0,
-      total_shipping: settlement?.totalShipping ?? 0,
-      total_returns: settlement?.totalReturns ?? 0,
-      total_settlement: settlement?.totalSettlement ?? 0,
-      item_count: settlement?.itemCount ?? 0,
-      total_sales_orders: orders?.totalSales ?? 0,
-      item_count_orders: orders?.itemCount ?? 0,
-      order_count: orders?.orderCount ?? 0,
+      ...(settlement ? {
+        total_sales: settlement.totalSales,
+        total_commission: settlement.totalCommission,
+        total_shipping: settlement.totalShipping,
+        total_returns: settlement.totalReturns,
+        total_settlement: settlement.totalSettlement,
+        item_count: settlement.itemCount,
+      } : {}),
+      ...(orders ? {
+        total_sales_orders: orders.totalSales,
+        item_count_orders: orders.itemCount,
+        order_count: orders.orderCount,
+      } : {}),
       synced_at: new Date().toISOString(),
       sync_error: settlementError ? settlementError.slice(0, 500) : null,
       orders_sync_error: ordersError ? ordersError.slice(0, 500) : null,

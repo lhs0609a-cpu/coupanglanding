@@ -89,18 +89,10 @@ export async function POST(request: NextRequest) {
       secretKey = await decryptPassword(u.coupang_secret_key as string);
     } catch {
       for (const ym of yearMonths) {
+        // 매출 컬럼 미전송 — 키 복호화 실패는 "매출 0"이 아니다.
         await upsertSnapshot(serviceClient, {
           pt_user_id: u.id,
           year_month: ym,
-          total_sales: 0,
-          total_commission: 0,
-          total_shipping: 0,
-          total_returns: 0,
-          total_settlement: 0,
-          item_count: 0,
-          total_sales_orders: 0,
-          item_count_orders: 0,
-          order_count: 0,
           synced_at: new Date().toISOString(),
           sync_error: 'decrypt_failed',
           orders_sync_error: 'decrypt_failed',
@@ -140,18 +132,27 @@ export async function POST(request: NextRequest) {
           : err instanceof Error ? err.message : String(err);
       }
 
+      // 실패한 쪽 매출 컬럼은 payload 에서 제외 — 0 으로 덮으면 과거 매출이 지워진다.
       await upsertSnapshot(serviceClient, {
         pt_user_id: u.id,
         year_month: ym,
-        total_sales: settlement?.totalSales ?? 0,
-        total_commission: settlement?.totalCommission ?? 0,
-        total_shipping: settlement?.totalShipping ?? 0,
-        total_returns: settlement?.totalReturns ?? 0,
-        total_settlement: settlement?.totalSettlement ?? 0,
-        item_count: settlement?.items.length ?? 0,
-        total_sales_orders: orderBased?.totalSales ?? 0,
-        item_count_orders: orderBased?.itemCount ?? 0,
-        order_count: orderBased?.orderCount ?? 0,
+        ...(settlement
+          ? {
+              total_sales: settlement.totalSales,
+              total_commission: settlement.totalCommission,
+              total_shipping: settlement.totalShipping,
+              total_returns: settlement.totalReturns,
+              total_settlement: settlement.totalSettlement,
+              item_count: settlement.items.length,
+            }
+          : {}),
+        ...(orderBased
+          ? {
+              total_sales_orders: orderBased.totalSales,
+              item_count_orders: orderBased.itemCount,
+              order_count: orderBased.orderCount,
+            }
+          : {}),
         synced_at: new Date().toISOString(),
         sync_error: settlementError ? settlementError.slice(0, 500) : null,
         orders_sync_error: ordersError ? ordersError.slice(0, 500) : null,
@@ -207,18 +208,19 @@ export async function POST(request: NextRequest) {
   });
 }
 
+/** 매출 컬럼은 optional — 실패한 쪽은 보내지 않아야 기존 값이 보존된다(cron 라우트와 동일 규칙). */
 type SnapshotInsert = {
   pt_user_id: string;
   year_month: string;
-  total_sales: number;
-  total_commission: number;
-  total_shipping: number;
-  total_returns: number;
-  total_settlement: number;
-  item_count: number;
-  total_sales_orders: number;
-  item_count_orders: number;
-  order_count: number;
+  total_sales?: number;
+  total_commission?: number;
+  total_shipping?: number;
+  total_returns?: number;
+  total_settlement?: number;
+  item_count?: number;
+  total_sales_orders?: number;
+  item_count_orders?: number;
+  order_count?: number;
   synced_at: string;
   sync_error: string | null;
   orders_sync_error: string | null;

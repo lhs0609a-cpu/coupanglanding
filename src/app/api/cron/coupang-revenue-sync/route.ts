@@ -106,18 +106,10 @@ async function runSync() {
           success: false,
           error: 'decrypt_failed',
         });
+        // 매출 컬럼은 건드리지 않는다 — 키를 못 읽은 것은 "매출이 0"이라는 뜻이 아니다.
         await upsertSnapshot(serviceClient, {
           pt_user_id: user.id,
           year_month: ym,
-          total_sales: 0,
-          total_commission: 0,
-          total_shipping: 0,
-          total_returns: 0,
-          total_settlement: 0,
-          item_count: 0,
-          total_sales_orders: 0,
-          item_count_orders: 0,
-          order_count: 0,
           synced_at: new Date().toISOString(),
           sync_error: 'decrypt_failed',
           orders_sync_error: 'decrypt_failed',
@@ -168,18 +160,31 @@ async function runSync() {
       // 한 쪽만 실패하면 그쪽 에러만 기록하고 진행 (매출 누락 < 부분 누락).
       const bothFailed = !!settlementError && !!ordersError;
 
+      // 실패한 쪽 매출 컬럼은 payload 에서 아예 뺀다.
+      // API 실패(키 폐기 · IP 미등록 · HMAC 만료 · 레이트리밋)는 "매출 0"이 아니라 "모름"이다.
+      // 0 을 써 넣으면 이미 기록된 과거 매출이 지워지고 누적 매출이 줄어든다.
+      // PostgREST upsert 는 payload 에 있는 컬럼만 UPDATE 하므로, 빼면 기존 값이 그대로 남는다.
+      // (신규 행이면 컬럼 DEFAULT 0 이 들어가므로 안전)
       await upsertSnapshot(serviceClient, {
         pt_user_id: user.id,
         year_month: ym,
-        total_sales: settlement?.totalSales ?? 0,
-        total_commission: settlement?.totalCommission ?? 0,
-        total_shipping: settlement?.totalShipping ?? 0,
-        total_returns: settlement?.totalReturns ?? 0,
-        total_settlement: settlement?.totalSettlement ?? 0,
-        item_count: settlement?.items.length ?? 0,
-        total_sales_orders: orderBased?.totalSales ?? 0,
-        item_count_orders: orderBased?.itemCount ?? 0,
-        order_count: orderBased?.orderCount ?? 0,
+        ...(settlement
+          ? {
+              total_sales: settlement.totalSales,
+              total_commission: settlement.totalCommission,
+              total_shipping: settlement.totalShipping,
+              total_returns: settlement.totalReturns,
+              total_settlement: settlement.totalSettlement,
+              item_count: settlement.items.length,
+            }
+          : {}),
+        ...(orderBased
+          ? {
+              total_sales_orders: orderBased.totalSales,
+              item_count_orders: orderBased.itemCount,
+              order_count: orderBased.orderCount,
+            }
+          : {}),
         synced_at: new Date().toISOString(),
         sync_error: settlementError ? settlementError.slice(0, 500) : null,
         orders_sync_error: ordersError ? ordersError.slice(0, 500) : null,
@@ -248,18 +253,22 @@ async function runSync() {
   });
 }
 
+/**
+ * 매출 컬럼은 전부 optional — 호출이 실패한 쪽은 보내지 않아야 기존 값이 보존된다.
+ * (필수는 키 + 동기화 시각/에러뿐)
+ */
 type SnapshotInsert = {
   pt_user_id: string;
   year_month: string;
-  total_sales: number;
-  total_commission: number;
-  total_shipping: number;
-  total_returns: number;
-  total_settlement: number;
-  item_count: number;
-  total_sales_orders: number;
-  item_count_orders: number;
-  order_count: number;
+  total_sales?: number;
+  total_commission?: number;
+  total_shipping?: number;
+  total_returns?: number;
+  total_settlement?: number;
+  item_count?: number;
+  total_sales_orders?: number;
+  item_count_orders?: number;
+  order_count?: number;
   synced_at: string;
   sync_error: string | null;
   orders_sync_error: string | null;

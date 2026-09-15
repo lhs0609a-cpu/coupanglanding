@@ -78,3 +78,11 @@ scripts/audit-*.cjs
 
 # Supabase CLI 작업용 임시 디렉터리 (로그인 토큰/프로젝트 캐시)
 supabase/.temp/
+
+# 대용량 압축 자료 — 한 번 커밋되면 레포에서 영구히 안 빠진다 (실제로 980MB .Egg 가 루트에 있었다)
+*.Egg
+*.egg
+*.alz
+
+# 일회성 진단 스크립트 — 읽기 전용이고 커밋 대상이 아니다
+scripts/_tmp-*
