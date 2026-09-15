@@ -75,3 +75,6 @@ scripts/audit-*.cjs
 
 # 카테고리 매처 audit 출력
 .test-out/
+
+# Supabase CLI 작업용 임시 디렉터리 (로그인 토큰/프로젝트 캐시)
+supabase/.temp/
