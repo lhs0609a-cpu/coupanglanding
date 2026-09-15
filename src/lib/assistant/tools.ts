@@ -1,5 +1,5 @@
 import type { ToolSpec } from './llm';
-import type { AssistantSource, AssistantSurface, KbEntry } from './types';
+import type { AssistantMedia, AssistantSource, AssistantSurface, KbEntry } from './types';
 import { searchKb } from './retrieval';
 import type { KbIndex } from './retrieval';
 import { findEntry } from './kb';
@@ -21,6 +21,8 @@ export interface ToolContext {
   index: KbIndex;
   /** 이번 답변에서 인용된 문서 (툴이 채운다) */
   cited: AssistantSource[];
+  /** 이번 답변에 같이 띄울 이미지/영상 (툴이 채운다) */
+  media: AssistantMedia[];
   /** 봇이 만든 티켓 — 대화에 링크로 남긴다 */
   createdTicketId?: string;
   createdBugReportId?: string;
@@ -47,7 +49,10 @@ export function toolSpecs(ctx: ToolContext): ToolSpec[] {
     },
     {
       name: 'open_kb',
-      description: '문서 id 로 지식베이스 본문 전체를 읽는다. 한 번에 최대 3개까지 넣을 수 있다.',
+      description:
+        '문서 id 로 지식베이스 본문 전체를 읽는다. 한 번에 최대 3개까지. ' +
+        '문서에 화면 캡처나 교육 영상이 붙어 있으면 자동으로 답변에 함께 표시되므로, ' +
+        '화면 조작을 설명할 때는 관련 문서를 꼭 열어라.',
       parameters: {
         type: 'object',
         properties: {
@@ -176,7 +181,16 @@ export async function runTool(
         if (!ctx.cited.some((c) => c.id === e.id)) {
           ctx.cited.push({ id: e.id, title: e.title, href: e.link?.href });
         }
-        parts.push(`===== [${e.id}] ${e.title} =====\n${e.body}`);
+        // 문서에 붙은 화면 캡처·교육 영상을 답변에 같이 실어 보낸다
+        for (const m of e.media ?? []) {
+          if (ctx.media.length >= 4) break;
+          if (ctx.media.some((x) => x.src === m.src)) continue;
+          ctx.media.push({ ...m, fromId: e.id });
+        }
+        const mediaNote = e.media?.length
+          ? `\n(이 문서에는 화면 캡처/영상 ${e.media.length}개가 붙어 있어 답변과 함께 자동으로 표시된다. "아래 화면을 보세요"처럼 자연스럽게 언급해라.)`
+          : '';
+        parts.push(`===== [${e.id}] ${e.title} =====\n${e.body}${mediaNote}`);
       }
       return parts.join('\n\n');
     }

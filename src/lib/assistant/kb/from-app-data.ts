@@ -1,4 +1,4 @@
-import type { KbEntry } from '../types';
+import type { KbEntry, KbMedia } from '../types';
 
 import { GUIDE_ARTICLES as OPS_GUIDE_ARTICLES, GUIDE_CATEGORIES } from '@/lib/data/guides';
 import { GUIDE_ARTICLES as PUBLIC_ARTICLES } from '@/lib/data/guide-articles';
@@ -27,6 +27,14 @@ const bullet = (xs: readonly string[] | undefined) =>
   xs && xs.length ? xs.map((x) => `- ${x}`).join('\n') : '';
 
 const section = (heading: string, content: string) => (content ? `\n**${heading}**\n${content}\n` : '');
+
+/** 유튜브 URL/ID 어느 쪽이 와도 재생 가능한 형태로 맞춘다. */
+export function toVideoMedia(url: string, caption?: string): KbMedia {
+  const yt = url.match(/(?:youtu\.be\/|v=|embed\/|shorts\/)([A-Za-z0-9_-]{6,})/);
+  if (yt) return { kind: 'youtube', src: yt[1], caption };
+  if (/^[A-Za-z0-9_-]{8,15}$/.test(url)) return { kind: 'youtube', src: url, caption };
+  return { kind: 'video', src: url, caption };
+}
 
 function truncate(s: string, n: number) {
   const t = s.replace(/\s+/g, ' ').trim();
@@ -57,6 +65,15 @@ export function buildAppDataKb(): KbEntry[] {
 
     const faqs = a.faqs.map((f) => `- Q. ${f.question}\n  A. ${f.answer}`).join('\n');
 
+    // 단계에 붙은 실제 화면 캡처를 미디어로 실어 보낸다 (봇이 답변에 띄운다)
+    const guideMedia: KbMedia[] = [];
+    for (const st of a.steps) {
+      for (const img of st.images ?? []) {
+        if (guideMedia.length >= 4) break;
+        guideMedia.push({ kind: 'image', src: img.src, alt: img.alt, caption: img.caption ?? st.title });
+      }
+    }
+
     out.push({
       id: `guide-${a.articleId}`,
       title: a.title,
@@ -78,6 +95,7 @@ export function buildAppDataKb(): KbEntry[] {
       priority: 55,
       source: 'guide',
       link: { label: '운영 가이드에서 보기', href: `/my/guides/${a.categoryId}/${a.articleId}` },
+      media: guideMedia.length ? guideMedia : undefined,
     });
   }
 
@@ -162,6 +180,7 @@ export function buildAppDataKb(): KbEntry[] {
       priority: 50,
       source: 'tutorial',
       link: { label: '교육 센터에서 보기', href: '/my/education' },
+      media: t.videoUrl ? [toVideoMedia(t.videoUrl, t.tagline)] : undefined,
     });
   }
 
@@ -252,6 +271,13 @@ export function buildAppDataKb(): KbEntry[] {
       )
       .join('\n\n');
 
+    const setupMedia: KbMedia[] = [];
+    for (const st of g.steps) {
+      if (st.imageUrl && setupMedia.length < 4) {
+        setupMedia.push({ kind: 'image', src: st.imageUrl, alt: st.title, caption: st.title });
+      }
+    }
+
     out.push({
       id: `channel-setup-${g.channel}`,
       title: g.title,
@@ -263,6 +289,7 @@ export function buildAppDataKb(): KbEntry[] {
       priority: 70,
       source: 'channel',
       link: { label: '채널관리 열기', href: '/megaload/channels' },
+      media: setupMedia.length ? setupMedia : undefined,
     });
   }
 
@@ -278,6 +305,13 @@ export function buildAppDataKb(): KbEntry[] {
           (s.warning ? `\n   ⚠️ ${s.warning}` : ''),
       )
       .join('\n\n');
+
+    const onbMedia: KbMedia[] = [];
+    for (const st of g.steps) {
+      if (st.imageUrl && onbMedia.length < 4) {
+        onbMedia.push({ kind: 'image', src: st.imageUrl, alt: st.title, caption: st.title });
+      }
+    }
 
     out.push({
       id: `channel-onboarding-${g.channel}`,
@@ -296,6 +330,7 @@ export function buildAppDataKb(): KbEntry[] {
       audience: 'all',
       priority: 68,
       source: 'channel',
+      media: onbMedia.length ? onbMedia : undefined,
     });
   }
 

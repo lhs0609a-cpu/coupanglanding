@@ -15,6 +15,16 @@ export type AssistantSurface = 'public' | 'pt' | 'megaload' | 'admin';
 /** 문서가 누구에게 유효한가 */
 export type KbAudience = 'public' | 'pt' | 'megaload' | 'all';
 
+/** 답변에 같이 보여줄 이미지/영상 */
+export interface KbMedia {
+  kind: 'image' | 'youtube' | 'video';
+  /** image: 이미지 URL · youtube: 영상 ID · video: mp4 URL */
+  src: string;
+  caption?: string;
+  /** 이미지 대체 텍스트 */
+  alt?: string;
+}
+
 export interface KbEntry {
   /** 전역 고유 id. 소스별 접두사를 붙인다 (op-, page-, guide-, emg-, faq- …) */
   id: string;
@@ -34,6 +44,8 @@ export interface KbEntry {
   source: KbSource;
   /** 사용자에게 열어줄 링크 */
   link?: { label: string; href: string };
+  /** 이 문서를 설명할 때 같이 띄울 이미지/영상 */
+  media?: KbMedia[];
 }
 
 export type KbSource =
@@ -66,6 +78,12 @@ export interface AssistantSource {
   href?: string;
 }
 
+/** 답변과 함께 UI 에 렌더되는 미디어 */
+export interface AssistantMedia extends KbMedia {
+  /** 어떤 문서에서 왔는지 (중복 제거·출처 표시용) */
+  fromId?: string;
+}
+
 /** 봇이 제안하는 행동 버튼 (UI가 칩으로 렌더) */
 export interface AssistantAction {
   kind: 'navigate' | 'kakao' | 'ticket' | 'bug_report' | 'external';
@@ -80,6 +98,7 @@ export interface AssistantChatMessage {
   content: string;
   sources?: AssistantSource[];
   actions?: AssistantAction[];
+  media?: AssistantMedia[];
 }
 
 /** 로그인 사용자 실시간 진단 결과 */

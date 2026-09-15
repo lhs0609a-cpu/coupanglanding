@@ -7,7 +7,7 @@ import { buildSystemPrompt, extractPathLinks } from '@/lib/assistant/prompt';
 import { resolveLlmConfig, streamRound, type ChatMsg } from '@/lib/assistant/llm';
 import { toolSpecs, runTool, type ToolContext } from '@/lib/assistant/tools';
 import { buildUserStatus, formatStatus } from '@/lib/assistant/diagnostics';
-import type { AssistantAction, AssistantSource } from '@/lib/assistant/types';
+import type { AssistantAction, AssistantMedia, AssistantSource } from '@/lib/assistant/types';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -162,7 +162,20 @@ export async function POST(request: NextRequest) {
       ? '지금 AI 응답이 비활성화돼 있어 관련 문서만 안내합니다.\n\n' +
         hits.map((h) => `**${h.entry.title}**\n${h.entry.summary}`).join('\n\n')
       : '지금 AI 응답이 비활성화돼 있습니다. 카카오톡 상담으로 문의해주세요.';
-    return streamStatic(text, conversationId, hits.map((h) => ({ id: h.entry.id, title: h.entry.title, href: h.entry.link?.href })), serviceClient, path, started);
+    const staticSources: AssistantSource[] = hits.map((h) => ({
+      id: h.entry.id,
+      title: h.entry.title,
+      href: h.entry.link?.href,
+    }));
+    const staticMedia: AssistantMedia[] = [];
+    for (const h of hits) {
+      for (const m of h.entry.media ?? []) {
+        if (staticMedia.length >= 3) break;
+        if (staticMedia.some((x) => x.src === m.src)) continue;
+        staticMedia.push({ ...m, fromId: h.entry.id });
+      }
+    }
+    return streamStatic(text, conversationId, staticSources, staticMedia, serviceClient, path, started);
   }
 
   const transcript = [...history, { role: 'user', content: message }]
@@ -179,6 +192,7 @@ export async function POST(request: NextRequest) {
     entries,
     index,
     cited: [],
+    media: [],
     transcript,
   };
 
@@ -280,7 +294,12 @@ export async function POST(request: NextRequest) {
           actions.unshift({ kind: 'navigate', label: '오류문의 보기', href: '/megaload/bug-reports' });
         }
 
-        send('done', { sources, actions: actions.slice(0, 5), conversationId: convId });
+        send('done', {
+          sources,
+          actions: actions.slice(0, 5),
+          media: ctx.media.slice(0, 4),
+          conversationId: convId,
+        });
 
         if (serviceClient && convId) {
           await persist(serviceClient, convId, answer, sources, path, Date.now() - started, ctx);
@@ -298,7 +317,7 @@ export async function POST(request: NextRequest) {
           answer = fallback;
         }
         send('error', { message: msg });
-        send('done', { sources: [], actions: [], conversationId: convId });
+        send('done', { sources: [], actions: [], media: [], conversationId: convId });
         if (serviceClient && convId) {
           await persist(serviceClient, convId, answer, [], path, Date.now() - started, ctx);
         }
@@ -379,6 +398,7 @@ function streamStatic(
   text: string,
   conversationId: string | null,
   sources: AssistantSource[],
+  media: AssistantMedia[],
   serviceClient: any,
   path: string | null,
   started: number,
@@ -398,7 +418,7 @@ function streamStatic(
       }
       actions.push({ kind: 'kakao', label: '카톡 상담 열기', href: 'https://open.kakao.com/o/skLRf9li' });
       controller.enqueue(
-        encoder.encode(sse('done', { sources, actions: actions.slice(0, 5), conversationId })),
+        encoder.encode(sse('done', { sources, actions: actions.slice(0, 5), media, conversationId })),
       );
       if (serviceClient && conversationId) {
         try {

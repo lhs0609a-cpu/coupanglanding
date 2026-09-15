@@ -15,6 +15,7 @@ import {
   Minus,
 } from 'lucide-react';
 import Markdown from './Markdown';
+import MediaBlock, { type MediaItem } from './MediaBlock';
 import { resolvePage } from '@/lib/assistant/kb/pages';
 
 /**
@@ -51,6 +52,7 @@ interface Msg {
   content: string;
   sources?: Source[];
   actions?: Action[];
+  media?: MediaItem[];
   streaming?: boolean;
   rating?: 1 | -1;
 }
@@ -225,6 +227,7 @@ export default function AssistantWidget() {
                       streaming: false,
                       sources: (data.sources as Source[]) || [],
                       actions: (data.actions as Action[]) || [],
+                      media: (data.media as MediaItem[]) || [],
                     }
                   : m,
               ),
@@ -442,6 +445,8 @@ export default function AssistantWidget() {
                         <span className="ml-0.5 inline-block h-3.5 w-[2px] animate-pulse bg-gray-400 align-middle" />
                       )}
                     </div>
+
+                    {!m.streaming && !!m.media?.length && <MediaBlock items={m.media} />}
 
                     {!m.streaming && !!m.actions?.length && (
                       <div className="flex flex-wrap gap-1.5">

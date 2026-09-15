@@ -1,7 +1,8 @@
-import type { KbEntry } from '../types';
+import type { KbEntry, KbMedia } from '../types';
 import { buildIndex, type KbIndex } from '../retrieval';
 import { OPERATOR_KB } from './operator';
 import { TROUBLESHOOTING_KB } from './troubleshooting';
+import { PRACTICAL_KB } from './practical';
 import { pageKbEntries } from './pages';
 import { buildAppDataKb } from './from-app-data';
 
@@ -19,6 +20,7 @@ export function staticKb(): KbEntry[] {
   if (!staticCache) {
     staticCache = [
       ...OPERATOR_KB,
+      ...PRACTICAL_KB,
       ...TROUBLESHOOTING_KB,
       ...pageKbEntries(),
       ...buildAppDataKb(),
@@ -29,17 +31,10 @@ export function staticKb(): KbEntry[] {
 
 // ── DB KB ────────────────────────────────────────────────
 
-interface DbClient {
-  from: (table: string) => {
-    select: (cols: string) => {
-      eq: (col: string, val: unknown) => {
-        order: (col: string, opts?: { ascending?: boolean }) => {
-          limit: (n: number) => Promise<{ data: unknown[] | null; error: unknown }>;
-        };
-      };
-    };
-  };
-}
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// supabase-js 빌더는 체이닝 형태가 쿼리마다 달라 구조적 타입으로 묶기 어렵다.
+// 이 파일 안의 쿼리는 전부 try/catch 로 감싸므로 느슨하게 받는다.
+type DbClient = any;
 
 interface CachedDb {
   at: number;
@@ -142,9 +137,80 @@ export async function dbKb(client: DbClient): Promise<KbEntry[]> {
     /* 마이그레이션 전이면 테이블이 없다 */
   }
 
+  // 4) 교육 영상 — 봇이 답변에 영상을 띄울 수 있게
+  try {
+    const { data } = await client
+      .from('training_videos')
+      .select('id, title, description, youtube_id, category, duration_seconds')
+      .eq('is_published', true)
+      .order('sort_order', { ascending: true })
+      .limit(200);
+    for (const row of (data || []) as Array<Record<string, unknown>>) {
+      const title = String(row.title ?? '');
+      const ytId = String(row.youtube_id ?? '');
+      if (!title || !ytId) continue;
+      const desc = String(row.description ?? '');
+      const mins = Number(row.duration_seconds)
+        ? ` (${Math.round(Number(row.duration_seconds) / 60)}분)`
+        : '';
+      entries.push({
+        id: `video-${row.id}`,
+        title: `[영상] ${title}`,
+        summary: desc.slice(0, 160) || `${title} 교육 영상${mins}`,
+        body: `**${title}**${mins}
+
+${desc}
+
+이 영상을 보여주면 됩니다. 말로 설명하기 어려운 화면 조작은 영상이 훨씬 빠릅니다.`,
+        tags: ['영상', '교육영상', '동영상', title, String(row.category ?? '')].filter(Boolean),
+        paths: ['/my/training-videos'],
+        audience: 'pt',
+        priority: 70,
+        source: 'tutorial',
+        link: { label: '교육 영상 보기', href: '/my/training-videos' },
+        media: [{ kind: 'youtube', src: ytId, caption: title }],
+      });
+    }
+  } catch {
+    /* noop */
+  }
+
+  // 5) 가이드 단계 캡처 — 기존 KB 항목(guide-*)에 이미지를 덧붙인다
+  try {
+    const { data } = await client
+      .from('guide_step_images')
+      .select('article_id, step_index, image_url, alt_text, caption, display_order')
+      .order('display_order', { ascending: true })
+      .limit(1000);
+    const byArticle = new Map<string, KbMedia[]>();
+    for (const row of (data || []) as Array<Record<string, unknown>>) {
+      const articleId = String(row.article_id ?? '');
+      const url = String(row.image_url ?? '');
+      if (!articleId || !url) continue;
+      const list = byArticle.get(articleId) ?? [];
+      if (list.length >= 4) continue;
+      list.push({
+        kind: 'image',
+        src: url,
+        alt: String(row.alt_text ?? ''),
+        caption: String(row.caption ?? '') || undefined,
+      });
+      byArticle.set(articleId, list);
+    }
+    // 정적 KB 의 guide-<articleId> 항목에 주입 (원본 배열을 건드리지 않게 복사본으로)
+    if (byArticle.size) {
+      guideImageOverlay = byArticle;
+    }
+  } catch {
+    /* noop */
+  }
+
   dbCache = { at: Date.now(), entries };
   return entries;
 }
+
+/** DB 에서 읽은 가이드 단계 캡처 — staticKb 의 guide-* 항목에 덧입힌다. */
+let guideImageOverlay: Map<string, KbMedia[]> | null = null;
 
 // ── 전체 KB + 색인 ───────────────────────────────────────
 
@@ -158,7 +224,17 @@ let indexCache: CachedIndex | null = null;
 
 export async function getKb(client?: DbClient | null): Promise<{ entries: KbEntry[]; index: KbIndex }> {
   const fromDb = client ? await dbKb(client) : [];
-  const entries = [...staticKb(), ...fromDb];
+
+  // DB 에 등록된 가이드 캡처가 있으면 해당 정적 항목에 이미지를 덧입힌다.
+  const base = guideImageOverlay
+    ? staticKb().map((e) => {
+        if (!e.id.startsWith('guide-')) return e;
+        const imgs = guideImageOverlay!.get(e.id.slice('guide-'.length));
+        return imgs?.length ? { ...e, media: [...(e.media ?? []), ...imgs].slice(0, 4) } : e;
+      })
+    : staticKb();
+
+  const entries = [...base, ...fromDb];
 
   // DB 항목 수가 그대로면 이전 색인을 재사용한다.
   if (indexCache && indexCache.entries.length === entries.length && Date.now() - indexCache.at < DB_TTL_MS) {
