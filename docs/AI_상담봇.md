@@ -128,7 +128,15 @@ supabase/migration_assistant.sql          대화·메시지·관리자 KB 테이
 ```
 supabase/migration_assistant.sql
 ```
-Supabase SQL Editor 에 붙여넣거나 `DATABASE_URL=... node scripts/migrate.mjs` 로 적용한다.
+**프로덕션(CoupangPT, ref dwfhcshvkxyokvtbgluw)에는 2026-09-15 적용 완료.**
+assistant_conversations / assistant_messages / assistant_kb_entries + message_count 트리거.
+
+다시 적용하거나 다른 환경에 넣을 때:
+```
+npx supabase db query --linked --project-ref <ref> -f supabase/migration_assistant.sql
+```
+(Supabase CLI 로그인 상태면 DB 비밀번호 없이 Management API 로 실행된다.
+ Supabase SQL Editor 에 붙여넣거나 `DATABASE_URL=... node scripts/migrate.mjs` 도 가능.)
 
 **적용 전에도 상담은 동작한다.** 대화 저장·👍👎·관리자 검토만 안 될 뿐이다
 (테이블 없음 오류를 전부 삼키도록 만들어 뒀다).

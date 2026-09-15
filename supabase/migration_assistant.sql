@@ -135,3 +135,31 @@ CREATE POLICY "assistant_kb_admin_all" ON assistant_kb_entries
 DROP POLICY IF EXISTS "assistant_kb_read" ON assistant_kb_entries;
 CREATE POLICY "assistant_kb_read" ON assistant_kb_entries
   FOR SELECT USING (is_published = true);
+
+-- ── message_count 자동 유지 ──
+-- 라우트에서 직접 세면 히스토리 절삭(최근 12턴만 로드) 때문에 실제보다 적게 잡힌다.
+-- DB 가 세는 게 항상 맞다.
+CREATE OR REPLACE FUNCTION assistant_bump_message_count()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE assistant_conversations
+     SET message_count = message_count + 1,
+         updated_at = now()
+   WHERE id = NEW.conversation_id;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_assistant_bump_message_count ON assistant_messages;
+CREATE TRIGGER trg_assistant_bump_message_count
+  AFTER INSERT ON assistant_messages
+  FOR EACH ROW EXECUTE FUNCTION assistant_bump_message_count();
+
+-- 트리거 도입 전에 들어온 행 보정
+UPDATE assistant_conversations c
+   SET message_count = (SELECT count(*) FROM assistant_messages m WHERE m.conversation_id = c.id)
+ WHERE c.message_count <> (SELECT count(*) FROM assistant_messages m WHERE m.conversation_id = c.id);
