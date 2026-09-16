@@ -185,16 +185,12 @@ export async function buildUserStatus(
         countRows(serviceClient, 'sh_products', (q: Sb) =>
           q.eq('megaload_user_id', shId).neq('status', 'deleted'),
         ),
-        // 채널에 실제로 올라간 건수 — product_id 로 조인이 어려우므로 상품 기준 근사
-        safe(async () => {
-          const { data } = await serviceClient
-            .from('sh_products')
-            .select('id')
-            .eq('megaload_user_id', shId)
-            .not('coupang_product_id', 'is', null)
-            .limit(20000);
-          return (data || []).length;
-        }, 0),
+        // 채널에 실제로 올라간 건수 — 상품 기준 근사.
+        // ⚠️ 예전엔 행을 20,000개까지 받아 와 JS 에서 length 를 셌다. 상품이 수천 개인 계정에서
+        //    상담 한 번에 수 MB 를 실어 왔다. count 만 받는다.
+        countRows(serviceClient, 'sh_products', (q: Sb) =>
+          q.eq('megaload_user_id', shId).not('coupang_product_id', 'is', null),
+        ),
         countRows(serviceClient, 'sh_orders', (q: Sb) =>
           q.eq('megaload_user_id', shId).in('order_status', ['payment_done', 'order_confirmed', 'shipping_ready']),
         ),
@@ -205,15 +201,17 @@ export async function buildUserStatus(
       ]);
 
     // 최근 7일 등록 실패
+    // ⚠️ 예전엔 megaload_user_id 필터가 빠져 있어 **전체 사용자의 실패 건수**를 세서
+    //    모든 사람에게 같은(그리고 남의) 숫자를 보여줬다. sh_products 로 조인해 본인 것만 센다.
     const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
     const recentFailures = await safe(async () => {
-      const { data } = await serviceClient
+      const { count } = await serviceClient
         .from('sh_product_channels')
-        .select('id, status, updated_at')
+        .select('id, sh_products!inner(megaload_user_id)', { count: 'exact', head: true })
+        .eq('sh_products.megaload_user_id', shId)
         .eq('status', 'failed')
-        .gte('updated_at', since)
-        .limit(1000);
-      return (data || []).length;
+        .gte('updated_at', since);
+      return typeof count === 'number' ? count : 0;
     }, 0);
 
     const connectedChannels = await safe(async () => {

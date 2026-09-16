@@ -187,9 +187,31 @@ export default function AssistantWidget() {
           }),
         });
 
-        if (!res.ok || !res.body) {
-          throw new Error(`요청 실패 (${res.status})`);
+        // 레이트 리밋 등 JSON 오류는 본문 문구를 그대로 보여준다 —
+        // "연결 오류"로 뭉뚱그리면 사용자가 왜 막혔는지 모른다.
+        if (!res.ok) {
+          let msg = `요청이 처리되지 않았습니다. (${res.status})`;
+          try {
+            const j = await res.json();
+            if (typeof j?.error === 'string' && j.error) msg = j.error;
+          } catch {
+            /* 본문이 JSON 이 아니면 기본 문구 */
+          }
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === botId
+                ? {
+                    ...m,
+                    streaming: false,
+                    content: msg,
+                    actions: [{ kind: 'kakao', label: '카톡 상담 열기', href: KAKAO_URL }],
+                  }
+                : m,
+            ),
+          );
+          return;
         }
+        if (!res.body) throw new Error('응답 본문이 없습니다.');
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();

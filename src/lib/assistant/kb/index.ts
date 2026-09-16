@@ -3,6 +3,7 @@ import { buildIndex, type KbIndex } from '../retrieval';
 import { OPERATOR_KB } from './operator';
 import { TROUBLESHOOTING_KB } from './troubleshooting';
 import { PRACTICAL_KB } from './practical';
+import { OPERATIONS_KB } from './operations';
 import { pageKbEntries } from './pages';
 import { buildAppDataKb } from './from-app-data';
 
@@ -21,6 +22,7 @@ export function staticKb(): KbEntry[] {
     staticCache = [
       ...OPERATOR_KB,
       ...PRACTICAL_KB,
+      ...OPERATIONS_KB,
       ...TROUBLESHOOTING_KB,
       ...pageKbEntries(),
       ...buildAppDataKb(),

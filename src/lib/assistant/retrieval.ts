@@ -15,6 +15,11 @@ import type { KbEntry, KbHit, AssistantSurface } from './types';
 
 const HANGUL = /[가-힣]/;
 
+/** 공백·기호를 전부 지워 붙인 문자열. "이미지 몇 장" 과 "이미지몇장" 을 같게 본다. */
+export function flatten(text: string): string {
+  return text.toLowerCase().replace(/[^0-9a-z가-힣]+/g, '');
+}
+
 /** 조사·접미가 붙어도 겹치도록 어절 + 문자 bigram 을 함께 낸다. */
 export function tokenize(text: string): string[] {
   const cleaned = text
@@ -41,6 +46,8 @@ interface IndexedDoc {
   /** token → 가중치 합 */
   tf: Map<string, number>;
   length: number;
+  /** 구절 매칭용 — 공백·기호를 지운 제목+태그 (예: "이미지몇장넣어야해요") */
+  flatTitleTags: string;
 }
 
 export interface KbIndex {
@@ -70,7 +77,12 @@ export function buildIndex(entries: KbEntry[]): KbIndex {
     for (const v of tf.values()) length += v;
     for (const t of tf.keys()) df.set(t, (df.get(t) || 0) + 1);
 
-    docs.push({ entry, tf, length: length || 1 });
+    docs.push({
+      entry,
+      tf,
+      length: length || 1,
+      flatTitleTags: flatten(`${entry.title} ${entry.tags.join(' ')}`),
+    });
   }
 
   const avgLength = docs.length ? docs.reduce((s, d) => s + d.length, 0) / docs.length : 1;
@@ -88,7 +100,8 @@ export interface SearchOptions {
 }
 
 const K1 = 1.4;
-const B = 0.6;
+// 짧은 문서가 과도하게 유리해지지 않게 길이 보정을 낮춘다(0.6 → 0.35).
+const B = 0.35;
 
 export function searchKb(index: KbIndex, query: string, opts: SearchOptions = {}): KbHit[] {
   const limit = opts.limit ?? 20;
@@ -102,6 +115,18 @@ export function searchKb(index: KbIndex, query: string, opts: SearchOptions = {}
   const N = index.docs.length || 1;
   const exclude = new Set(opts.excludeIds || []);
   const path = (opts.path || '').split('?')[0];
+
+  // 구절 매칭 재료
+  const flatQuery = flatten(query);
+  // 조사·군말을 뺀 내용어만 남긴다 (2글자 이상 어절)
+  const contentWords = query
+    .toLowerCase()
+    .replace(/[^0-9a-z가-힣\s]+/g, ' ')
+    .split(/\s+/)
+    .map((w) => w.replace(/(이에요|예요|인가요|한가요|나요|까요|어요|아요|해요|에서|으로|에게|까지|부터|이랑|하고|은|는|이|가|을|를|에|의|도|만|와|과)$/, ''))
+    .filter((w) => w.length >= 2);
+  const askingAboutScreen = /화면|페이지|메뉴|탭|어디|여기/.test(query);
+  const mentionsAds = /광고|roas|입찰|키워드|캠페인/i.test(query);
 
   const hits: KbHit[] = [];
   for (const doc of index.docs) {
@@ -118,6 +143,29 @@ export function searchKb(index: KbIndex, query: string, opts: SearchOptions = {}
     }
     if (score <= 0) continue;
 
+    // ── 구절 매칭 가산 ──
+    // BM25 만으로는 "반품 요청 왔어요" 같은 짧은 질의에서 제목이 정확히 맞는 문서가
+    // 토큰이 많은 긴 문서에 밀린다. 질의의 내용어가 제목·태그에 통째로 들어 있으면 크게 올린다.
+    if (flatQuery.length >= 2) {
+      if (doc.flatTitleTags.includes(flatQuery)) score *= 2.6;       // 질의 전체가 제목/태그에 있음
+      else {
+        let covered = 0;
+        for (const w of contentWords) if (doc.flatTitleTags.includes(w)) covered++;
+        if (contentWords.length && covered === contentWords.length) score *= 2.0;
+        else if (covered >= 2) score *= 1.5;
+      }
+    }
+
+    // ── 문서 종류 보정 ──
+    // '[화면] xxx' 항목은 본문이 짧아 BM25 길이 보정에서 유리해 자꾸 1위로 올라온다.
+    // "이 화면 뭐야" 류가 아니면 눌러둔다. 현재 보고 있는 경로면 예외.
+    if (doc.entry.source === 'page') {
+      const onThisPage = !!path && !!doc.entry.paths?.some((p) => path === p || path.startsWith(p + '/'));
+      if (!askingAboutScreen && !onThisPage) score *= 0.45;
+    }
+    // 광고 아카데미 스테이지는 태그가 많아 광고와 무관한 질의에도 걸린다.
+    if (doc.entry.id.startsWith('adacademy-') && !mentionsAds) score *= 0.5;
+
     // 현재 화면과 관련된 문서를 위로
     if (path && doc.entry.paths?.some((p) => path === p || path.startsWith(p + '/'))) {
       score *= 1.35;
@@ -131,8 +179,9 @@ export function searchKb(index: KbIndex, query: string, opts: SearchOptions = {}
         else if (opts.surface === 'pt' && a === 'public') score *= 0.85;
       }
     }
-    // 운영 노하우·긴급 대응처럼 중요한 문서를 살짝 위로
-    score *= 1 + (doc.entry.priority ?? 0) / 500;
+    // 운영 노하우·긴급 대응을 위로. 예전엔 /500 이라 거의 차이가 없어
+    // 우선순위 100 짜리 실무 문서가 40 짜리 화면 설명에 밀렸다.
+    score *= 1 + (doc.entry.priority ?? 0) / 160;
 
     hits.push({ entry: doc.entry, score });
   }

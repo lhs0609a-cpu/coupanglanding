@@ -8,6 +8,7 @@ import { resolveLlmConfig, streamRound, type ChatMsg } from '@/lib/assistant/llm
 import { toolSpecs, runTool, type ToolContext } from '@/lib/assistant/tools';
 import { buildUserStatus, formatStatus } from '@/lib/assistant/diagnostics';
 import type { AssistantAction, AssistantMedia, AssistantSource } from '@/lib/assistant/types';
+import { checkRateLimit, clientIp, rateLimitMessage } from '@/lib/assistant/rate-limit';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -81,6 +82,23 @@ export async function POST(request: NextRequest) {
     userName = (prof as any)?.full_name ?? null;
     ptUserId = (pt as any)?.id ?? null;
     megaloadUserId = (sh as any)?.id ?? null;
+  }
+
+  // ── 레이트 리밋 ──
+  // 상담은 비로그인도 쓸 수 있어서 제한이 없으면 LLM 비용이 무방비다.
+  // KB 조립·LLM 호출 앞에서 막아야 의미가 있다.
+  const rate = await checkRateLimit(serviceClient, { profileId, ip: clientIp(request) });
+  if (!rate.allowed) {
+    return new Response(
+      JSON.stringify({ error: rateLimitMessage(rate, !!profileId), retryAfter: rate.retryAfter }),
+      {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Retry-After': String(rate.retryAfter || 60),
+        },
+      },
+    );
   }
 
   // ── 지식베이스 ──
