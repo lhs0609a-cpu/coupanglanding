@@ -11,6 +11,8 @@ import { useSidebarUsage } from '@/hooks/useSidebarUsage';
 
 const baseNavItems = [
   { href: '/my/dashboard', label: '대시보드', icon: LayoutDashboard },
+  // 독학 아카데미 — 트레이너 없이 혼자 가는 길. 교육 메뉴들보다 위에 둔다(첫 화면이어야 한다).
+  { href: '/my/academy', label: '셀러 아카데미', icon: GraduationCap },
   { href: '/my/report', label: '매출 정산', icon: TrendingUp },
   { href: '/my/ad-cost', label: '광고비 제출', icon: Megaphone },
   { href: '/my/history', label: '보고 내역', icon: History },
@@ -53,7 +55,8 @@ export default function UserSidebar({ isOpen, onClose, isTrainer, settlementBadg
 
   const navItems = useMemo(() =>
     isTrainer
-      ? [...baseNavItems.slice(0, 7), trainerNavItem, ...baseNavItems.slice(7)]
+      // 8 = 아카데미를 맨 위에 끼워 넣으면서 한 칸 밀렸다. 트레이너 메뉴 위치는 그대로 유지한다.
+      ? [...baseNavItems.slice(0, 8), trainerNavItem, ...baseNavItems.slice(8)]
       : baseNavItems,
     [isTrainer],
   );
