@@ -342,7 +342,8 @@ export function buildAppDataKb(): KbEntry[] {
         title: `[광고] ${tip.title}`,
         summary: `${cat.title} — ${truncate(tip.content, 140)}`,
         body: tip.content,
-        tags: ['광고', cat.title, tip.title, ...tip.tags, tip.importance === 'must' ? '필수' : ''],
+        // 빈 문자열이 태그로 들어가면 제목+태그 매칭 문자열이 지저분해진다 — 걸러낸다.
+        tags: ['광고', cat.title, tip.title, ...tip.tags, tip.importance === 'must' ? '필수' : ''].filter(Boolean),
         paths: ['/my/ad-tips', '/megaload/ads'],
         audience: 'pt',
         priority: tip.importance === 'must' ? 62 : 50,

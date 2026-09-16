@@ -75,7 +75,7 @@ export const TROUBLESHOOTING_KB: KbEntry[] = [
 
 **확인 방법**
 [채널관리]에서 **[연결 테스트]** 를 눌러보세요. 여기서 성공하면 키 문제는 아닙니다.`,
-    tags: ['인증', 'Unauthorized', '401', 'API키', 'accessKey', 'secretKey', 'vendorId', '연동', '채널관리', '등록실패'],
+    tags: ['인증', 'Unauthorized', '401', 'API키', 'accessKey', 'secretKey', 'vendorId', '연동', '채널관리', '등록실패', '인증오류', '인증오류가나요', '로그인안됨API'],
     paths: ['/megaload/channels', '/megaload/settings'],
     audience: 'megaload',
     priority: 95,

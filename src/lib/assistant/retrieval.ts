@@ -1,4 +1,5 @@
 import type { KbEntry, KbHit, AssistantSurface } from './types';
+import { expandSynonyms } from './glossary';
 
 /**
  * 한국어에 맞춘 가벼운 어휘 검색.
@@ -18,6 +19,28 @@ const HANGUL = /[가-힣]/;
 /** 공백·기호를 전부 지워 붙인 문자열. "이미지 몇 장" 과 "이미지몇장" 을 같게 본다. */
 export function flatten(text: string): string {
   return text.toLowerCase().replace(/[^0-9a-z가-힣]+/g, '');
+}
+
+/**
+ * 질문에서만 나오고 문서 제목에는 없는 군말. 이게 내용어로 잡히면
+ * "프로모션 어떻게 걸어요" 가 '프로모션' 문서에서 커버리지 1/2 로 떨어져 밀린다.
+ */
+const STOPWORDS = new Set([
+  '어떻게', '어떡해', '어떡하죠', '어디', '어디서', '언제', '무엇', '뭐가', '뭘', '뭔가요',
+  '왜요', '누가', '얼마나', '얼마', '몇개', '하나요', '되나요', '있나요', '없나요', '인가요',
+  '있어요', '없어요', '해요', '해야', '하면', '하는', '해도', '되는', '돼요', '같아요', '같은데',
+  '주세요', '알려줘', '알려주세요', '궁금해요', '문의', '질문', '이거', '저거', '그거', '요거',
+  '지금', '좀', '제가', '저는', '내가', '나는', '우리', '것을', '것이', '건가요', '건데', '건지',
+  '싶어요', '싶은데', '봐주세요', '봐줘', '해줘', '해주세요', '가요', '가나요', '나요',
+]);
+
+/** 질의에서 의미 있는 단어만 뽑는다 (불용어·1글자 제거). */
+export function extractContentWords(query: string): string[] {
+  return query
+    .toLowerCase()
+    .replace(/[^0-9a-z가-힣\s]+/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 2 && !STOPWORDS.has(w));
 }
 
 /** 조사·접미가 붙어도 겹치도록 어절 + 문자 bigram 을 함께 낸다. */
@@ -112,19 +135,23 @@ export function searchKb(index: KbIndex, query: string, opts: SearchOptions = {}
   const uniq = new Map<string, number>();
   for (const t of qTokens) uniq.set(t, Math.min((uniq.get(t) || 0) + 1, 3));
 
+  // 구어 → 문서말 확장. 원문 토큰보다 가중치를 낮게 줘서 보조로만 쓴다.
+  //   "똑같은 걸 두 번 올렸다" 에 '중복','등록' 을 얹는 식.
+  const synonyms = expandSynonyms(query);
+  for (const syn of synonyms) {
+    for (const t of tokenize(syn)) {
+      if (!uniq.has(t)) uniq.set(t, 2);
+    }
+  }
+
   const N = index.docs.length || 1;
   const exclude = new Set(opts.excludeIds || []);
   const path = (opts.path || '').split('?')[0];
 
   // 구절 매칭 재료
   const flatQuery = flatten(query);
-  // 조사·군말을 뺀 내용어만 남긴다 (2글자 이상 어절)
-  const contentWords = query
-    .toLowerCase()
-    .replace(/[^0-9a-z가-힣\s]+/g, ' ')
-    .split(/\s+/)
-    .map((w) => w.replace(/(이에요|예요|인가요|한가요|나요|까요|어요|아요|해요|에서|으로|에게|까지|부터|이랑|하고|은|는|이|가|을|를|에|의|도|만|와|과)$/, ''))
-    .filter((w) => w.length >= 2);
+  const contentWords = extractContentWords(query);
+  const synonymSet = synonyms.map((x) => flatten(x)).filter((x) => x.length >= 2);
   const askingAboutScreen = /화면|페이지|메뉴|탭|어디|여기/.test(query);
   const mentionsAds = /광고|roas|입찰|키워드|캠페인/i.test(query);
 
@@ -147,12 +174,38 @@ export function searchKb(index: KbIndex, query: string, opts: SearchOptions = {}
     // BM25 만으로는 "반품 요청 왔어요" 같은 짧은 질의에서 제목이 정확히 맞는 문서가
     // 토큰이 많은 긴 문서에 밀린다. 질의의 내용어가 제목·태그에 통째로 들어 있으면 크게 올린다.
     if (flatQuery.length >= 2) {
-      if (doc.flatTitleTags.includes(flatQuery)) score *= 2.6;       // 질의 전체가 제목/태그에 있음
-      else {
+      if (doc.flatTitleTags.includes(flatQuery)) {
+        score *= 2.6; // 질의 전체가 제목/태그에 통째로 있음
+      } else if (contentWords.length) {
+        // 한국어는 어미가 뒤에 붙는다("중복이래요" ← "중복"). 앞에서부터 잘라가며
+        // 가장 긴 접두어가 걸리는지 보고, 얼마나 걸렸는지를 비율로 환산한다.
+        //
+        // idf 가중(드문 단어에 큰 무게)도 시험해 봤는데 실측이 80.6% → 77.6% 로 떨어졌다.
+        // 토큰 df 가 n-gram 까지 섞여 있어 단어 희소도를 제대로 못 재는 탓이다. 단순 비율이 낫다.
         let covered = 0;
-        for (const w of contentWords) if (doc.flatTitleTags.includes(w)) covered++;
-        if (contentWords.length && covered === contentWords.length) score *= 2.0;
-        else if (covered >= 2) score *= 1.5;
+        for (const w of contentWords) {
+          let hit = 0;
+          for (let len = w.length; len >= 2; len--) {
+            if (doc.flatTitleTags.includes(w.slice(0, len))) {
+              hit = len / w.length;
+              break;
+            }
+          }
+          // 글자로는 안 겹쳐도 뜻이 같은 말이 문서에 있으면 인정한다(0.8 로 약간 깎아서).
+          if (hit === 0) {
+            for (const syn of synonymSet) {
+              if (doc.flatTitleTags.includes(syn)) {
+                hit = 0.8;
+                break;
+              }
+            }
+          }
+          covered += hit;
+        }
+        const ratio = covered / contentWords.length;
+        if (ratio >= 0.95) score *= 2.2;
+        else if (ratio >= 0.6) score *= 1.6;
+        else if (ratio >= 0.35) score *= 1.25;
       }
     }
 

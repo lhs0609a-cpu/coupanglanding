@@ -100,7 +100,7 @@ export const OPERATIONS_KB: KbEntry[] = [
 **기한**
 배송 완료 후에도 2~3일간은 반품·교환 요청이 올 수 있습니다. 그동안은 주문을 닫지 말고
 지켜보세요.`,
-    tags: ['교환', '교환요청', '불량', '파손', '오배송', '사이즈', '색상', '재발송', '하자'],
+    tags: ['교환', '교환요청', '불량', '파손', '오배송', '사이즈', '색상', '재발송', '하자', '교환해달래요', '교환요청왔어요', '바꿔달래요'],
     paths: ['/megaload/returns', '/my/cs-templates'],
     audience: 'megaload',
     priority: 88,
@@ -183,7 +183,7 @@ export const OPERATIONS_KB: KbEntry[] = [
     tags: [
       '프로모션', '쿠폰', '즉시할인', '다운로드쿠폰', '할인', '할인율', '쿠폰거는법',
       '프로모션등록', '첫매출', '10000개', '100개',
-    ],
+    '프로모션어떻게', '쿠폰걸기', '프로모션거는법', '걸어요', '쿠폰적용'],
     paths: ['/my/promotion', '/megaload/dashboard'],
     audience: 'pt',
     priority: 96,
@@ -341,7 +341,7 @@ export const OPERATIONS_KB: KbEntry[] = [
     tags: [
       '계정정지', '정지', '판매중지', '판매정지', '중지', '차단', '막혔어요', '소명',
       '이용정지', '계정', '1600-9879', '긴급',
-    ],
+    '페널티받았어요', '제재받았어요'],
     paths: ['/my/emergency', '/my/penalty'],
     audience: 'all',
     priority: 100,
@@ -391,7 +391,7 @@ export const OPERATIONS_KB: KbEntry[] = [
     tags: [
       '비용', '얼마', '수수료', '요금', '가격', '돈', '초기비용', '무료', '부가세',
       '순이익', '분배', '정산비율', '쿠팡PT비용', '광고비인정',
-    ],
+    '몇퍼센트', '수수료율', '얼마내야'],
     paths: ['/pt', '/my/contract', '/apply', '/my/report'],
     audience: 'all',
     priority: 98,
