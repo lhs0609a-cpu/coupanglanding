@@ -10,11 +10,12 @@ import { ACT1_STEPS } from './act1-open';
 import { ACT2_STEPS } from './act2-register';
 import { ACT3_STEPS } from './act3-orders';
 import { ACT4_STEPS } from './act4-cs';
+import { ACT5_STEPS } from './act5-growth';
 
 export * from './types';
 
 export const ACADEMY_STEPS: AcademyStep[] = [
-  ...ACT1_STEPS, ...ACT2_STEPS, ...ACT3_STEPS, ...ACT4_STEPS,
+  ...ACT1_STEPS, ...ACT2_STEPS, ...ACT3_STEPS, ...ACT4_STEPS, ...ACT5_STEPS,
 ].sort(
   (a, b) => a.act - b.act || a.order - b.order,
 );
