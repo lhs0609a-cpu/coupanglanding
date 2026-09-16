@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { GraduationCap, CheckCircle2, Lock, Loader2, AlertCircle, ArrowRight, Clock } from 'lucide-react';
+import { GraduationCap, CheckCircle2, Lock, Loader2, AlertCircle, ArrowRight, Clock, Flame, ListChecks } from 'lucide-react';
 import { ACADEMY_BADGES } from '@/lib/data/academy/badges';
 import WelcomeGate from '@/components/academy/WelcomeGate';
 
@@ -39,6 +39,13 @@ export default function AcademyMapPage() {
   const [error, setError] = useState('');
   // 환영 화면 — 아직 안 본 사람에게만. 본 뒤로는 다시 낚아채지 않는다.
   const [intro, setIntro] = useState<{ name: string; firstStepKey: string | null; totalSteps: number } | null>(null);
+  // 오늘 할 일 — 실제로 밀린 일에서 만들어진다. 없으면 없다고 말한다.
+  const [quests, setQuests] = useState<{
+    quests: { key: string; label: string; href: string; xp: number; count?: number }[];
+    cleared: boolean;
+    checkedCoupang: boolean;
+    streak: { current: number; best: number; todayDone: boolean };
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,6 +59,12 @@ export default function AcademyMapPage() {
         setSteps(data.steps || []);
         setStats(data.stats || null);
         setBadges(data.badges || []);
+
+        // 퀘스트는 쿠팡 조회가 붙어 느릴 수 있다. 지도를 막지 않게 따로 부른다.
+        void fetch('/api/academy/quests')
+          .then((r) => (r.ok ? r.json() : null))
+          .then((q) => { if (q && !cancelled) setQuests(q); })
+          .catch(() => { /* 퀘스트 실패가 지도를 막지는 않는다 */ });
 
         const introRes = await fetch('/api/academy/intro');
         if (introRes.ok && !cancelled) {
@@ -107,6 +120,14 @@ export default function AcademyMapPage() {
           <GraduationCap className="h-6 w-6 text-gray-900" />
           <h1 className="text-xl font-bold text-gray-900">셀러 아카데미</h1>
           <span className="flex-1" />
+          {quests && quests.streak.current > 0 && (
+            <span
+              title={`최고 ${quests.streak.best}일`}
+              className="inline-flex items-center gap-1 rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1 text-sm font-semibold text-orange-700"
+            >
+              <Flame className="h-4 w-4" /> {quests.streak.current}일 연속
+            </span>
+          )}
           {stats && (
             <span className="rounded-lg bg-gray-900 px-2.5 py-1 text-sm font-semibold text-white">
               {LEVEL_BADGE[stats.level] || '🌱'} Lv.{stats.level} {stats.label}
@@ -143,6 +164,37 @@ export default function AcademyMapPage() {
           </Link>
         )}
       </div>
+
+      {/* ── 오늘 할 일 ─────────────────────────────────────────
+          ★ 실제로 밀린 일에서만 만든다. 가짜 할 일을 주는 순간 목록 전체가 신뢰를 잃는다. */}
+      {quests && (quests.quests.length > 0 || quests.checkedCoupang) && (
+        <div className="rounded-xl border border-gray-200 bg-white p-5">
+          <p className="flex items-center gap-2 text-sm font-bold text-gray-900">
+            <ListChecks className="h-4 w-4 text-gray-500" /> 오늘 할 일
+          </p>
+          {quests.quests.length === 0 ? (
+            <p className="mt-2 text-sm text-gray-600">
+              밀린 일이 없습니다. {quests.cleared ? '오늘 운영한 것으로 기록했습니다.' : '주문이나 문의가 들어오면 여기 뜹니다.'}
+            </p>
+          ) : (
+            <ul className="mt-2 space-y-2">
+              {quests.quests.map((q) => (
+                <li key={q.key}>
+                  <Link
+                    href={q.href}
+                    className="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5 text-sm hover:bg-gray-50"
+                  >
+                    <span className="inline-block h-4 w-4 flex-none rounded border-2 border-gray-300" />
+                    <span className="flex-1 text-gray-900">{q.label}</span>
+                    <span className="text-xs tabular-nums text-gray-500">+{q.xp}</span>
+                    <ArrowRight className="h-4 w-4 flex-none text-gray-400" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* ── 길 ───────────────────────────────────────────────── */}
       {acts.map((act) => {

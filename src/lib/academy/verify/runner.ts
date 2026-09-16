@@ -18,6 +18,7 @@ import { getStep } from '@/lib/data/academy';
 import type { AcademyStep, ProbeResult, VerifyVerdict } from '@/lib/data/academy/types';
 import { PROBES, type ProbeContext } from './probes';
 import { NUMBER_VALIDATORS, maskNumber } from './validators';
+import { touchStreak } from '../streak';
 
 export const COOLDOWN_MS = 20_000;
 const PROBE_CACHE_MS = 60_000;
@@ -27,7 +28,8 @@ export const MANUAL_REVIEW_AFTER = 3;
 // 서버 인스턴스 단위 캐시. 서버리스라 완벽하진 않지만, 한 화면에서 나는 연타는 막아준다.
 const probeCache = new Map<string, { at: number; result: ProbeResult }>();
 
-async function runProbe(
+/** 퀘스트 라우트도 같은 캐시를 쓰도록 공개한다 — 한 화면에서 두 번 쏘면 안 된다. */
+export async function runProbe(
   ctx: ProbeContext,
   probeKey: string,
   params?: Record<string, unknown>,
@@ -196,6 +198,9 @@ export async function verifyStep(input: VerifyInput): Promise<VerifyOutcome> {
       });
       if (!badgeErr) badgeAwarded = step.badgeKey;
     }
+
+    // 단계를 하나 통과한 날은 "운영한 날" 로 친다(설계도 §8-4).
+    void touchStreak(service, userId);
 
     // 트레이너 화면(기존 교육 현황판)에 단방향으로 미러링한다.
     // 실패해도 판정 자체는 성공이므로 조용히 넘어간다.

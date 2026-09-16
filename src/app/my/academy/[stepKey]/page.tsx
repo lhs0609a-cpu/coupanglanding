@@ -200,7 +200,7 @@ export default function AcademyStepPage({ params }: { params: Promise<{ stepKey:
 
         {/* ── 오른쪽 — 말해주는 것 + 확인해주는 것 ───────── */}
         <div className="space-y-4 lg:col-span-2">
-          <NarrationPlayer lines={step.narration} />
+          <NarrationPlayer lines={step.narration} stepKey={step.key} />
           <VerifyPanel
             stepKey={step.key}
             verify={step.verify}
