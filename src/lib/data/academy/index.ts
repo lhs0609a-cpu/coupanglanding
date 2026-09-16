@@ -6,6 +6,7 @@
  */
 
 import type { AcademyStep, AcademyStepPublic, AcademyAct } from './types';
+import { ACT0_STEPS } from './act0-diagnose';
 import { ACT1_STEPS } from './act1-open';
 import { ACT2_STEPS } from './act2-register';
 import { ACT3_STEPS } from './act3-orders';
@@ -15,7 +16,7 @@ import { ACT5_STEPS } from './act5-growth';
 export * from './types';
 
 export const ACADEMY_STEPS: AcademyStep[] = [
-  ...ACT1_STEPS, ...ACT2_STEPS, ...ACT3_STEPS, ...ACT4_STEPS, ...ACT5_STEPS,
+  ...ACT0_STEPS, ...ACT1_STEPS, ...ACT2_STEPS, ...ACT3_STEPS, ...ACT4_STEPS, ...ACT5_STEPS,
 ].sort(
   (a, b) => a.act - b.act || a.order - b.order,
 );
