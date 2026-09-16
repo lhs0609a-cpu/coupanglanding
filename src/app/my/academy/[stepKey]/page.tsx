@@ -9,6 +9,7 @@
 
 import { use, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ArrowLeft, ArrowRight, ExternalLink, Clock, Loader2, AlertCircle, Copy, Check } from 'lucide-react';
 import NarrationPlayer from '@/components/academy/NarrationPlayer';
 import VerifyPanel, { TroubleList, type VerifyView } from '@/components/academy/VerifyPanel';
@@ -27,7 +28,10 @@ interface StepFull {
 
 export default function AcademyStepPage({ params }: { params: Promise<{ stepKey: string }> }) {
   const { stepKey } = use(params);
+  const router = useRouter();
   const [step, setStep] = useState<StepFull | null>(null);
+  // 통과 후 자동 이동까지 남은 초. null 이면 이동하지 않는다(사용자가 머무르기를 눌렀다).
+  const [autoIn, setAutoIn] = useState<number | null>(null);
   const [nextKey, setNextKey] = useState<string | null>(null);
   const [passed, setPassed] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -54,6 +58,15 @@ export default function AcademyStepPage({ params }: { params: Promise<{ stepKey:
   }, [stepKey]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // ── 통과하면 저절로 다음 단계로 ─────────────────────────────
+  //   매번 "다음" 을 누르게 하면 흐름이 끊긴다. 대신 머무를 수 있게 문을 열어둔다.
+  useEffect(() => {
+    if (autoIn === null || !nextKey) return;
+    if (autoIn <= 0) { router.push(`/my/academy/${nextKey}`); return; }
+    const t = setTimeout(() => setAutoIn((n) => (n === null ? null : n - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [autoIn, nextKey, router]);
 
   if (loading) return <div className="py-20 text-center text-gray-400"><Loader2 className="inline h-6 w-6 animate-spin" /></div>;
   if (error || !step) {
@@ -192,15 +205,26 @@ export default function AcademyStepPage({ params }: { params: Promise<{ stepKey:
             stepKey={step.key}
             verify={step.verify}
             alreadyPassed={passed}
-            onPassed={() => setPassed(true)}
+            onPassed={() => { setPassed(true); setAutoIn(3); }}
           />
           {passed && nextKey && (
-            <Link
-              href={`/my/academy/${nextKey}`}
-              className="flex items-center justify-center gap-2 rounded-lg bg-[#E31837] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#c41230]"
-            >
-              다음 단계 <ArrowRight className="h-4 w-4" />
-            </Link>
+            <div className="space-y-2">
+              <Link
+                href={`/my/academy/${nextKey}`}
+                className="flex items-center justify-center gap-2 rounded-lg bg-[#E31837] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#c41230]"
+              >
+                다음 단계{autoIn !== null && autoIn > 0 ? ` (${autoIn}초)` : ''} <ArrowRight className="h-4 w-4" />
+              </Link>
+              {autoIn !== null && autoIn > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setAutoIn(null)}
+                  className="w-full rounded-lg border border-gray-200 px-4 py-2 text-xs text-gray-500 hover:bg-gray-50"
+                >
+                  잠시 후 자동으로 넘어갑니다 · 여기 더 볼게요
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>

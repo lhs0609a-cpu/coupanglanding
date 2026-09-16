@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { GraduationCap, CheckCircle2, Lock, Loader2, AlertCircle, ArrowRight, Clock } from 'lucide-react';
 import { ACADEMY_BADGES } from '@/lib/data/academy/badges';
+import WelcomeGate from '@/components/academy/WelcomeGate';
 
 interface StepView {
   key: string; act: number; order: number; title: string; goal: string;
@@ -36,6 +37,8 @@ export default function AcademyMapPage() {
   const [badges, setBadges] = useState<{ badge_key: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // 환영 화면 — 아직 안 본 사람에게만. 본 뒤로는 다시 낚아채지 않는다.
+  const [intro, setIntro] = useState<{ name: string; firstStepKey: string | null; totalSteps: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,6 +52,14 @@ export default function AcademyMapPage() {
         setSteps(data.steps || []);
         setStats(data.stats || null);
         setBadges(data.badges || []);
+
+        const introRes = await fetch('/api/academy/intro');
+        if (introRes.ok && !cancelled) {
+          const info = await introRes.json();
+          if (!info.seen && !info.hasProgress) {
+            setIntro({ name: info.name, firstStepKey: info.firstStepKey, totalSteps: info.totalSteps });
+          }
+        }
       } catch {
         if (!cancelled) setError('불러오지 못했습니다.');
       } finally {
@@ -81,6 +92,15 @@ export default function AcademyMapPage() {
 
   return (
     <div className="space-y-5">
+      {intro && (
+        <WelcomeGate
+          name={intro.name}
+          firstStepKey={intro.firstStepKey}
+          totalSteps={intro.totalSteps}
+          onDismiss={() => setIntro(null)}
+        />
+      )}
+
       {/* ── 머리 — 지금 내 상태 ─────────────────────────────── */}
       <div className="rounded-xl border border-gray-200 bg-white p-5">
         <div className="flex flex-wrap items-center gap-3">

@@ -21,6 +21,7 @@ import TutorialHubWidget from '@/components/tutorial/TutorialHubWidget';
 import CardRegistrationPrompt from '@/components/payments/CardRegistrationPrompt';
 import { ClipboardList, GraduationCap, ArrowRight, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export default function MyDashboardPage() {
   const [ptUser, setPtUser] = useState<PtUser | null>(null);
@@ -30,6 +31,24 @@ export default function MyDashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   const supabase = useMemo(() => createClient(), []);
+  const router = useRouter();
+
+  // ── 가입 직후에는 대시보드가 아니라 아카데미로 보낸다 ──────────────
+  //   대시보드는 이미 운영 중인 사람을 위한 화면이다. 아직 아무것도 안 한 사람은
+  //   여기서 무엇을 눌러야 할지 모르고 멈춘다. 한 번 안내를 본 뒤로는(intro_seen_at)
+  //   다시 낚아채지 않는다.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/academy/intro');
+        if (!res.ok || cancelled) return;
+        const info = await res.json();
+        if (!info.seen && !info.hasProgress) router.replace('/my/academy');
+      } catch { /* 안내 실패가 대시보드를 막지는 않는다 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [router]);
 
   const targetMonth = getReportTargetMonth();
   const dday = getSettlementDDay(targetMonth);
