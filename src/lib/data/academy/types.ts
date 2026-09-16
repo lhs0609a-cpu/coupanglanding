@@ -49,9 +49,26 @@ export type VerifySpec =
       /** 판정 전에 화면에 띄우는 안내 ("쿠팡에 물어봅니다") */
       hint: string;
     }
-  /** L2 — 증빙 제출. 자동 조회가 원천적으로 불가능한 것만 (사업자등록증 등). */
+  /**
+   * L2 — 증빙. 쿠팡에 물어볼 수 없는 것(사업자등록 등).
+   *
+   * mode 'number' — 번호를 받아 형식·체크섬으로 검증한다. 파일도 OCR 도 필요 없고,
+   *   오타와 지어낸 번호를 걸러낸다. 다만 "실제로 등록했는지" 까지는 확인하지 못하므로
+   *   `note` 에 그 한계를 적어 화면에 그대로 노출한다. 판정이 실제보다 세 보이면 안 된다.
+   * mode 'file' — 파일 증빙. 업로드·보관·판정 라우트가 필요하다(아직 미구현).
+   */
   | {
       level: 2;
+      mode: 'number';
+      validator: 'bizNumber' | 'onlineSalesNumber';
+      hint: string;
+      placeholder: string;
+      /** 이 판정이 무엇까지 확인하는지 — 정직하게 */
+      note: string;
+    }
+  | {
+      level: 2;
+      mode: 'file';
       accept: 'image' | 'pdf';
       /** 추출·검증 규칙 키 (서버 구현과 1:1) */
       extract: 'bizNumber' | 'onlineSalesNumber' | 'certificate';
@@ -143,7 +160,8 @@ export interface AcademyStep {
 export type AcademyStepPublic = Omit<AcademyStep, 'verify'> & {
   verify:
     | { level: 1; hint: string }
-    | { level: 2; accept: 'image' | 'pdf'; hint: string; retentionDays: number }
+    | { level: 2; mode: 'number'; hint: string; placeholder: string; note: string }
+    | { level: 2; mode: 'file'; accept: 'image' | 'pdf'; hint: string; retentionDays: number }
     | { level: 3; checklist: string[]; quiz: { q: string; choices: string[] }[] };
 };
 

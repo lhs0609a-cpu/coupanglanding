@@ -17,6 +17,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getStep } from '@/lib/data/academy';
 import type { AcademyStep, ProbeResult, VerifyVerdict } from '@/lib/data/academy/types';
 import { PROBES, type ProbeContext } from './probes';
+import { NUMBER_VALIDATORS, maskNumber } from './validators';
 
 export const COOLDOWN_MS = 20_000;
 const PROBE_CACHE_MS = 60_000;
@@ -50,6 +51,8 @@ export interface VerifyInput {
   stepKey: string;
   /** L3 퀴즈 답안 (문항 순서대로 고른 보기 index) */
   answers?: number[];
+  /** L2(mode: 'number') 입력값 — 사업자등록번호 등 */
+  value?: string;
 }
 
 export interface VerifyOutcome {
@@ -132,9 +135,16 @@ export async function verifyStep(input: VerifyInput): Promise<VerifyOutcome> {
   } else if (step.verify.level === 3) {
     verdict = gradeQuiz(step, input.answers);
     payload = { answers: input.answers ?? [] };
+  } else if (step.verify.mode === 'number') {
+    const check = NUMBER_VALIDATORS[step.verify.validator](input.value ?? '');
+    // ★ 번호 전체를 저장하지 않는다. 판정에 필요한 건 "맞았다" 이지 번호가 아니다.
+    payload = { validator: step.verify.validator, masked: check.normalized ? maskNumber(check.normalized) : null };
+    verdict = check.valid
+      ? { passed: true, detail: '번호 형식과 체크섬을 확인했습니다.' }
+      : { passed: false, detail: check.reason || '번호를 확인하지 못했습니다.' };
   } else {
-    // L2 는 증빙 업로드 라우트에서 판정한다 — 여기로 오면 안 된다.
-    verdict = { passed: false, detail: '이 스텝은 증빙 파일을 올려야 합니다.' };
+    // 파일 증빙은 업로드 라우트가 필요하다 — 아직 없다. 있는 척하지 않는다.
+    verdict = { passed: false, detail: '이 단계는 증빙 파일 확인 기능이 아직 준비 중입니다.' };
   }
 
   const attempts = (row?.attempts ?? 0) + 1;

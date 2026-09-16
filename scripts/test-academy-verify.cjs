@@ -200,12 +200,55 @@ async function main() {
   assert.equal(logs[0].row.passed, false);
   assert.ok(logs[0].row.error, '실패 사유가 로그에 있어야 한다');
 
+  // ── 7. 번호 검증기 (L2 mode:'number') ───────────────────
+  const v = load('src/lib/academy/verify/validators.ts');
+  // 체크섬 직접 계산으로 확인: 123-45-6789? → 마지막 자리는 1 이라야 한다
+  assert.equal(v.validateBizNumber('1234567891').valid, true, '유효한 사업자번호를 거부함');
+  assert.equal(v.validateBizNumber('123-45-67891').valid, true, '하이픈이 있으면 못 읽음');
+  assert.equal(v.validateBizNumber('1234567890').valid, false, '체크섬이 틀린 번호를 통과시킴');
+  assert.equal(v.validateBizNumber('12345').valid, false, '자릿수가 모자란데 통과시킴');
+  assert.equal(v.validateBizNumber('').valid, false);
+  // 실패 사유를 말해주는가 (판정 근거 원칙은 번호 검증에도 적용된다)
+  assert.match(v.validateBizNumber('12345').reason, /10자리|자리/);
+  assert.match(v.validateBizNumber('1234567890').reason, /형식|확인/);
+  // 정규화 + 마스킹 — 번호 전체를 저장하지 않는다
+  const norm = v.validateBizNumber('1234567891').normalized;
+  assert.equal(norm, '123-45-67891');
+  const masked = v.maskNumber(norm);
+  assert.ok(masked.includes('*'), '마스킹이 안 됨');
+  assert.ok(!masked.endsWith('67891'), '뒷자리가 그대로 남음');
+
+  assert.equal(v.validateOnlineSalesNumber('2026-서울강남-01234').valid, true);
+  assert.equal(v.validateOnlineSalesNumber('제 2026-서울강남-01234 호').valid, true);
+  assert.equal(v.validateOnlineSalesNumber('아무거나').valid, false);
+  assert.equal(v.validateOnlineSalesNumber('123').valid, false);
+
+  // 러너가 번호 스텝을 실제로 판정하는가
+  const bizStep = steps.find((s) => s.verify.level === 2 && s.verify.mode === 'number');
+  assert.ok(bizStep, 'mode:number 스텝이 없음');
+  const runner4 = load('src/lib/academy/verify/runner.ts', { './probes': { PROBES: {} } }, 'number');
+  const okNum = await runner4.verifyStep({
+    ...base, service: fakeService({ rows: {}, writes: [], unique: new Set() }),
+    stepKey: bizStep.key, value: '123-45-67891',
+  });
+  assert.equal(okNum.passed, true, '유효한 번호인데 실패 처리됨');
+  const stateNum = { rows: {}, writes: [], unique: new Set() };
+  const badNum = await runner4.verifyStep({
+    ...base, service: fakeService(stateNum), stepKey: bizStep.key, value: '1234567890',
+  });
+  assert.equal(badNum.passed, false);
+  assert.ok(badNum.detail.length > 5, '틀린 이유를 말해야 한다');
+  // ★ 번호 원본이 저장되면 안 된다
+  const saved = JSON.stringify(stateNum.writes.filter((w) => w.table === 'academy_progress'));
+  assert.ok(!saved.includes('1234567890'), '입력한 번호 원본이 저장됐다');
+
   console.log(`PASS: 콘텐츠 무결성 ${steps.length}스텝 (9칸 전수 검사, Act 접근범위 일치, 내레이션 문장 길이)`);
   console.log('PASS: pass()·퀴즈 정답 클라이언트 미노출');
   console.log('PASS: 모든 L1 판정이 근거(detail) 를 말함 / 빈 결과·프로브 실패를 통과시키지 않음');
   console.log('PASS: 러너 — 통과 시 XP·뱃지 지급, 재판정 시 중복 지급 없음, 쿨다운, 수동요청 임계');
   console.log('PASS: L3 퀴즈 채점 + 오답 해설 + 미응답 처리');
   console.log('PASS: 실패 판정도 academy_verify_log 에 기록');
+  console.log('PASS: 번호 검증 — 사업자번호 체크섬, 통신판매업 형식, 마스킹 저장(원본 미저장)');
 }
 
 main().catch((e) => { console.error(e); process.exitCode = 1; });

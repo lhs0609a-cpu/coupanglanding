@@ -16,7 +16,12 @@ interface QuizQ { q: string; choices: string[] }
 
 export interface VerifyView {
   level: 1 | 2 | 3;
+  /** L2 전용 — 'number'(번호 입력 검증) / 'file'(증빙 파일, 아직 준비 중) */
+  mode?: 'number' | 'file';
   hint?: string;
+  placeholder?: string;
+  /** 이 판정이 무엇까지 확인하는지 — 과장하지 않기 위해 화면에 그대로 띄운다 */
+  note?: string;
   checklist?: string[];
   quiz?: QuizQ[];
 }
@@ -43,12 +48,17 @@ export default function VerifyPanel({
   const [result, setResult] = useState<VerifyOutcome | null>(null);
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [checked, setChecked] = useState<Record<number, boolean>>({});
+  const [value, setValue] = useState('');
 
   const quiz = verify.quiz ?? [];
   const checklist = verify.checklist ?? [];
   const checklistDone = checklist.every((_, i) => checked[i]);
   const quizDone = quiz.every((_, i) => answers[i] !== undefined);
-  const ready = verify.level === 3 ? checklistDone && quizDone : true;
+  const ready = verify.level === 3
+    ? checklistDone && quizDone
+    : verify.level === 2 && verify.mode === 'number'
+      ? value.trim().length > 0
+      : true;
 
   const run = async () => {
     setBusy(true);
@@ -56,7 +66,7 @@ export default function VerifyPanel({
       const res = await fetch(`/api/academy/steps/${encodeURIComponent(stepKey)}/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers: quiz.map((_, i) => answers[i]) }),
+        body: JSON.stringify({ answers: quiz.map((_, i) => answers[i]), value }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -82,8 +92,8 @@ export default function VerifyPanel({
     );
   }
 
-  // L2 — 증빙 업로드는 아직 서버가 없다. 있는 척하면 사람이 거기서 멈춘다.
-  if (verify.level === 2) {
+  // L2 파일 증빙 — 업로드 서버가 아직 없다. 있는 척하면 사람이 거기서 멈춘다.
+  if (verify.level === 2 && verify.mode === 'file') {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
         <p className="flex items-center gap-2 font-semibold text-amber-900">
@@ -100,6 +110,26 @@ export default function VerifyPanel({
 
   return (
     <div className="space-y-3">
+      {/* L2 번호 입력 — 체크섬으로 오타와 지어낸 번호를 걸러낸다 */}
+      {verify.level === 2 && verify.mode === 'number' && (
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <label className="block text-sm font-semibold text-gray-900" htmlFor="academy-number">
+            {verify.hint}
+          </label>
+          <input
+            id="academy-number"
+            type="text"
+            inputMode="numeric"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={verify.placeholder}
+            className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm tabular-nums"
+          />
+          {/* 과장하지 않는다 — 무엇까지 확인하는지 그대로 적는다 */}
+          {verify.note && <p className="mt-2 text-xs text-gray-500">{verify.note}</p>}
+        </div>
+      )}
+
       {/* L3 — 자가 확인 + 퀴즈 */}
       {verify.level === 3 && (
         <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-4">

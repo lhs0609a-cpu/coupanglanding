@@ -39,10 +39,9 @@ export function toPublic(step: AcademyStep): AcademyStepPublic {
     return { ...rest, verify: { level: 1, hint: verify.hint } };
   }
   if (verify.level === 2) {
-    return {
-      ...rest,
-      verify: { level: 2, accept: verify.accept, hint: verify.hint, retentionDays: verify.retentionDays },
-    };
+    return verify.mode === 'number'
+      ? { ...rest, verify: { level: 2, mode: 'number', hint: verify.hint, placeholder: verify.placeholder, note: verify.note } }
+      : { ...rest, verify: { level: 2, mode: 'file', accept: verify.accept, hint: verify.hint, retentionDays: verify.retentionDays } };
   }
   return {
     ...rest,

@@ -39,11 +39,14 @@ export async function POST(request: NextRequest, routeCtx: { params: Promise<{ k
   }
 
   let answers: number[] | undefined;
-  if (step.verify.level === 3) {
+  let value: string | undefined;
+  if (step.verify.level === 3 || step.verify.level === 2) {
     try {
       const body = await request.json();
       if (Array.isArray(body?.answers)) answers = body.answers.map(Number);
-    } catch { /* 아래 채점에서 "모두 답해주세요" 로 걸린다 */ }
+      // 번호 입력은 길이를 제한한다 — 판정에 필요한 건 짧은 번호뿐이다.
+      if (typeof body?.value === 'string') value = body.value.slice(0, 64);
+    } catch { /* 아래 판정에서 "모두 답해주세요" 등으로 걸린다 */ }
   }
 
   const outcome = await verifyStep({
@@ -52,6 +55,7 @@ export async function POST(request: NextRequest, routeCtx: { params: Promise<{ k
     megaloadUserId: ctx.megaloadUserId ?? '',
     stepKey: key,
     answers,
+    value,
   });
 
   return NextResponse.json(outcome);
