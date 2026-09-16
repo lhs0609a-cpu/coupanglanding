@@ -126,7 +126,14 @@ export const PROBES: Record<ProbeKey, Probe> = {
     try {
       const adapter = await coupang(ctx);
       const r = await adapter.getOrders({ ...dateRange(params), status: params?.status as string | undefined });
-      return { ok: true, data: { count: r.items.length } };
+      // 상태 분포까지 돌려준다. "송장을 넣었나" 를 DEPARTURE 하나로만 보면,
+      // 이미 배송이 끝나(DELIVRD) 넘어간 사람은 영영 통과하지 못한다.
+      const byStatus: Record<string, number> = {};
+      for (const it of r.items) {
+        const s = String(it.status ?? it.orderStatus ?? '');
+        if (s) byStatus[s] = (byStatus[s] || 0) + 1;
+      }
+      return { ok: true, data: { count: r.items.length, byStatus } };
     } catch (e) {
       return fail(msg(e));
     }
