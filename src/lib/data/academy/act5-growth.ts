@@ -44,7 +44,7 @@ export const ACT5_STEPS: AcademyStep[] = [
     ],
     actions: [
       { label: '정산 화면 열기', href: '/megaload/settlement' },
-      { label: '정산 구조 상세 가이드', href: '/my/guides?article=coupang-settlement' },
+      { label: '정산 구조 상세 가이드', href: '/my/guides/revenue-settlement/coupang-settlement' },
       { label: '쿠팡 윙에서 정산 확인', href: 'https://wing.coupang.com', external: true },
     ],
     verify: {
@@ -111,7 +111,7 @@ export const ACT5_STEPS: AcademyStep[] = [
     ],
     actions: [
       { label: '홈택스 부가세 신고', href: 'https://www.hometax.go.kr', external: true },
-      { label: '부가세 신고 상세 가이드', href: '/my/guides?article=vat-filing' },
+      { label: '부가세 신고 상세 가이드', href: '/my/guides/revenue-settlement/vat-filing' },
       { label: '세금계산서 관리', href: '/my/tax-invoices' },
     ],
     verify: {
@@ -194,7 +194,7 @@ export const ACT5_STEPS: AcademyStep[] = [
     ],
     actions: [
       { label: '광고 관리 열기', href: '/megaload/ads' },
-      { label: '광고 기초 가이드', href: '/my/guides?article=coupang-ad-basics' },
+      { label: '광고 기초 가이드', href: '/my/guides/advertising/coupang-ad-basics' },
       { label: '광고 노하우', href: '/my/ad-tips' },
     ],
     verify: {
@@ -276,7 +276,7 @@ export const ACT5_STEPS: AcademyStep[] = [
     ],
     actions: [
       { label: '내 상품 목록', href: '/megaload/products' },
-      { label: '아이템위너 전략 가이드', href: '/my/guides?article=item-winner-strategy' },
+      { label: '아이템위너 전략 가이드', href: '/my/guides/advertising/item-winner-strategy' },
       { label: '프로모션·쿠폰', href: '/my/promotion' },
     ],
     verify: {

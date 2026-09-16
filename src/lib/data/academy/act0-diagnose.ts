@@ -186,7 +186,7 @@ export const ACT0_STEPS: AcademyStep[] = [
       '아래 문제로 직접 계산해보세요. 계산이 손에 붙으면 상품 고르는 눈이 달라집니다.',
     ],
     actions: [
-      { label: '정산·수수료 구조 보기', href: '/my/guides?article=coupang-settlement' },
+      { label: '정산·수수료 구조 보기', href: '/my/guides/revenue-settlement/coupang-settlement' },
       { label: '아카데미 시작하기', href: '/my/academy' },
     ],
     verify: {

@@ -33,6 +33,8 @@ export default function AcademyStepPage({ params }: { params: Promise<{ stepKey:
   // 통과 후 자동 이동까지 남은 초. null 이면 이동하지 않는다(사용자가 머무르기를 눌렀다).
   const [autoIn, setAutoIn] = useState<number | null>(null);
   const [nextKey, setNextKey] = useState<string | null>(null);
+  // 몇 번째 / 전체 몇 개 — 끝이 보여야 사람이 끝까지 간다.
+  const [pos, setPos] = useState<{ no: number; total: number } | null>(null);
   const [passed, setPassed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -47,6 +49,7 @@ export default function AcademyStepPage({ params }: { params: Promise<{ stepKey:
       const idx = all.findIndex((s) => s.key === stepKey);
       if (idx < 0) { setError('없는 단계입니다.'); return; }
       setStep(all[idx]);
+      setPos({ no: idx + 1, total: all.length });
       setPassed(all[idx].progress?.status === 'passed');
       const after = all.slice(idx + 1).find((s) => !s.locked);
       setNextKey(after?.key ?? null);
@@ -101,6 +104,11 @@ export default function AcademyStepPage({ params }: { params: Promise<{ stepKey:
       {/* ── 머리 — 목표와 이유 ─────────────────────────────── */}
       <div className="rounded-xl border border-gray-200 bg-white p-5">
         <div className="flex flex-wrap items-center gap-2">
+          {pos && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-gray-700">
+              {pos.no}<span className="text-gray-400">/{pos.total}</span>
+            </span>
+          )}
           <h1 className="text-xl font-bold text-gray-900">{step.title}</h1>
           <span className="flex-1" />
           <span className="inline-flex items-center gap-1 text-xs text-gray-500">

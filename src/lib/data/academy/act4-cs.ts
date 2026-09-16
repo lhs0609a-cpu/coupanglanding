@@ -111,7 +111,7 @@ export const ACT4_STEPS: AcademyStep[] = [
     ],
     actions: [
       { label: '반품관리 열기', href: '/megaload/returns' },
-      { label: '자체수거 가이드', href: '/my/guides?article=self-pickup-return' },
+      { label: '자체수거 가이드', href: '/my/guides/orders-shipping/self-pickup-return' },
     ],
     verify: {
       level: 1,
@@ -251,7 +251,7 @@ export const ACT4_STEPS: AcademyStep[] = [
       '다만 사건마다 사실관계가 다릅니다. 금액이 크거나 형사 고소가 언급되면 변호사에게 확인하세요.',
     ],
     actions: [
-      { label: '브랜드 대응 가이드', href: '/my/guides?article=ip-issue-handling' },
+      { label: '브랜드 대응 가이드', href: '/my/guides/legal-ip/ip-issue-handling' },
       { label: '긴급 대응', href: '/my/emergency' },
       {
         label: '1차 회신 문구 복사 (인정 없이 접수 확인만)',
@@ -359,7 +359,7 @@ export const ACT4_STEPS: AcademyStep[] = [
     ],
     actions: [
       { label: '페널티 트래커', href: '/my/penalty' },
-      { label: '쿠팡 대응 가이드', href: '/my/guides?article=seller-grade-penalty' },
+      { label: '쿠팡 대응 가이드', href: '/my/guides/account-management/seller-grade-penalty' },
       { label: '쿠팡 윙에서 통보 확인', href: 'https://wing.coupang.com', external: true },
     ],
     verify: {

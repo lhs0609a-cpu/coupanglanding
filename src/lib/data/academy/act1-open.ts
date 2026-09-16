@@ -153,7 +153,7 @@ export const ACT1_STEPS: AcademyStep[] = [
     actions: [
       { label: '쿠팡 윙에서 API 키 발급', href: 'https://wing.coupang.com', external: true },
       { label: '채널관리에서 키 입력하기', href: '/megaload/channels' },
-      { label: '화면별 상세 가이드 (IP 목록 포함)', href: '/my/guides?article=coupang-api-setup' },
+      { label: '화면별 상세 가이드 (IP 목록 포함)', href: '/my/guides/getting-started/coupang-api-setup' },
     ],
     verify: {
       level: 1,
@@ -317,7 +317,7 @@ export const ACT1_STEPS: AcademyStep[] = [
     ],
     actions: [
       { label: '식품안전나라 교육 안내', href: 'https://www.foodsafetykorea.go.kr', external: true },
-      { label: '건기식 수료증 가이드', href: '/my/guides?article=health-supplement-cert' },
+      { label: '건기식 수료증 가이드', href: '/my/guides/qualifications/health-supplement-cert' },
     ],
     verify: {
       level: 3,

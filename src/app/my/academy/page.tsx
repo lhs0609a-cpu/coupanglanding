@@ -83,6 +83,12 @@ export default function AcademyMapPage() {
   }, []);
 
   const owned = useMemo(() => new Set(badges.map((b) => b.badge_key)), [badges]);
+  /** 단계 번호 — 잠긴 것도 번호를 가진다. 그래야 "33개 중 12번째" 가 성립한다. */
+  const stepNo = useMemo(() => {
+    const m = new Map<string, number>();
+    steps.forEach((s, i) => m.set(s.key, i + 1));
+    return m;
+  }, [steps]);
 
   /** 다음에 할 일 — 잠기지 않았고 아직 통과 못 한 것 중 제일 앞 */
   const nextStep = useMemo(
@@ -226,10 +232,18 @@ export default function AcademyMapPage() {
                         : s.locked ? 'border-gray-100 bg-gray-50' : 'border-gray-200 bg-white hover:bg-gray-50'
                     }`}
                   >
+                    {/* 번호를 보여준다 — 통과하면 체크로 바뀐다. 몇 번째인지 모르면 끝이 안 보인다. */}
                     <span className="mt-0.5 flex-none">
                       {passed ? <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                        : s.locked ? <Lock className="h-5 w-5 text-gray-300" />
-                        : <span className="inline-block h-5 w-5 rounded-full border-2 border-gray-300" />}
+                        : s.locked
+                          ? <Lock className="h-5 w-5 text-gray-300" />
+                          : (
+                            <span className={`flex h-5 w-5 items-center justify-center rounded-full border-2 text-[11px] font-bold tabular-nums ${
+                              isNext ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-300 text-gray-500'
+                            }`}>
+                              {stepNo.get(s.key)}
+                            </span>
+                          )}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className={`block text-sm font-semibold ${s.locked ? 'text-gray-400' : 'text-gray-900'}`}>
