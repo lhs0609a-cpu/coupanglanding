@@ -200,6 +200,24 @@ async function main() {
   assert.equal(logs[0].row.passed, false);
   assert.ok(logs[0].row.error, '실패 사유가 로그에 있어야 한다');
 
+  // ── 6-2. 뱃지 도감 ──────────────────────────────────────
+  // 'first_connect' 같은 내부 키가 화면에 그대로 보이면 미완성으로 읽힌다.
+  const badgeMod = load('src/lib/data/academy/badges.ts');
+  const badgeKeys = new Set(badgeMod.ACADEMY_BADGES.map((b) => b.key));
+  for (const s of steps) {
+    if (!s.badgeKey) continue;
+    assert.ok(badgeKeys.has(s.badgeKey), `${s.key}: 뱃지 '${s.badgeKey}' 가 도감에 없다 — 화면에 내부 키가 그대로 뜬다`);
+  }
+  for (const b of badgeMod.ACADEMY_BADGES) {
+    assert.ok(b.emoji && b.name && b.how, `뱃지 ${b.key}: 이름·이모지·획득조건이 다 있어야 한다`);
+    assert.ok(!b.name.includes('_'), `뱃지 ${b.key}: 이름이 내부 키처럼 보인다`);
+  }
+  // 도감에 있는데 아무 스텝도 주지 않는 뱃지 = 영원히 못 받는 뱃지
+  const awarded = new Set(steps.map((s) => s.badgeKey).filter(Boolean));
+  for (const b of badgeMod.ACADEMY_BADGES) {
+    assert.ok(awarded.has(b.key), `뱃지 ${b.key}: 지급하는 스텝이 없다 — 영원히 못 받는다`);
+  }
+
   // ── 7. 번호 검증기 (L2 mode:'number') ───────────────────
   const v = load('src/lib/academy/verify/validators.ts');
   // 체크섬 직접 계산으로 확인: 123-45-6789? → 마지막 자리는 1 이라야 한다
@@ -248,6 +266,7 @@ async function main() {
   console.log('PASS: 러너 — 통과 시 XP·뱃지 지급, 재판정 시 중복 지급 없음, 쿨다운, 수동요청 임계');
   console.log('PASS: L3 퀴즈 채점 + 오답 해설 + 미응답 처리');
   console.log('PASS: 실패 판정도 academy_verify_log 에 기록');
+  console.log('PASS: 뱃지 도감 — 내부 키 미노출, 이름·획득조건 완비, 못 받는 뱃지 없음');
   console.log('PASS: 번호 검증 — 사업자번호 체크섬, 통신판매업 형식, 마스킹 저장(원본 미저장)');
 }
 

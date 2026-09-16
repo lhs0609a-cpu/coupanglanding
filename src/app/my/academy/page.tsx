@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { GraduationCap, CheckCircle2, Lock, Loader2, AlertCircle, ArrowRight, Clock } from 'lucide-react';
+import { ACADEMY_BADGES } from '@/lib/data/academy/badges';
 
 interface StepView {
   key: string; act: number; order: number; title: string; goal: string;
@@ -56,6 +57,8 @@ export default function AcademyMapPage() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  const owned = useMemo(() => new Set(badges.map((b) => b.badge_key)), [badges]);
 
   /** 다음에 할 일 — 잠기지 않았고 아직 통과 못 한 것 중 제일 앞 */
   const nextStep = useMemo(
@@ -184,20 +187,36 @@ export default function AcademyMapPage() {
         );
       })}
 
-      {/* ── 뱃지 ─────────────────────────────────────────────── */}
+      {/* ── 뱃지 도감 ───────────────────────────────────────────
+          미획득도 함께 보여준다 — 목표가 보여야 움직인다.
+          다만 실루엣으로 낮춰서, 가진 것과 헷갈리지 않게 한다. */}
       <div className="rounded-xl border border-gray-200 bg-white p-5">
-        <p className="text-sm font-bold text-gray-900">🏅 뱃지</p>
-        {badges.length === 0 ? (
-          <p className="mt-1.5 text-sm text-gray-500">아직 없습니다. 단계를 통과하면 하나씩 생깁니다.</p>
-        ) : (
-          <ul className="mt-2 flex flex-wrap gap-2">
-            {badges.map((b) => (
-              <li key={b.badge_key} className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900">
-                {b.badge_key}
+        <div className="flex items-baseline gap-2">
+          <p className="text-sm font-bold text-gray-900">🏅 뱃지</p>
+          <span className="text-xs tabular-nums text-gray-500">{owned.size}/{ACADEMY_BADGES.length}</span>
+        </div>
+        <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          {ACADEMY_BADGES.map((b) => {
+            const got = owned.has(b.key);
+            return (
+              <li
+                key={b.key}
+                title={got ? '획득' : b.how}
+                className={`rounded-lg border p-2.5 ${
+                  got ? 'border-amber-200 bg-amber-50' : 'border-gray-100 bg-gray-50'
+                }`}
+              >
+                <span className={`text-lg ${got ? '' : 'opacity-25 grayscale'}`}>{b.emoji}</span>
+                <span className={`mt-0.5 block text-xs font-semibold ${got ? 'text-amber-900' : 'text-gray-400'}`}>
+                  {b.name}
+                </span>
+                <span className={`mt-0.5 block text-[11px] leading-snug ${got ? 'text-amber-800' : 'text-gray-400'}`}>
+                  {got ? '획득' : b.how}
+                </span>
               </li>
-            ))}
-          </ul>
-        )}
+            );
+          })}
+        </ul>
       </div>
     </div>
   );

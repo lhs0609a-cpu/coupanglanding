@@ -14,6 +14,7 @@ import { ACT4_STEPS } from './act4-cs';
 import { ACT5_STEPS } from './act5-growth';
 
 export * from './types';
+export * from './badges';
 
 export const ACADEMY_STEPS: AcademyStep[] = [
   ...ACT0_STEPS, ...ACT1_STEPS, ...ACT2_STEPS, ...ACT3_STEPS, ...ACT4_STEPS, ...ACT5_STEPS,
