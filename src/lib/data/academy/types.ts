@@ -99,10 +99,34 @@ export interface StepMockup {
 }
 
 export interface StepVideo {
-  youtubeId: string;
+  /** 유튜브에 올린 경우. 자체 호스팅이면 비워두고 src 를 쓴다. */
+  youtubeId?: string;
+  /** 자체 호스팅 mp4 (Supabase Storage). 원본이 화면공유 녹화라 유튜브에 그대로 못 올린다. */
+  src?: string;
   startSec: number;
   endSec: number;
   transcript: string;
+}
+
+/**
+ * 따라하기 체크리스트 — **한 줄에 한 동작.**
+ *
+ * narration 은 귀로 듣는 대본이고, 이건 눈으로 보며 체크하는 목록이다. 둘은 문장이 다르다.
+ * ★ 이 배열이 공개 로드맵(/start)과 스텝 플레이어가 함께 쓰는 단일 원천이다.
+ *   같은 내용을 두 군데 적어두면 반드시 한쪽만 고쳐져서 서로 다른 말을 하게 된다.
+ */
+export interface StepHowto {
+  /**
+   * 체크 상태 저장 키. 사용자의 체크는 이 id 로 localStorage 에 남는다.
+   * ★ 한 번 발행한 id 는 바꾸지 않는다 — 바꾸면 그 사람이 해둔 체크가 통째로 날아간다.
+   */
+  id: string;
+  /** 한 줄 한 동작. 명령형으로 쓴다. */
+  label: string;
+  description?: string;
+  tip?: string;
+  warning?: string;
+  link?: { url: string; label: string };
 }
 
 export interface StepAction {
@@ -147,10 +171,30 @@ export interface AcademyStep {
   narration: string[];
   /** ⑦ 실제로 할 일 */
   actions: StepAction[];
+  /**
+   * ⑦-b 따라하기 체크리스트. Act 1·2(무료 공개 구간)는 필수로 채운다 —
+   * 공개 로드맵 /start 가 이걸 그린다. 비어 있으면 그 단계는 /start 에서 설명이 사라진다.
+   */
+  howto?: StepHowto[];
   /** ⑧ 합격 판정 */
   verify: VerifySpec;
   /** ⑨ 막히면 */
   troubleshoot: StepTrouble[];
+
+  /**
+   * 공개 로드맵(/start)용 표시 정보.
+   * 비용과 기다리는 날수는 왕초보가 가장 먼저 묻는 두 가지다. 본문 어딘가에 묻어두면 안 읽는다.
+   */
+  roadmap?: {
+    /** lucide 아이콘 이름 */
+    icon: string;
+    /** '무료' 또는 '등록면허세 4~6만원'. 공짜가 아닌 건 공짜라고 하지 않는다. */
+    cost: string;
+    /** 신청을 넣고 **기다리는** 영업일. 완료 예상일 계산의 분모다. */
+    waitDays: number;
+    /** 건기식처럼 해당 없으면 건너뛰는 단계 */
+    optional?: boolean;
+  };
 
   xp: number;
   badgeKey?: string;

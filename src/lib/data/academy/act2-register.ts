@@ -54,6 +54,37 @@ export const ACT2_STEPS: AcademyStep[] = [
       { label: '소싱 카탈로그에서 고르기', href: '/megaload/sourcing/naver' },
       { label: '대량 등록 화면', href: '/megaload/products/bulk-register' },
     ],
+    howto: [
+      {
+        id: 'ld-1',
+        label: '카탈로그에서 "상세 확보" 상품을 5개 체크한다',
+        description: '체크박스는 카드 사진 왼쪽 위에 있습니다.',
+        link: { url: '/megaload/sourcing/naver', label: '소싱 카탈로그' },
+      },
+      {
+        id: 'ld-2',
+        label: '파란 카드 "직접 검수해서 등록"을 누른다',
+        description: '고르면 위쪽에 등록 카드가 두 장 나옵니다. 빨간 카드(올인원 등록)는 상세페이지까지 자동으로 만들어주지만 도우미 앱을 깔아야 합니다.',
+        tip: '파란 카드는 설치가 0입니다. 처음에는 이쪽으로 가세요.',
+      },
+      {
+        id: 'ld-3',
+        label: '대량 등록 화면에서 출고지와 반품지를 먼저 고른다',
+        warning: '이 설정이 끝나야 불러오기 버튼이 열립니다. 바로 불러오려다 버튼이 안 눌려서 막히는 사람이 많습니다.',
+        link: { url: '/megaload/products/bulk-register', label: '대량 등록 화면' },
+      },
+      {
+        id: 'ld-4',
+        label: '"선택 상품 불러와서 수동 검수"를 누른다',
+        description: '검수 화면으로 들어갑니다.',
+      },
+      {
+        id: 'ld-5',
+        label: '상세가 없는 상품이 있으면 "준비된 것만 검수"로 진행한다',
+        description: '고른 것 중 상세가 없는 상품은 목록으로 알려줍니다. 나머지는 상세 요청을 걸어두면 나중에 받을 수 있습니다.',
+      },
+    ],
+    roadmap: { icon: 'Package', cost: '무료', waitDays: 0 },
     verify: {
       level: 3,
       checklist: [
@@ -139,6 +170,26 @@ export const ACT2_STEPS: AcademyStep[] = [
     actions: [
       { label: '대량 등록 화면 열기', href: '/megaload/products/bulk-register' },
     ],
+    howto: [
+      {
+        id: 'pf-1',
+        label: '"카테고리 자동 매칭 중"이 끝날 때까지 기다린다',
+        warning: '이게 끝나기 전에 등록을 누르면 반드시 오류가 납니다. 이 단계에서 배워야 할 건 누르는 법이 아니라 기다리는 법입니다.',
+      },
+      {
+        id: 'pf-2',
+        label: '오른쪽의 "전체 검증 + 이미지 사전 업로드"를 누른다',
+        description: '미리 쿠팡 쪽으로 테스트 요청을 쏴보는 겁니다. 실제 등록 전에 막힐 곳을 먼저 찾아냅니다.',
+        link: { url: '/megaload/products/bulk-register', label: '대량 등록 화면' },
+      },
+      {
+        id: 'pf-3',
+        label: '게이지가 전부 초록으로 차는지 본다',
+        description: '안 차거나 오류가 뜨면 쿠팡으로 가는 길에 뭔가 걸려 있다는 뜻입니다. 계정 키가 잘못됐거나, 매칭이 안 끝났는데 누른 경우가 대부분입니다.',
+        tip: '이미지 다양성 분석은 이미지가 많으면 잘 안 찹니다. 오래 기다려도 안 차면 한 번 더 눌러보세요.',
+      },
+    ],
+    roadmap: { icon: 'Gauge', cost: '무료', waitDays: 0 },
     verify: {
       level: 3,
       checklist: [
@@ -203,6 +254,30 @@ export const ACT2_STEPS: AcademyStep[] = [
     actions: [
       { label: '대량 등록 화면 열기', href: '/megaload/products/bulk-register' },
     ],
+    howto: [
+      {
+        id: 'op-1',
+        label: '상품 번호를 눌러 원본 소싱처에서 실제 구성을 확인한다',
+        description: '180정 1개짜리인지, 90정 2개짜리인지를 먼저 눈으로 봅니다. 여기서 틀리면 뒤가 전부 틀립니다.',
+      },
+      {
+        id: 'op-2',
+        label: '노출 상품명 뒤에 구성을 적는다',
+        description: '"180정, 1개" 같은 식입니다. 노출 상품명이 고객에게 보이는 이름이고, 판매자 상품명은 나만 보는 이름이라 신경 쓰지 않아도 됩니다.',
+        tip: '"30일분"처럼 기간으로 적어도 됩니다. 대신 옵션에는 정확한 숫자를 넣으세요.',
+      },
+      {
+        id: 'op-3',
+        label: '중량·용량·수량을 채운다',
+        description: '중량과 용량을 모르면 0으로 둬도 됩니다. 수량은 1로 넣습니다.',
+      },
+      {
+        id: 'op-4',
+        label: '상품명·옵션·이미지가 서로 어긋나지 않는지 마지막으로 본다',
+        warning: '이 셋 중 하나만 어긋나도 "두 개인 줄 알았다"는 반품이 들어옵니다. 그 택배비는 판매자 부담입니다.',
+      },
+    ],
+    roadmap: { icon: 'Tag', cost: '무료', waitDays: 0 },
     verify: {
       level: 3,
       checklist: [
@@ -275,6 +350,30 @@ export const ACT2_STEPS: AcademyStep[] = [
     actions: [
       { label: '대량 등록 화면 열기', href: '/megaload/products/bulk-register' },
     ],
+    howto: [
+      {
+        id: 'mi-1',
+        label: '누끼(흰 배경) 이미지를 대표로 고른다',
+        description: 'AI 광고가 돌아가려면 흰 배경 이미지가 대표여야 합니다.',
+        warning: '리뷰 이미지는 지식재산권 문제를 피할 수 있어 좋지만, 리뷰 이미지로는 AI 광고가 안 돌아갑니다.',
+      },
+      {
+        id: 'mi-2',
+        label: '신선식품이면 리뷰 이미지도 괜찮다',
+        description: '쌀·채소·과일 같은 신선식품은 예외로 리뷰 이미지로도 광고가 됩니다.',
+      },
+      {
+        id: 'mi-3',
+        label: '사진 속 수량이 실제 구성과 같은지 확인한다',
+        warning: '180정 1개짜리인데 두 개가 찍힌 사진을 대표로 쓰면, 두 개인 줄 알고 주문했다며 반품이 들어옵니다. 트집 잡힐 여지를 미리 없애는 게 낫습니다.',
+      },
+      {
+        id: 'mi-4',
+        label: '썸네일 하나와 쓸 만한 사진 한두 장만 남기고 나머지는 지운다',
+        tip: '원물이 안 보이는 사진뿐이라면 박스 사진을 한 장 남겨두면 좋습니다.',
+      },
+    ],
+    roadmap: { icon: 'Image', cost: '무료', waitDays: 0 },
     verify: {
       level: 3,
       checklist: [
@@ -354,6 +453,26 @@ export const ACT2_STEPS: AcademyStep[] = [
     actions: [
       { label: '대량 등록 화면 열기', href: '/megaload/products/bulk-register' },
     ],
+    howto: [
+      {
+        id: 'di-1',
+        label: '검수 화면 위쪽 "상품정보" 옆 "상세페이지" 탭으로 들어간다',
+        link: { url: '/megaload/products/bulk-register', label: '대량 등록 화면' },
+      },
+      {
+        id: 'di-2',
+        label: '이미지를 3~5장으로 추린다',
+        description: '글은 어느 정도 만들어져 있고, 사실 사람들이 글을 다 읽지 않습니다. 이미지를 고르는 쪽이 더 중요합니다.',
+        tip: '마땅한 게 없으면 두 장만 써도 됩니다. 억지로 채우지 마세요.',
+      },
+      {
+        id: 'di-3',
+        label: '여기서도 구성이 맞는 사진만 쓴다',
+        description: '한 개짜리 상품이면 한 개가 찍힌 사진으로. 대표 이미지에서 맞춰놓고 상세에서 어긋나면 똑같이 반품 사유가 됩니다.',
+        tip: '손에 들고 찍은 실제 리뷰 같은 사진도 나쁘지 않습니다.',
+      },
+    ],
+    roadmap: { icon: 'Image', cost: '무료', waitDays: 0 },
     verify: {
       level: 3,
       checklist: [
@@ -405,6 +524,34 @@ export const ACT2_STEPS: AcademyStep[] = [
     actions: [
       { label: '대량 등록 화면 열기', href: '/megaload/products/bulk-register' },
     ],
+    howto: [
+      {
+        id: 'sel-1',
+        label: '검수를 마친 상품에 초록색 체크가 들어왔는지 본다',
+      },
+      {
+        id: 'sel-2',
+        label: '올리면 안 되는 상품은 "등록 제외"로 빼둔다',
+        description: '상품을 열면 오른쪽 위에 통행금지처럼 생긴(동그라미에 대각선) 아이콘이 있습니다. 누르면 목록에서 흰 줄이 그어집니다.',
+        tip: '중요한 기능인데 아이콘이 작아서 잘 못 찾습니다. 여기서 한 번 눌러보고 넘어가세요.',
+      },
+      {
+        id: 'sel-3',
+        label: '맨 위 전체 체크박스를 눌러 전부 해제한다',
+        description: '불러온 것 전부가 체크된 상태이므로, 한 번 비우고 다시 고르는 편이 확실합니다.',
+      },
+      {
+        id: 'sel-4',
+        label: '검수를 마친 것만 다시 체크한다',
+      },
+      {
+        id: 'sel-5',
+        label: '오른쪽 아래 "○개 등록하기"의 숫자가 맞는지 확인한다',
+        warning: '체크한 만큼만 올라갑니다. 이 숫자가 생각한 것과 다르면 아직 누르지 마세요.',
+        tip: '숙련되면 상품 하나에 20~30초면 충분합니다. 처음이 오래 걸리는 게 정상입니다.',
+      },
+    ],
+    roadmap: { icon: 'ListChecks', cost: '무료', waitDays: 0 },
     verify: {
       level: 3,
       checklist: [
@@ -459,6 +606,29 @@ export const ACT2_STEPS: AcademyStep[] = [
       { label: '대량 등록 화면 열기', href: '/megaload/products/bulk-register' },
       { label: '네이버 카탈로그에서 고르기', href: '/megaload/sourcing/naver' },
     ],
+    howto: [
+      {
+        id: 'rg-1',
+        label: '전체 검증과 이미지 사전 업로드 게이지가 전부 찼는지 다시 확인한다',
+        warning: '카테고리 매칭이 도는 중에 누르면 반드시 오류가 납니다. 여기가 마지막 확인 지점입니다.',
+      },
+      {
+        id: 'rg-2',
+        label: '오른쪽 아래 "등록하기"를 누른다',
+        link: { url: '/megaload/products/bulk-register', label: '대량 등록 화면' },
+      },
+      {
+        id: 'rg-3',
+        label: '5~10분 기다린다',
+        description: '등록 요청이 들어가고 쿠팡이 받아들이기까지 걸리는 시간입니다.',
+      },
+      {
+        id: 'rg-4',
+        label: '아래 "확인하기"를 눌러 쿠팡에 몇 개가 올라갔는지 센다',
+        description: '시스템이 쿠팡에 직접 물어봅니다. 1건 이상이면 통과입니다.',
+      },
+    ],
+    roadmap: { icon: 'Upload', cost: '무료', waitDays: 0 },
     verify: {
       level: 1,
       probe: 'coupang.products',
@@ -524,6 +694,30 @@ export const ACT2_STEPS: AcademyStep[] = [
       { label: '내 상품 목록', href: '/megaload/products' },
       { label: '쿠팡 윙에서 반려 사유 보기', href: 'https://wing.coupang.com', external: true },
     ],
+    howto: [
+      {
+        id: 'ap-1',
+        label: '"등록됨"과 "판매중"이 다르다는 것을 안다',
+        description: '쿠팡은 올라온 상품을 심사한 뒤에야 판매 상태로 바꿔줍니다. 등록에 성공했다고 팔리는 게 아닙니다.',
+      },
+      {
+        id: 'ap-2',
+        label: '윙 상품 목록에서 상태를 확인한다',
+        description: '심사에서 걸리는 건 대부분 이미지, 금지어, 카테고리 오배치 셋 중 하나입니다.',
+        link: { url: 'https://wing.coupang.com', label: '쿠팡 윙' },
+      },
+      {
+        id: 'ap-3',
+        label: '반려됐으면 목록에 적힌 사유를 고쳐 다시 올린다',
+        description: '사유는 윙 상품 목록에 그대로 적혀 있습니다. 추측하지 말고 적힌 것을 고치세요.',
+      },
+      {
+        id: 'ap-4',
+        label: '아래 "확인하기"로 판매중 상품이 실제로 있는지 조회한다',
+        description: '여기까지 통과하면 "팔 수 있는 상태"가 진짜로 된 겁니다.',
+      },
+    ],
+    roadmap: { icon: 'CheckCircle2', cost: '무료', waitDays: 1 },
     verify: {
       level: 1,
       probe: 'coupang.products',

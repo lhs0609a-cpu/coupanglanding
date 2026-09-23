@@ -1,4 +1,20 @@
-// 왕초보 셀러 시작 로드맵 데이터
+/**
+ * 공개 시작 로드맵 (/start) — **아카데미 Act 1·2 에서 파생된다.**
+ *
+ * ★ 이 파일은 콘텐츠를 담지 않는다. 담으면 안 된다.
+ *   예전에는 여기에 5단계를 손으로 적어뒀는데, 아카데미(33단계)와 내용이 갈라져서
+ *   같은 질문에 두 화면이 다른 답을 했다. (업종코드 47911 vs 525101,
+ *   사업자등록을 홈택스로 vs 토스로 — 실제로 이렇게 어긋나 있었다.)
+ *   그래서 원천을 `src/lib/data/academy` 하나로 못 박고, 여기서는 모양만 바꾼다.
+ *
+ * 무엇이 보이는가:
+ *   Act 1(개업 7단계) + Act 2(등록 8단계) = **사업자등록 → 상품 업로드 → 승인 확인** 15단계.
+ *   Act 0(진단)은 "나한테 맞나"라서 로드맵에 넣지 않고, Act 3~5 는 PT 전용이라 빠진다.
+ *
+ * 체크 상태는 `StepHowto.id` 로 localStorage 에 저장된다 → id 를 바꾸면 사용자의 체크가 날아간다.
+ */
+
+import { getActSteps, type AcademyStep } from './academy';
 
 export interface SubStep {
   id: string;
@@ -21,6 +37,8 @@ export interface RoadmapStep {
   cost: string;
   required: boolean; // false면 선택(건너뛰기 가능)
   subSteps: SubStep[];
+  /** 로그인하면 시스템이 직접 판정해주는 아카데미 단계로 가는 링크 */
+  academyHref: string;
 }
 
 export interface FAQItem {
@@ -28,275 +46,108 @@ export interface FAQItem {
   answer: string;
 }
 
-export const ROADMAP_STEPS: RoadmapStep[] = [
-  {
-    id: 'business-registration',
-    number: 1,
-    title: '사업자등록',
-    subtitle: '온라인 판매의 첫 걸음, 사업자등록증 발급',
-    icon: 'FileText',
-    estimatedTime: '신청 5분 + 처리 3영업일',
-    estimatedDays: 3,
-    cost: '무료',
-    required: true,
-    subSteps: [
-      {
-        id: 'br-1',
-        label: '사업자등록 유형 결정',
-        description: '개인사업자(간이과세자)로 시작하는 것을 추천합니다. 연 매출 8,000만원 이하면 부가세 혜택이 있습니다.',
-        tip: '처음 시작이라면 간이과세자가 유리합니다. 매출이 커지면 일반과세자로 자동 전환됩니다.',
-      },
-      {
-        id: 'br-2',
-        label: '업종코드 확인',
-        description: '전자상거래 소매업(47911)을 선택합니다. 건강기능식품도 판매하려면 추가 업종이 필요합니다.',
-        tip: '업종코드 47911 (전자상거래 소매업)이 기본입니다.',
-      },
-      {
-        id: 'br-3',
-        label: '사업장 주소 결정',
-        description: '자택 주소를 사업장으로 등록할 수 있습니다. 별도 사무실이 필요하지 않습니다.',
-        tip: '자택 주소로 등록 가능합니다. 임대차계약서 없이도 신청할 수 있어요.',
-      },
-      {
-        id: 'br-4',
-        label: '토스페이먼츠에서 간편 신청',
-        description: '토스페이먼츠 사업자등록 바로신청 서비스를 이용하면 세무서 방문 없이 5분 만에 온라인으로 간편 신청이 가능합니다.',
-        link: {
-          url: 'https://onboarding.tosspayments.com/business-registration/intro',
-          label: '토스페이먼츠 바로 신청하기',
-        },
-      },
-      {
-        id: 'br-5',
-        label: '사업자등록증 수령 확인',
-        description: '신청 후 약 3영업일 이내에 발급됩니다. 국세청 홈택스에서 조회할 수 있습니다.',
-        tip: '발급 후 홈택스(hometax.go.kr)에서 PDF 다운로드 가능합니다.',
-      },
-    ],
-  },
-  {
-    id: 'telecom-sales',
-    number: 2,
-    title: '통신판매업 신고',
-    subtitle: '온라인 판매에 필수인 통신판매업 신고',
-    icon: 'Shield',
-    estimatedTime: '신청 5분 + 처리 5영업일',
-    estimatedDays: 5,
-    cost: '면허세 4~6만원',
-    required: true,
-    subSteps: [
-      {
-        id: 'ts-1',
-        label: '사업자등록증 준비',
-        description: '1단계에서 발급받은 사업자등록증이 필요합니다.',
-        warning: '사업자등록증이 아직 없다면 1단계를 먼저 완료해주세요.',
-      },
-      {
-        id: 'ts-2',
-        label: '구비서류 확인',
-        description: '사업자등록증 사본, 신분증 사본이 필요합니다. 구매안전서비스 이용확인증은 쿠팡 입점 후 발급받을 수 있습니다.',
-        tip: '구매안전서비스 이용확인증은 나중에 보완 가능합니다. 먼저 신고부터 하세요.',
-      },
-      {
-        id: 'ts-3',
-        label: '토스페이먼츠에서 간편 신고',
-        description: '토스페이먼츠 통신판매업 바로신청 서비스를 통해 온라인으로 간편하게 신고할 수 있습니다.',
-        link: {
-          url: 'https://onboarding.tosspayments.com/mail-order-business/intro',
-          label: '토스페이먼츠 바로 신청하기',
-        },
-      },
-      {
-        id: 'ts-4',
-        label: '면허세 납부',
-        description: '관할 구청에서 면허세 고지서가 발급됩니다. 약 4~6만원이며 위택스에서 온라인 납부 가능합니다.',
-        tip: '위택스(wetax.go.kr)에서 편리하게 납부할 수 있습니다.',
-      },
-      {
-        id: 'ts-5',
-        label: '통신판매업 신고번호 수령',
-        description: '처리 완료 후 통신판매업 신고번호를 받게 됩니다. 쿠팡 입점 시 필요하니 보관하세요.',
-      },
-    ],
-  },
-  {
-    id: 'health-food',
-    number: 3,
-    title: '건강기능식품 판매업 신고',
-    subtitle: '건기식 판매 시 필수 — 해당 없으면 건너뛰기',
-    icon: 'Heart',
-    estimatedTime: '신청 30분 + 처리 7영업일',
-    estimatedDays: 7,
-    cost: '~28,000원',
-    required: false,
-    subSteps: [
-      {
-        id: 'hf-1',
-        label: '건기식 판매 필요 여부 확인',
-        description: '건강기능식품(비타민, 유산균, 오메가3 등)을 판매할 계획이 있는 경우에만 필요합니다.',
-        tip: '일반 식품(과자, 음료 등)은 건기식이 아닙니다. 건기식 판매 계획이 없으면 건너뛰세요.',
-      },
-      {
-        id: 'hf-2',
-        label: '영업장 요건 확인',
-        description: '건기식 판매업은 별도 영업장이 필요하지 않습니다. 인터넷 판매의 경우 자택도 가능합니다.',
-      },
-      {
-        id: 'hf-3',
-        label: '위생교육 수료 (선교육 필수)',
-        description: '건강기능식품교육센터에서 신규영업자 교육을 수료해야 합니다. 일반판매업(온라인 판매) 기준 2시간, 수강료 약 28,000원. 영업신고 전에 반드시 먼저 수료해야 합니다.',
-        link: {
-          url: 'https://edu.khff.or.kr',
-          label: '건강기능식품교육센터 바로가기',
-        },
-        tip: '접속 → "건강기능식품 법정교육" → "신규영업자 교육" → "일반판매업" 선택 → 신청/결제 → 온라인 수강 → 최종평가 합격 후 수료증 출력. PC/모바일 수강 가능. 문의: 1661-2371',
-      },
-      {
-        id: 'hf-4',
-        label: '정부24에서 영업 신고',
-        description: '정부24 포털에서 건강기능식품 판매업 영업신고를 진행합니다.',
-        link: {
-          url: 'https://www.gov.kr',
-          label: '정부24 바로가기',
-        },
-      },
-      {
-        id: 'hf-5',
-        label: '영업신고증 수령',
-        description: '처리 완료 후 건강기능식품 판매업 영업신고증을 수령합니다. 쿠팡 입점 시 첨부 서류로 필요합니다.',
-      },
-    ],
-  },
-  {
-    id: 'coupang-wing',
-    number: 4,
-    title: '쿠팡 윙 파트너 가입',
-    subtitle: '쿠팡 셀러 계정 만들고 판매 시작 준비',
-    icon: 'ShoppingBag',
-    estimatedTime: '신청 15분 + 승인 3영업일',
-    estimatedDays: 3,
-    cost: '무료',
-    required: true,
-    subSteps: [
-      {
-        id: 'cw-1',
-        label: '쿠팡 윙 회원가입',
-        description: '쿠팡 윙(wing.coupang.com)에서 판매자 회원가입을 진행합니다.',
-        link: {
-          url: 'https://wing.coupang.com',
-          label: '쿠팡 윙 바로가기',
-        },
-      },
-      {
-        id: 'cw-2',
-        label: '사업자 정보 입력',
-        description: '사업자등록번호, 통신판매업 신고번호, 대표자 정보를 입력합니다.',
-        warning: '1단계(사업자등록)와 2단계(통신판매업)를 먼저 완료해야 합니다.',
-      },
-      {
-        id: 'cw-3',
-        label: '정산 계좌 등록',
-        description: '판매 대금을 받을 은행 계좌를 등록합니다. 사업자 명의 계좌가 필요합니다.',
-        tip: '개인사업자는 대표자 개인 명의 계좌도 사용 가능합니다.',
-      },
-      {
-        id: 'cw-4',
-        label: '서류 업로드',
-        description: '사업자등록증, 통신판매업 신고증, 통장 사본 등 필요 서류를 업로드합니다.',
-      },
-      {
-        id: 'cw-5',
-        label: '입점 승인 확인',
-        description: '서류 검토 후 약 3영업일 이내에 승인됩니다. 승인 완료 후 상품 등록이 가능합니다.',
-        tip: '승인 대기 중에 판매할 상품을 미리 준비해두면 시간을 절약할 수 있습니다.',
-      },
-      {
-        id: 'cw-6',
-        label: '쿠팡 윙 모바일 앱 설치',
-        description: '주문 알림·실시간 매출·반품 처리를 외출 중에도 처리하려면 스마트폰에 쿠팡 윙 앱을 설치해두세요. iOS App Store 또는 Google Play 스토어에서 "쿠팡 윙"으로 검색해 설치하고, 가입한 윙 계정으로 로그인하면 됩니다.',
-        tip: '신규 주문이 들어오면 푸시 알림이 와서 빠른 대응이 가능합니다. 출고 마감 시간을 놓치지 않으려면 앱 설치 + 알림 허용이 거의 필수입니다.',
-        link: {
-          url: 'https://wing.coupang.com',
-          label: '쿠팡 윙 (앱 다운로드 안내)',
-        },
-      },
-    ],
-  },
-  {
-    id: 'megaload-setup',
-    number: 5,
-    title: '메가로드 프로그램 설치',
-    subtitle: '구글 드라이브 데스크탑 + 메가로드 도우미 설치로 자동화 준비',
-    icon: 'Monitor',
-    estimatedTime: '설치 약 15분',
-    estimatedDays: 0,
-    cost: '무료',
-    required: true,
-    subSteps: [
-      {
-        id: 'ms-1',
-        label: '구글 드라이브 데스크탑 설치',
-        description: '공유받은 소싱(상품) 폴더를 내 PC에 자동 동기화하려면 "Google Drive for Desktop"이 필요합니다. 설치하면 내 PC에 구글 드라이브가 하나의 드라이브(예: G:)로 연결되고, 공유 폴더가 그 안에 폴더로 나타납니다. 메가로드 도우미가 이 폴더를 직접 읽어 상품을 자동 생성·등록합니다.',
-        tip: '설치 → 구글 계정 로그인 → "내 드라이브" 동기화 켜기. 그리고 윈도우 작업표시줄의 구글드라이브 아이콘 톱니 → 환경설정에서 "파일 스트리밍"이 켜져 있는지 확인하세요.',
-        link: {
-          url: 'https://www.google.com/intl/ko/drive/download/',
-          label: '구글 드라이브 데스크탑 다운로드',
-        },
-      },
-      {
-        id: 'ms-2',
-        label: '공유받은 소싱 폴더 동기화',
-        description: '담당자에게 공유받은 소싱 폴더를 구글 드라이브 좌측 "공유 문서함"에서 찾아, 우클릭 → "내 드라이브에 바로가기 추가"를 누르면 내 PC 드라이브 안에 폴더가 나타나 동기화됩니다. 이 폴더 경로를 메가로드 "올인원 등록(폴더)"에서 선택하면 됩니다.',
-        warning: '바로가기 추가를 안 하면 내 PC에 폴더가 안 보여서 도우미가 상품을 못 읽습니다. 꼭 "내 드라이브에 바로가기 추가"까지 하세요.',
-      },
-      {
-        id: 'ms-3',
-        label: '메가로드 도우미 설치',
-        description: '내 PC GPU로 노출상품명·카테고리·상세페이지·대표이미지를 자동 생성하는 데스크탑 앱입니다. 다운로드한 설치파일(.exe)을 더블클릭하면 자동 설치되고, 앱에서 "엔진 설치"를 한 번 누르면(약 6.5GB 자동 다운로드) 준비 완료됩니다.',
-        tip: '권장 사양: NVIDIA 그래픽카드(RTX 권장) + Windows. 설치 후에는 자동 업데이트되니 다시 받을 필요 없습니다.',
-        link: {
-          url: '/megaload/settings?tab=localgpu',
-          label: '메가로드 도우미 다운로드 (설정 화면)',
-        },
-      },
-      {
-        id: 'ms-4',
-        label: '로그인 & 연결 확인',
-        description: '도우미 앱에 메가로드 계정(이메일/비밀번호)으로 로그인하면 웹과 자동 연결됩니다. 설정 > 메가로드 도우미 다운로드 화면이 "워커 연결됨"으로 바뀌면 준비 완료입니다.',
-        tip: '"연결됨"으로 안 바뀌면 도우미 앱이 켜져 있는지, 같은 계정으로 로그인했는지 확인하세요.',
-      },
-    ],
-  },
-];
+/** "약 15분", "약 1시간" — 초 단위는 사람이 못 읽는다. */
+function humanMinutes(sec: number): string {
+  const min = Math.round(sec / 60);
+  if (min < 60) return `약 ${min}분`;
+  const h = Math.floor(min / 60);
+  const rest = min % 60;
+  return rest === 0 ? `약 ${h}시간` : `약 ${h}시간 ${rest}분`;
+}
+
+/** 손으로 하는 시간과 기다리는 시간은 다른 종류의 시간이라 따로 적는다. */
+function estimatedTime(step: AcademyStep): string {
+  const doing = humanMinutes(step.estimatedSec);
+  const wait = step.roadmap?.waitDays ?? 0;
+  return wait > 0 ? `${doing} + 처리 ${wait}영업일` : doing;
+}
+
+function toRoadmapStep(step: AcademyStep, index: number): RoadmapStep {
+  const meta = step.roadmap;
+  return {
+    id: step.key,
+    number: index + 1,
+    title: step.title,
+    subtitle: step.goal,
+    icon: meta?.icon || 'FileText',
+    estimatedTime: estimatedTime(step),
+    estimatedDays: meta?.waitDays ?? 0,
+    cost: meta?.cost || '무료',
+    required: !meta?.optional,
+    subSteps: (step.howto || []).map((h) => ({
+      id: h.id,
+      label: h.label,
+      description: h.description,
+      tip: h.tip,
+      warning: h.warning,
+      link: h.link,
+    })),
+    academyHref: `/my/academy/${step.key}`,
+  };
+}
+
+/**
+ * Act 1 + Act 2. howto 가 비어 있는 단계는 내보내지 않는다 —
+ * 설명 없는 빈 카드가 로드맵에 뜨면 "여긴 뭐지" 하고 거기서 멈춘다.
+ */
+export const ROADMAP_STEPS: RoadmapStep[] = [...getActSteps(1), ...getActSteps(2)]
+  .filter((s) => (s.howto?.length ?? 0) > 0)
+  .map(toRoadmapStep);
 
 export const ROADMAP_FAQS: FAQItem[] = [
   {
     question: '사업자등록 없이 쿠팡에서 판매할 수 있나요?',
-    answer: '아니요, 쿠팡을 포함한 모든 오픈마켓에서 판매하려면 사업자등록이 필수입니다. 다만 간이과세자로 등록하면 세금 부담을 최소화할 수 있습니다.',
+    answer:
+      '아니요. 쿠팡은 개인에게 판매 권한을 주지 않습니다. 사업자등록이 없으면 쿠팡 윙 가입 자체가 안 되고, 통신판매업 신고도 사업자등록번호가 있어야 시작할 수 있습니다.',
+  },
+  {
+    question: '사업자등록, 어디서 하는 게 제일 편한가요?',
+    answer:
+      '토스페이먼츠 바로신청을 씁니다. 공동인증서·증빙서류·대행 수수료가 없고, 다음 단계인 통신판매업 신고까지 같은 자리에서 이어서 할 수 있습니다. 홈택스에서 직접 해도 결과는 같습니다. 다만 토스 바로신청은 통신판매업을 준비하는 개인사업자만 쓸 수 있어서, 법인이거나 업종이 다르면 홈택스로 가야 합니다.',
   },
   {
     question: '간이과세자와 일반과세자 중 어떤 걸 선택해야 하나요?',
-    answer: '처음 시작하는 경우 간이과세자를 추천합니다. 연 매출 8,000만원 이하면 부가세 혜택이 있고, 매출이 커지면 자동으로 일반과세자로 전환됩니다.',
+    answer:
+      '위탁판매는 도매로 매입하는 구조라 매입세액 공제를 받는 일반과세자가 유리한 경우가 많습니다. 다만 어느 쪽으로 시작하든 나중에 바꿀 수 있고, 매출이 기준을 넘으면 자동으로 일반과세자가 됩니다. 여기서 오래 고민하지 마세요.',
   },
   {
     question: '통신판매업 신고는 왜 필요한가요?',
-    answer: '전자상거래법에 따라 온라인으로 상품을 판매하려면 통신판매업 신고가 의무입니다. 미신고 시 과태료가 부과될 수 있습니다.',
+    answer:
+      '전자상거래법상 온라인 판매 사업자의 의무입니다. 미신고는 과태료 대상이고, 쿠팡도 가입할 때 신고번호를 요구합니다.',
+  },
+  {
+    question: '토스가 무료라는데 왜 돈을 내라고 하나요?',
+    answer:
+      '무료인 것은 대행 수수료입니다. 통신판매업 등록면허세(지역에 따라 4~6만원)는 구청에 내는 세금이라 누가 대행해도 똑같이 냅니다. 게다가 매년 1월에 한 번씩 더 나옵니다.',
   },
   {
     question: '건강기능식품 판매업 신고는 꼭 해야 하나요?',
-    answer: '건강기능식품(비타민, 유산균, 프로바이오틱스 등)을 판매할 계획이 있는 경우에만 필요합니다. 일반 식품이나 다른 카테고리만 판매한다면 건너뛰어도 됩니다.',
+    answer:
+      '건기식(비타민·유산균 등)을 팔 계획이 있을 때만 필요합니다. 처음이라면 빼고 시작해도 됩니다. 마진은 좋지만 규제가 자주 바뀌고, 나중에 언제든 추가할 수 있습니다.',
   },
   {
     question: '전체 과정에 비용이 얼마나 드나요?',
-    answer: '사업자등록(무료) + 통신판매업 면허세(4~6만원)만 필수 비용입니다. 건기식 판매업 신고 시 위생교육비(약 28,000원)가 추가됩니다. 총 5~9만원 내외로 시작할 수 있습니다.',
+    answer:
+      '사업자등록(무료) + 통신판매업 등록면허세(4~6만원)만 필수입니다. 건기식까지 하면 신고 수수료가 2~3만원 정도 추가됩니다. 프로그램을 깔 필요가 없어 설치 비용은 0입니다.',
   },
   {
-    question: '쿠팡 입점 승인까지 전체 기간은 얼마나 걸리나요?',
-    answer: '사업자등록(3일) → 통신판매업(5일) → 쿠팡 윙 승인(3일)으로, 순차적으로 진행하면 약 2~3주 정도 소요됩니다. 건기식 판매업 포함 시 1주일 추가됩니다.',
+    question: '상품을 올리려면 프로그램을 설치해야 하나요?',
+    answer:
+      '아닙니다. 소싱 카탈로그에서 고르는 길은 설치가 하나도 없습니다. 구글 드라이브도, 도우미 앱도 필요 없습니다. 상세페이지까지 자동으로 만들어주는 올인원 등록을 쓸 때만 도우미가 필요한데, 시작 단계에서는 안 써도 됩니다.',
+  },
+  {
+    question: '첫 상품을 올리기까지 전체 기간은 얼마나 걸리나요?',
+    answer:
+      '사업자등록(3영업일) → 통신판매업(3~5영업일) → 쿠팡 윙 승인(3영업일)까지가 기다리는 시간이고, 그 뒤 API 연동부터 상품 등록까지는 기다림 없이 이어집니다. 순차 진행하면 대략 2주 안팎입니다.',
+  },
+  {
+    question: '다 했는지 누가 확인해주나요?',
+    answer:
+      '로그인하면 시스템이 쿠팡에 직접 물어봐서 확인해줍니다. API 연동·출고지 등록·상품 등록·판매중 여부는 전부 자동으로 판정되고, 안 됐으면 무엇이 몇 건으로 조회되는지까지 알려줍니다.',
   },
   {
     question: '쿠팡 외에 다른 마켓(네이버, 11번가 등)도 같은 절차인가요?',
-    answer: '사업자등록과 통신판매업 신고는 모든 마켓 공통입니다. 각 마켓별 입점 절차만 다를 뿐, 기본 자격요건은 동일합니다.',
+    answer:
+      '사업자등록과 통신판매업 신고는 모든 마켓 공통입니다. 각 마켓별 입점 절차만 다를 뿐, 기본 자격요건은 동일합니다.',
   },
 ];
