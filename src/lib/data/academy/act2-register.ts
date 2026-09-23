@@ -54,6 +54,16 @@ export const ACT2_STEPS: AcademyStep[] = [
       { label: '소싱 카탈로그에서 고르기', href: '/megaload/sourcing/naver' },
       { label: '대량 등록 화면', href: '/megaload/products/bulk-register' },
     ],
+    // 빨간 카드/파란 카드 중 어느 쪽을 누르냐로 길이 갈린다. 색깔만 말하면 둘 다 눌러본다.
+    mockup: {
+      imageUrl: '/academy/mockups/catalog-grid.jpg',
+      capturedAt: '2026-09-23',
+      hotspots: [
+        { x: 0.6235, y: 0.3495, w: 0.2161, h: 0.0957, label: '이걸 누릅니다 — 직접 검수해서 등록 (도우미 없이 됩니다)', order: 1 },
+        { x: 0.4018, y: 0.3495, w: 0.2161, h: 0.0957, label: '올인원 등록 — 상세페이지까지 자동이지만 도우미 앱이 있어야 합니다', order: 2 },
+        { x: 0.3999, y: 0.5491, w: 0.0061, h: 0.0128, label: '상품 선택은 이 체크박스로만 됩니다', order: 3 },
+      ],
+    },
     howto: [
       {
         id: 'ld-1',
@@ -170,6 +180,13 @@ export const ACT2_STEPS: AcademyStep[] = [
     actions: [
       { label: '대량 등록 화면 열기', href: '/megaload/products/bulk-register' },
     ],
+    video: {
+      src: '/api/academy/video/act2-20-preflight',
+      startSec: 153,
+      endSec: 225,
+      transcript:
+        '카테고리 자동매칭이 끝나기를 기다렸다가 전체 검증 + 이미지 사전 업로드를 누르는 구간. 게이지가 안 차면 무엇이 걸린 것인지까지 설명합니다.',
+    },
     howto: [
       {
         id: 'pf-1',
@@ -254,6 +271,13 @@ export const ACT2_STEPS: AcademyStep[] = [
     actions: [
       { label: '대량 등록 화면 열기', href: '/megaload/products/bulk-register' },
     ],
+    video: {
+      src: '/api/academy/video/act2-30-options',
+      startSec: 250,
+      endSec: 352,
+      transcript:
+        '원본 소싱처에서 180정 1개짜리라는 것을 확인하고, 중량·용량·수량과 노출 상품명을 채우는 구간.',
+    },
     howto: [
       {
         id: 'op-1',
@@ -350,6 +374,13 @@ export const ACT2_STEPS: AcademyStep[] = [
     actions: [
       { label: '대량 등록 화면 열기', href: '/megaload/products/bulk-register' },
     ],
+    video: {
+      src: '/api/academy/video/act2-40-main-image',
+      startSec: 352,
+      endSec: 452,
+      transcript:
+        '리뷰 이미지로는 AI 광고가 안 돈다는 것, 신선식품은 예외라는 것, 수량이 다른 사진을 대표로 쓰면 반품이 들어온다는 것.',
+    },
     howto: [
       {
         id: 'mi-1',
@@ -453,6 +484,13 @@ export const ACT2_STEPS: AcademyStep[] = [
     actions: [
       { label: '대량 등록 화면 열기', href: '/megaload/products/bulk-register' },
     ],
+    video: {
+      src: '/api/academy/video/act2-50-detail-image',
+      startSec: 484,
+      endSec: 545,
+      transcript:
+        '상품정보 옆 상세페이지 탭으로 들어가 이미지를 3~5장으로 추리는 구간.',
+    },
     howto: [
       {
         id: 'di-1',
@@ -524,6 +562,13 @@ export const ACT2_STEPS: AcademyStep[] = [
     actions: [
       { label: '대량 등록 화면 열기', href: '/megaload/products/bulk-register' },
     ],
+    video: {
+      src: '/api/academy/video/act2-60-select',
+      startSec: 733,
+      endSec: 808,
+      transcript:
+        '검수한 것에 초록 체크가 들어오는 것, 통행금지 모양 아이콘으로 등록에서 제외하는 것, 전체 해제 후 검수한 것만 다시 고르는 것.',
+    },
     howto: [
       {
         id: 'sel-1',

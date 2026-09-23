@@ -19,7 +19,7 @@ interface StepFull {
   estimatedSec: number; xp: number; narration: string[];
   actions: { label: string; href?: string; external?: boolean; copyable?: { label: string; text: string } }[];
   troubleshoot: { symptom: string; cause: string; fix: string }[];
-  video?: { youtubeId: string; startSec: number; endSec: number };
+  video?: { youtubeId?: string; src?: string; startSec: number; endSec: number };
   mockup?: { imageUrl: string; capturedAt: string; hotspots: { x: number; y: number; w: number; h: number; label: string; order: number }[] };
   verify: VerifyView;
   locked: boolean; lockReason: string | null;
@@ -39,6 +39,8 @@ export default function AcademyStepPage({ params }: { params: Promise<{ stepKey:
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
+  // 자체 호스팅 영상의 서명 URL. 없는 단계가 대부분이라 null 이 정상이다.
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -61,6 +63,24 @@ export default function AcademyStepPage({ params }: { params: Promise<{ stepKey:
   }, [stepKey]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // ── 영상 챕터 ───────────────────────────────────────────────
+  // 서명 URL 은 한 시간짜리라 미리 받아둘 수 없다. 단계를 열 때 그때그때 받는다.
+  // 204(영상 없음)는 오류가 아니라 정상이므로 조용히 넘어간다.
+  useEffect(() => {
+    let alive = true;
+    setVideoUrl(null);
+    if (!step?.video?.src) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/academy/video/${stepKey}`);
+        if (!alive || res.status !== 200) return;
+        const data = await res.json();
+        if (alive && data.url) setVideoUrl(data.url as string);
+      } catch { /* 영상이 없어도 단계는 진행돼야 한다 */ }
+    })();
+    return () => { alive = false; };
+  }, [stepKey, step?.video?.src]);
 
   // ── 통과하면 저절로 다음 단계로 ─────────────────────────────
   //   매번 "다음" 을 누르게 하면 흐름이 끊긴다. 대신 머무를 수 있게 문을 열어둔다.
@@ -124,7 +144,19 @@ export default function AcademyStepPage({ params }: { params: Promise<{ stepKey:
       <div className="grid gap-4 lg:grid-cols-5">
         {/* ── 왼쪽 — 보여주는 것 ─────────────────────────── */}
         <div className="space-y-4 lg:col-span-3">
-          {step.video && (
+          {/* 자체 호스팅 클립이 우선. 원본이 화면공유 녹화라 유튜브에 그대로 못 올리는 탓에
+              잘라내어 비공개 버킷에 둔다. 서명 URL 은 /api/academy/video/[stepKey] 가 준다.
+              videoUrl 이 아직 안 왔거나 204(영상 없음)면 아무것도 그리지 않는다. */}
+          {videoUrl && (
+            <figure className="overflow-hidden rounded-xl border border-gray-200 bg-black">
+              <video className="w-full" src={videoUrl} controls preload="metadata" playsInline />
+              <figcaption className="border-t border-gray-800 bg-black px-3 py-1.5 text-[11px] text-gray-400">
+                실제 1:1 교육 통화에서 이 단계에 해당하는 구간입니다.
+              </figcaption>
+            </figure>
+          )}
+
+          {step.video?.youtubeId && !videoUrl && (
             <div className="overflow-hidden rounded-xl border border-gray-200 bg-black">
               <iframe
                 className="aspect-video w-full"

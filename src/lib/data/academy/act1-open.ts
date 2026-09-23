@@ -622,6 +622,17 @@ export const ACT1_STEPS: AcademyStep[] = [
     actions: [
       { label: '소싱 카탈로그 열기', href: '/megaload/sourcing/naver' },
     ],
+    // "카드 사진 왼쪽 위의 작은 체크박스" — 글로는 아무리 써도 못 찾는 곳이라 좌표로 찍는다.
+    mockup: {
+      imageUrl: '/academy/mockups/catalog-grid.jpg',
+      capturedAt: '2026-09-23',
+      hotspots: [
+        { x: 0.3999, y: 0.5491, w: 0.0061, h: 0.0128, label: '여기를 눌러야 선택됩니다 (카드 본문은 안 눌립니다)', order: 1 },
+        { x: 0.3989, y: 0.7744, w: 0.0251, h: 0.021, label: '초록 "상세 확보" = 지금 바로 올릴 수 있는 상품', order: 2 },
+        { x: 0.4018, y: 0.47, w: 0.0746, h: 0.0298, label: '올릴 수 있는 것만 한 번에 골라주는 버튼', order: 3 },
+        { x: 0.602, y: 0.2762, w: 0.0961, h: 0.0237, label: '"바로 가져올 수 있는 것만" — 켜두면 고를 것만 남습니다', order: 4 },
+      ],
+    },
     howto: [
       {
         id: 'cat-1',
