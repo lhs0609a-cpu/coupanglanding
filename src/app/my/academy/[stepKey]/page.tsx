@@ -186,7 +186,7 @@ export default function AcademyStepPage({ params }: { params: Promise<{ stepKey:
                 ))}
               </div>
               <figcaption className="border-t border-gray-100 px-3 py-1.5 text-[11px] text-gray-400">
-                {step.mockup.capturedAt} 기준 화면입니다. 쿠팡 화면이 바뀌었으면 알려주세요.
+                {step.mockup.capturedAt} 기준 화면입니다. 지금 보이는 화면과 다르면 알려주세요.
               </figcaption>
             </figure>
           )}
