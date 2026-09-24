@@ -71,6 +71,28 @@ export default function Footer() {
                   사업자등록 체크리스트
                 </Link>
               </li>
+              {/*
+                쿠팡 카테고리 문서 16,259개로 들어가는 유일한 화면 입구.
+                메인 히어로에는 일부러 노출하지 않는다 — 링크를 눈에 안 띄는 곳에 두는 것은
+                정상이고, 텍스트를 숨기는 것(색인 삭제 사유)과는 다른 얘기다.
+                크롤러는 이 링크와 /coupang/category/sitemap.xml 로 전부 도달한다.
+              */}
+              <li>
+                <Link
+                  href="/coupang/category"
+                  className="text-sm text-gray-500 hover:text-gray-900 transition-colors"
+                >
+                  쿠팡 카테고리별 수수료
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/coupang/keyword"
+                  className="text-sm text-gray-500 hover:text-gray-900 transition-colors"
+                >
+                  상품 키워드 검색량
+                </Link>
+              </li>
               <li>
                 <Link
                   href="/pt"

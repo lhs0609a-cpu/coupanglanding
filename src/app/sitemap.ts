@@ -3,7 +3,7 @@ import { CHANNEL_ONBOARDING_GUIDES } from "@/lib/data/channel-onboarding-guides"
 import { GUIDE_ARTICLES } from "@/lib/data/guide-articles";
 import type { Channel } from "@/lib/megaload/types";
 
-const SITE_URL = "https://megaload.co.kr";
+const SITE_URL = "https://www.megaload.co.kr";
 
 /** 셀프 입점이 가능한 채널만 공개 가이드가 있다 (준비중 채널은 페이지 자체를 만들지 않음) */
 const PUBLIC_CHANNELS = (Object.keys(CHANNEL_ONBOARDING_GUIDES) as Channel[])
