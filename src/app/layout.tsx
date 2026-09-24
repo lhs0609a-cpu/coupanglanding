@@ -72,6 +72,13 @@ export const metadata: Metadata = {
       "ko-KR": "/",
       "x-default": "/",
     },
+    // 모든 페이지 <head> 에 RSS 자동 발견 링크를 박는다.
+    // 네이버 서치어드바이저·구독기가 URL을 몰라도 피드를 찾아낸다.
+    types: {
+      "application/rss+xml": [
+        { url: "/rss.xml", title: "쿠팡PT · 메가로드 — 쿠팡 셀러 가이드" },
+      ],
+    },
   },
   openGraph: {
     type: "website",

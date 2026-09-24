@@ -45,7 +45,9 @@ export default function robots(): MetadataRoute.Robots {
       { userAgent: "Applebot-Extended", allow: "/" },
       { userAgent: "cohere-ai", allow: "/", disallow: publicDisallow },
     ],
-    sitemap: `${SITE_URL}/sitemap.xml`,
+    // sitemap 과 RSS 를 둘 다 알린다.
+    // 네이버·구글 모두 RSS 를 사이트맵의 한 종류로 받아들이고, 신규 문서 수집은 RSS 쪽이 빠르다.
+    sitemap: [`${SITE_URL}/sitemap.xml`, `${SITE_URL}/rss.xml`],
     host: SITE_URL,
   };
 }
