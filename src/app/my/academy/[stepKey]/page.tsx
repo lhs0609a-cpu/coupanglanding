@@ -20,6 +20,7 @@ interface StepFull {
   actions: { label: string; href?: string; external?: boolean; copyable?: { label: string; text: string } }[];
   troubleshoot: { symptom: string; cause: string; fix: string }[];
   video?: { youtubeId?: string; src?: string; startSec: number; endSec: number };
+  howto?: { id: string; label: string; description?: string; tip?: string; warning?: string; link?: { url: string; label: string } }[];
   mockup?: { imageUrl: string; capturedAt: string; hotspots: { x: number; y: number; w: number; h: number; label: string; order: number }[] };
   verify: VerifyView;
   locked: boolean; lockReason: string | null;
@@ -166,6 +167,48 @@ export default function AcademyStepPage({ params }: { params: Promise<{ stepKey:
                 allowFullScreen
               />
             </div>
+          )}
+
+          {/* 따라하기 — /start 공개 로드맵과 같은 데이터(howto)를 쓴다.
+              영상도 목업도 없는 단계는 여기가 왼쪽 칸의 알맹이가 된다.
+              체크박스는 두지 않는다. 이 화면에는 진짜 판정이 아래에 따로 있고,
+              그 위에 자기신고 체크를 하나 더 얹으면 무엇이 진짜인지 흐려진다. */}
+          {step.howto && step.howto.length > 0 && (
+            <ol className="space-y-2 rounded-xl border border-gray-200 bg-white p-4">
+              <li className="mb-1 list-none text-sm font-semibold text-gray-900">▸ 따라하기</li>
+              {step.howto.map((h, i) => (
+                <li key={h.id} className="flex gap-3">
+                  <span className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-gray-100 text-[11px] font-bold text-gray-600">
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-900">{h.label}</p>
+                    {h.description && <p className="mt-0.5 text-xs leading-relaxed text-gray-500">{h.description}</p>}
+                    {h.warning && (
+                      <p className="mt-1.5 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs leading-relaxed text-amber-800">
+                        ⚠ {h.warning}
+                      </p>
+                    )}
+                    {h.tip && (
+                      <p className="mt-1.5 rounded-md bg-blue-50 px-2.5 py-1.5 text-xs leading-relaxed text-blue-800">
+                        💡 {h.tip}
+                      </p>
+                    )}
+                    {h.link && (
+                      <Link
+                        href={h.link.url}
+                        target={h.link.url.startsWith('http') ? '_blank' : undefined}
+                        rel={h.link.url.startsWith('http') ? 'noopener noreferrer' : undefined}
+                        className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-[#E31837] hover:underline"
+                      >
+                        {h.link.label}
+                        {h.link.url.startsWith('http') && <ExternalLink className="h-3 w-3" />}
+                      </Link>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
           )}
 
           {step.mockup && (
