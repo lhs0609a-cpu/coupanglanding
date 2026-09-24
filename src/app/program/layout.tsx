@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-const SITE_URL = "https://megaload.co.kr";
+const SITE_URL = "https://www.megaload.co.kr";
 
 export const metadata: Metadata = {
   title: "메가로드 | 쿠팡 상품 등록 자동화 프로그램 (AI 대량등록)",

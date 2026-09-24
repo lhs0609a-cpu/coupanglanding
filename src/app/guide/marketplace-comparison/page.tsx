@@ -5,7 +5,7 @@ import { CHANNEL_SETUP_GUIDES } from '@/lib/data/channel-setup-guides';
 import { CHANNEL_LABELS } from '@/lib/megaload/constants';
 import type { Channel } from '@/lib/megaload/types';
 
-const SITE_URL = 'https://megaload.co.kr';
+const SITE_URL = 'https://www.megaload.co.kr';
 
 /**
  * 오픈마켓 7곳 입점 조건 비교 (공개 문서)

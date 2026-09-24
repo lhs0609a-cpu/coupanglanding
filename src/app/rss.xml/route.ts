@@ -4,7 +4,7 @@ import { GUIDE_ARTICLES } from "@/lib/data/guide-articles";
 import { CHANNEL_LABELS } from "@/lib/megaload/constants";
 import type { Channel } from "@/lib/megaload/types";
 
-const SITE_URL = "https://megaload.co.kr";
+const SITE_URL = "https://www.megaload.co.kr";
 
 /**
  * RSS 2.0 피드 — 네이버 서치어드바이저 "RSS 제출" 용 + 일반 구독기

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { ROADMAP_STEPS, ROADMAP_PHASES, DAYS_TO_FIRST_PRODUCT } from "@/lib/data/start-roadmap";
 
-const SITE_URL = "https://megaload.co.kr";
+const SITE_URL = "https://www.megaload.co.kr";
 
 export const metadata: Metadata = {
   title: `쿠팡 셀러 시작 로드맵 | 사업자등록부터 주문처리·CS까지 ${ROADMAP_STEPS.length}단계`,

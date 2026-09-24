@@ -7,7 +7,7 @@ import { CHANNEL_LABELS } from '@/lib/megaload/constants';
 import type { Channel } from '@/lib/megaload/types';
 import EgressIpBox from '@/components/megaload/EgressIpBox';
 
-const SITE_URL = 'https://megaload.co.kr';
+const SITE_URL = 'https://www.megaload.co.kr';
 
 /**
  * 채널별 입점·API 연동 공개 가이드 (검색 유입용 + 실제 셀러 도움)

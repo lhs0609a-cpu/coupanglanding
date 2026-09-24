@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { GUIDE_ARTICLES, getArticle } from '@/lib/data/guide-articles';
 
-const SITE_URL = 'https://megaload.co.kr';
+const SITE_URL = 'https://www.megaload.co.kr';
 
 /**
  * 가이드 아티클 렌더러 — /guide/{slug}

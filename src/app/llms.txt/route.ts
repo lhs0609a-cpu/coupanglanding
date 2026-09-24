@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const SITE_URL = "https://megaload.co.kr";
+const SITE_URL = "https://www.megaload.co.kr";
 
 const LLMS_TXT = `# 쿠팡PT · 메가로드 (Megaload)
 

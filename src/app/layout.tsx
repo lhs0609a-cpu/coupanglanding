@@ -21,7 +21,7 @@ const notoSansKR = Noto_Sans_KR({
   weight: ["400", "600", "700"],
 });
 
-const SITE_URL = "https://megaload.co.kr";
+const SITE_URL = "https://www.megaload.co.kr";
 
 // Some users paste the full <meta ... /> tag into env vars instead of just the content value.
 // Strip to raw content so the resulting tag isn't double-nested.
