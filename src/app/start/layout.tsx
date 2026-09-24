@@ -1,14 +1,19 @@
 import type { Metadata } from "next";
-import { ROADMAP_STEPS } from "@/lib/data/start-roadmap";
+import { ROADMAP_STEPS, ROADMAP_PHASES, DAYS_TO_FIRST_PRODUCT } from "@/lib/data/start-roadmap";
 
 const SITE_URL = "https://megaload.co.kr";
 
 export const metadata: Metadata = {
-  title: "쿠팡 셀러 시작 로드맵 | 사업자등록부터 상품 업로드까지 15단계",
+  title: `쿠팡 셀러 시작 로드맵 | 사업자등록부터 주문처리·CS까지 ${ROADMAP_STEPS.length}단계`,
   description:
-    "쿠팡 판매를 처음 시작하는 왕초보 셀러를 위한 단계별 가이드. 사업자등록(토스) → 통신판매업 → 쿠팡 윙 입점 → API 연동 → 첫 상품 등록·승인까지, 따라만 하면 되는 체크리스트.",
+    "쿠팡 판매를 처음 시작하는 왕초보 셀러를 위한 단계별 가이드. 사업자등록(토스) → 통신판매업 → 쿠팡 윙 입점 → API 연동 → 첫 상품 등록 → 주문 발주·송장 등록 → 반품·고객문의까지, 따라만 하면 되는 체크리스트.",
   keywords: [
     "쿠팡 입점",
+    "쿠팡 위탁판매 주문처리",
+    "쿠팡 송장등록",
+    "쿠팡 반품처리",
+    "쿠팡 고객문의 답변",
+    "쿠팡 품절 취소",
     "쿠팡 사업자등록",
     "토스 사업자등록",
     "토스 통신판매업 신고",
@@ -24,9 +29,9 @@ export const metadata: Metadata = {
   ],
   alternates: { canonical: "/start" },
   openGraph: {
-    title: "쿠팡 셀러 시작 로드맵 | 사업자등록부터 첫 상품 업로드까지",
+    title: "쿠팡 셀러 시작 로드맵 | 입점부터 주문처리·CS까지",
     description:
-      "설치할 프로그램 없이, 사업자등록부터 첫 상품 등록·승인까지 따라만 하면 되는 15단계 체크리스트.",
+      "설치할 프로그램 없이, 사업자등록부터 첫 상품 등록과 주문 발주·송장 등록·반품·고객문의까지 따라만 하면 되는 체크리스트.",
     type: "article",
     locale: "ko_KR",
     url: `${SITE_URL}/start`,
@@ -34,9 +39,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "쿠팡 셀러 시작 로드맵 | 사업자등록부터 첫 상품 업로드까지",
+    title: "쿠팡 셀러 시작 로드맵 | 입점부터 주문처리·CS까지",
     description:
-      "설치할 프로그램 없이, 사업자등록부터 첫 상품 등록·승인까지 따라만 하면 되는 15단계 체크리스트.",
+      "설치할 프로그램 없이, 사업자등록부터 첫 상품 등록과 주문 발주·송장 등록·반품·고객문의까지 따라만 하면 되는 체크리스트.",
   },
 };
 
@@ -61,15 +66,16 @@ const startBreadcrumbJsonLd = {
 
 // 화면에 뜨는 단계와 구조화 데이터가 어긋나면 검색엔진에도 사람에게도 거짓말이 된다.
 // 그래서 손으로 적지 않고 같은 데이터에서 만든다.
-const totalWaitDays = ROADMAP_STEPS.reduce((sum, s) => sum + s.estimatedDays, 0);
+// HowTo 의 totalTime 은 "첫 상품을 올리기까지" 로 잡는다. 3·4부(주문·CS)는 주문이
+// 들어와야 시작되는 구간이라 날짜로 더할 수 있는 성질이 아니다.
+const totalWaitDays = DAYS_TO_FIRST_PRODUCT;
 
 const startHowToJsonLd = {
   "@context": "https://schema.org",
   "@type": "HowTo",
   "@id": `${SITE_URL}/start#howto`,
-  name: `쿠팡 셀러 시작하기 — 사업자등록부터 상품 업로드까지 ${ROADMAP_STEPS.length}단계`,
-  description:
-    "쿠팡 판매를 처음 시작하는 왕초보 셀러를 위한 단계별 가이드. 사업자등록부터 첫 상품 등록·승인 확인까지 체크리스트로 따라합니다.",
+  name: `쿠팡 셀러 시작하기 — 사업자등록부터 주문처리·CS까지 ${ROADMAP_STEPS.length}단계`,
+  description: `쿠팡 판매를 처음 시작하는 왕초보 셀러를 위한 단계별 가이드. ${ROADMAP_PHASES.map((p) => p.label).join(" → ")} 순서로, 체크리스트를 따라만 하면 됩니다.`,
   estimatedCost: {
     "@type": "MonetaryAmount",
     currency: "KRW",

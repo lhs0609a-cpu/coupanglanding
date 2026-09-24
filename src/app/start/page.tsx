@@ -9,8 +9,8 @@
  */
 
 import StartClient from './StartClient';
-import { ROADMAP_STEPS, ROADMAP_FAQS } from '@/lib/data/start-roadmap';
+import { ROADMAP_STEPS, ROADMAP_PHASES, ROADMAP_FAQS } from '@/lib/data/start-roadmap';
 
 export default function StartPage() {
-  return <StartClient steps={ROADMAP_STEPS} faqs={ROADMAP_FAQS} />;
+  return <StartClient steps={ROADMAP_STEPS} phases={ROADMAP_PHASES} faqs={ROADMAP_FAQS} />;
 }

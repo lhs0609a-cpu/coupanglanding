@@ -44,6 +44,27 @@ export const ACT3_STEPS: AcademyStep[] = [
       { label: '주문관리 열기', href: '/megaload/orders' },
       { label: '쿠팡 윙에서 보기', href: 'https://wing.coupang.com', external: true },
     ],
+    howto: [
+      {
+        id: 'fo-1',
+        label: '주문관리에서 들어온 주문을 연다',
+        description: '고객은 쿠팡에 돈을 냈고, 물건은 아직 소싱처에 있습니다. 그 사이를 잇는 게 내 일입니다.',
+        link: { url: '/megaload/orders', label: '주문관리' },
+      },
+      {
+        id: 'fo-2',
+        label: '내가 할 일이 세 가지뿐이라는 걸 확인한다',
+        description: '① 주문 확인 → ② 소싱처에 발주 → ③ 운송장 번호를 쿠팡에 등록. 나머지는 쿠팡과 택배사가 합니다.',
+        tip: '이 셋만 기억하면 주문 처리는 끝입니다. 처음에 복잡해 보이는 건 순서를 모르기 때문입니다.',
+      },
+      {
+        id: 'fo-3',
+        label: '주문 상태가 결제완료인지 본다',
+        description: '결제완료(ACCEPT)는 아직 아무도 손대지 않은 주문이라는 뜻입니다.',
+        warning: '주문이 안 보이면 쿠팡 API 연동이 끊겼을 수 있습니다. 윙에는 있는데 여기 없으면 채널관리부터 확인하세요.',
+      },
+    ],
+    roadmap: { icon: 'Inbox', cost: '무료', waitDays: 0 },
     verify: {
       level: 1,
       probe: 'coupang.orders',
@@ -102,6 +123,35 @@ export const ACT3_STEPS: AcademyStep[] = [
     actions: [
       { label: '주문관리 열기', href: '/megaload/orders' },
     ],
+    howto: [
+      {
+        id: 'cf-1',
+        label: '주문을 확인 처리한다',
+        description: '상태가 상품준비중으로 바뀝니다. 이 주문을 받았고 준비를 시작한다고 쿠팡에 알리는 절차입니다.',
+        link: { url: '/megaload/orders', label: '주문관리' },
+      },
+      {
+        id: 'cf-2',
+        label: '받는 사람 이름·주소·전화번호를 읽는다',
+      },
+      {
+        id: 'cf-3',
+        label: '전화번호가 050으로 시작하는지 본다',
+        description: '050이면 안심번호입니다. 고객의 진짜 번호를 가려주는 임시 번호라 기간이 지나면 끊깁니다.',
+        warning: '그래서 발주를 미루면 안 됩니다. 번호가 죽은 뒤에 보내면 택배기사가 연락을 못 해서 배송이 통째로 막힙니다.',
+      },
+      {
+        id: 'cf-4',
+        label: '주소는 손으로 치지 말고 복사해서 옮긴다',
+        description: '다시 타이핑하면 오타가 납니다. 주소 오타는 오배송이고, 오배송은 전부 판매자 부담입니다.',
+      },
+      {
+        id: 'cf-5',
+        label: '배송 요청사항도 같이 넘긴다',
+        description: '공동현관 비밀번호, 부재시 문 앞 같은 메모가 빠지면 배송이 실패합니다.',
+      },
+    ],
+    roadmap: { icon: 'ClipboardCheck', cost: '무료', waitDays: 0 },
     verify: {
       level: 3,
       checklist: [
@@ -178,6 +228,35 @@ export const ACT3_STEPS: AcademyStep[] = [
         },
       },
     ],
+    howto: [
+      {
+        id: 'pc-1',
+        label: '소싱처에서 같은 상품을 주문한다',
+      },
+      {
+        id: 'pc-2',
+        label: '배송지를 고객 주소로 넣는다',
+        description: '내 주소가 아닙니다. 받는 사람도 고객 이름으로 넣습니다. 이걸 직배송이라고 합니다.',
+        warning: '여기서 내 주소를 넣으면 물건이 나에게 오고, 다시 보내야 해서 배송이 며칠 늦습니다. 가장 비싼 실수입니다.',
+      },
+      {
+        id: 'pc-3',
+        label: '주문자 이름은 내 이름이나 상호로 둔다',
+        description: '받는 사람만 고객이면 됩니다. 주문자까지 고객 이름일 필요는 없습니다.',
+      },
+      {
+        id: 'pc-4',
+        label: '무지 박스·상호 미표기를 요청한다',
+        description: '보내는 사람 정보에 소싱처 상호가 찍히는 경우가 많습니다. 고객이 다른 가게 이름을 보고 문의합니다.',
+        tip: '금액이 적힌 거래명세서·영수증도 동봉하지 말아달라고 같이 요청하세요. 원가가 그대로 노출됩니다.',
+      },
+      {
+        id: 'pc-5',
+        label: '운송장 번호를 받는다',
+        description: '보통 몇 시간에서 하루 안에 나옵니다. 이 번호가 있어야 다음 단계를 할 수 있습니다.',
+      },
+    ],
+    roadmap: { icon: 'ShoppingCart', cost: '상품 원가', waitDays: 1 },
     verify: {
       level: 3,
       checklist: [
@@ -245,6 +324,34 @@ export const ACT3_STEPS: AcademyStep[] = [
     actions: [
       { label: '주문관리에서 송장등록', href: '/megaload/orders' },
     ],
+    howto: [
+      {
+        id: 'iv-1',
+        label: '주문관리에서 해당 주문의 송장등록을 누른다',
+        link: { url: '/megaload/orders', label: '주문관리' },
+      },
+      {
+        id: 'iv-2',
+        label: '택배사를 정확히 고른다',
+        warning: '택배사를 잘못 고르면 조회가 안 돼서 배송 추적이 끊깁니다. 고객은 물건이 어디 있는지 모르게 되고 그대로 문의가 됩니다.',
+      },
+      {
+        id: 'iv-3',
+        label: '운송장 번호를 복사해서 붙여 넣는다',
+        warning: '손으로 치지 마세요. 한 자리만 틀려도 조회가 안 됩니다.',
+      },
+      {
+        id: 'iv-4',
+        label: '상태가 배송중으로 바뀌는지 확인한다',
+        description: '여기까지가 주문 처리의 끝입니다. 이 뒤는 쿠팡과 택배사가 합니다.',
+      },
+      {
+        id: 'iv-5',
+        label: '아래 확인하기로 쿠팡 쪽 상태를 조회한다',
+        description: '시스템이 쿠팡에 직접 물어서 실제로 배송중이 됐는지 확인해줍니다.',
+      },
+    ],
+    roadmap: { icon: 'Truck', cost: '무료', waitDays: 0 },
     verify: {
       level: 1,
       probe: 'coupang.orders',
@@ -324,6 +431,35 @@ export const ACT3_STEPS: AcademyStep[] = [
         },
       },
     ],
+    howto: [
+      {
+        id: 'so-1',
+        label: '다른 소싱처에 같은 상품이 있는지 먼저 본다',
+        description: '있으면 거기서 발주하면 끝입니다. 고객은 아무것도 모르고 물건을 받습니다.',
+      },
+      {
+        id: 'so-2',
+        label: '없으면 고객에게 먼저 연락한다',
+        description: '통보가 아니라 사과와 안내입니다. 취소를 먼저 눌러버리면 고객은 이유도 모른 채 취소 알림만 받습니다.',
+      },
+      {
+        id: 'so-3',
+        label: '쿠팡에서 주문을 취소 처리한다 (사유: 품절)',
+        link: { url: '/megaload/orders', label: '주문관리' },
+      },
+      {
+        id: 'so-4',
+        label: '그 상품의 판매를 중지한다',
+        warning: '이걸 빠뜨리면 같은 품절 주문이 계속 들어옵니다. 사고가 복리로 불어나고 취소율이 쌓여 계정 제재로 갑니다.',
+      },
+      {
+        id: 'so-5',
+        label: '재고 감시를 켜둔다',
+        description: '소싱처가 품절되면 미리 잡아줍니다. 사고를 막는 쪽이 수습보다 훨씬 쌉니다.',
+        link: { url: '/megaload/stock-monitor', label: '재고 감시 설정' },
+      },
+    ],
+    roadmap: { icon: 'PackageX', cost: '무료', waitDays: 0 },
     verify: {
       level: 3,
       checklist: [
@@ -401,6 +537,29 @@ export const ACT3_STEPS: AcademyStep[] = [
         },
       },
     ],
+    howto: [
+      {
+        id: 'dl-1',
+        label: '쿠팡 윙에서 출고 예정일을 변경할 수 있는지 본다',
+      },
+      {
+        id: 'dl-2',
+        label: '고객에게 먼저 연락한다',
+        description: '늦는다는 사실과 새 예상일을 알려줍니다.',
+        tip: '고객은 늦는 것보다 모르는 걸 더 싫어합니다. 먼저 연락하면 클레임이 실제로 줄어듭니다.',
+      },
+      {
+        id: 'dl-3',
+        label: '아무 말 없이 늦는 선택은 하지 않는다',
+        warning: '지연 자체보다 침묵이 더 비쌉니다. 점수도 깎이고 클레임도 옵니다.',
+      },
+      {
+        id: 'dl-4',
+        label: '같은 소싱처가 반복해서 늦으면 소싱처를 바꾼다',
+        description: '늦는 건 소싱처인데 점수는 내가 물게 됩니다.',
+      },
+    ],
+    roadmap: { icon: 'Clock', cost: '무료', waitDays: 0 },
     verify: {
       level: 3,
       checklist: [

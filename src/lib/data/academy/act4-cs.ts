@@ -52,6 +52,32 @@ export const ACT4_STEPS: AcademyStep[] = [
         },
       },
     ],
+    howto: [
+      {
+        id: 'iq-1',
+        label: '문의관리에서 미답변 문의를 연다',
+        description: '쌓아두면 판매자 점수에 바로 들어갑니다.',
+        link: { url: '/megaload/cs', label: '문의관리' },
+      },
+      {
+        id: 'iq-2',
+        label: '모르는 건 모른다고 쓰되, 언제까지 알아보겠다고 적는다',
+        warning: '가장 나쁜 답변은 추측입니다. 확인 안 된 배송일을 말했다가 어기면 그게 그대로 클레임이 됩니다.',
+      },
+      {
+        id: 'iq-3',
+        label: '자주 오는 질문은 템플릿으로 만들어둔다',
+        description: '언제 오나요 / 교환 되나요 / 정품 맞나요 — 이 셋이 대부분입니다.',
+        tip: '템플릿을 만들어두고 상황에 맞게 조금씩 고쳐 쓰는 게 매번 새로 쓰는 것보다 빠르고 실수도 적습니다.',
+        link: { url: '/my/cs-templates', label: 'CS 템플릿' },
+      },
+      {
+        id: 'iq-4',
+        label: '미답변을 0건으로 만든다',
+        description: '아래 확인하기를 누르면 시스템이 쿠팡에 직접 물어 남은 미답변을 세어줍니다.',
+      },
+    ],
+    roadmap: { icon: 'MessageSquare', cost: '무료', waitDays: 0 },
     verify: {
       level: 1,
       probe: 'coupang.inquiries',
@@ -113,6 +139,33 @@ export const ACT4_STEPS: AcademyStep[] = [
       { label: '반품관리 열기', href: '/megaload/returns' },
       { label: '자체수거 가이드', href: '/my/guides/orders-shipping/self-pickup-return' },
     ],
+    howto: [
+      {
+        id: 'rt-1',
+        label: '반품 사유부터 확인한다',
+        description: '단순 변심이면 반품 택배비는 고객 부담, 상품 하자나 오배송이면 판매자 부담입니다.',
+        warning: '하자·오배송인데 고객과 다투면 대부분 손해입니다. 시간도 비용이고 점수도 깎입니다.',
+      },
+      {
+        id: 'rt-2',
+        label: '쿠팡 회수 신청과 자체 수거 중에 고른다',
+        description: '쿠팡 회수는 쿠팡이 택배를 보내 가져오는 방식이라 편하지만 비용이 정해져 있습니다. 자체 수거는 내가 택배를 불러 소싱처로 바로 보냅니다.',
+        tip: '소싱처가 반품을 받아주면 자체 수거가 대체로 쌉니다. 물건이 나를 거치지 않아 시간도 짧습니다.',
+        link: { url: '/my/guides/orders-shipping/self-pickup-return', label: '자체수거 가이드' },
+      },
+      {
+        id: 'rt-3',
+        label: '회수 운송장을 등록한다',
+        description: '어느 쪽을 골랐든 회수 운송장을 등록해야 처리가 끝납니다.',
+        warning: '등록을 안 하면 반품이 계속 열린 상태로 남아 정산이 묶이고 점수도 깎입니다.',
+        link: { url: '/megaload/returns', label: '반품관리' },
+      },
+      {
+        id: 'rt-4',
+        label: '아래 확인하기로 미처리 반품이 남았는지 확인한다',
+      },
+    ],
+    roadmap: { icon: 'RotateCcw', cost: '반품 택배비', waitDays: 0 },
     verify: {
       level: 1,
       probe: 'coupang.returns',
@@ -181,6 +234,35 @@ export const ACT4_STEPS: AcademyStep[] = [
         },
       },
     ],
+    howto: [
+      {
+        id: 'df-1',
+        label: '모든 대화를 쿠팡 안에서 글로 한다',
+        warning: '전화로 하면 기록이 남지 않습니다. 기록이 없으면 나중에 아무것도 증명할 수 없습니다.',
+      },
+      {
+        id: 'df-2',
+        label: '감정 표현을 빼고 사실과 절차만 적는다',
+        link: { url: '/my/cs-templates', label: 'CS 템플릿' },
+      },
+      {
+        id: 'df-3',
+        label: '규정 밖 요구는 거절이 아니라 규정 안내로 적는다',
+        description: '안 된다고 쓰는 것과 규정이 이렇다고 쓰는 것은 같은 결론이지만 전혀 다르게 읽힙니다.',
+      },
+      {
+        id: 'df-4',
+        label: '욕설·협박이 오면 캡처하고 쿠팡 고객센터에 신고한다',
+        description: '혼자 감당하지 마세요. 신고는 정당한 절차입니다.',
+        link: { url: '/my/emergency', label: '긴급 대응' },
+      },
+      {
+        id: 'df-5',
+        label: '금액이 작으면 다투지 않고 받아주는 쪽을 고려한다',
+        description: '시간도 비용입니다. 이기고도 손해인 싸움이 있습니다.',
+      },
+    ],
+    roadmap: { icon: 'ShieldAlert', cost: '무료', waitDays: 0 },
     verify: {
       level: 3,
       checklist: [
@@ -261,6 +343,37 @@ export const ACT4_STEPS: AcademyStep[] = [
         },
       },
     ],
+    howto: [
+      {
+        id: 'bn-1',
+        label: '내용증명은 소송이 아니라는 것부터 안다',
+        description: '이렇게 주장한다는 편지입니다. 받았다고 해서 진 것이 아닙니다.',
+      },
+      {
+        id: 'bn-2',
+        label: '놀라서 잘못을 인정하는 답장을 보내지 않는다',
+        warning: '가장 하면 안 되는 행동입니다. 그 답장이 그대로 증거가 됩니다. 먼저 사실관계부터 정리하세요.',
+      },
+      {
+        id: 'bn-3',
+        label: '판 물건이 진정상품(진짜)인지 확인한다',
+        description: '정품을 사서 되판 것이라면 상표권 침해가 아닐 수 있습니다. 대법원 2002다42322 판결 취지입니다.',
+        tip: '금지되는 것은 공식 대리점·독점 총판 같은 표현으로 사칭하는 행위입니다. 무슨 상품인지 알려주는 표기나 정품이라는 설명은 다릅니다.',
+        link: { url: '/my/guides/legal-ip/ip-issue-handling', label: '브랜드 대응 가이드' },
+      },
+      {
+        id: 'bn-4',
+        label: '판매는 먼저 중단하되, 인정하지 않는다는 점을 문서에 적는다',
+        description: '행동은 빠르게, 인정은 하지 않는 것입니다. 중단은 분쟁을 끌지 않기 위한 선의의 조치라고 분명히 씁니다.',
+      },
+      {
+        id: 'bn-5',
+        label: '금액이 크거나 형사 고소가 언급되면 변호사에게 확인한다',
+        warning: '사건마다 사실관계가 다릅니다. 위 판례가 내 사건에 그대로 적용된다고 단정하지 마세요.',
+        link: { url: '/my/emergency', label: '긴급 대응' },
+      },
+    ],
+    roadmap: { icon: 'Scale', cost: '무료 (변호사 상담 별도)', waitDays: 0 },
     verify: {
       level: 3,
       checklist: [
@@ -362,6 +475,35 @@ export const ACT4_STEPS: AcademyStep[] = [
       { label: '쿠팡 대응 가이드', href: '/my/guides/account-management/seller-grade-penalty' },
       { label: '쿠팡 윙에서 통보 확인', href: 'https://wing.coupang.com', external: true },
     ],
+    howto: [
+      {
+        id: 'cp-1',
+        label: '상품 단위인지 계정 단위인지 먼저 구분한다',
+        description: '상품 단위는 대부분 지식재산권 신고·금지어·인증 서류 미비입니다. 해당 상품만 내리고 고치면 다른 상품에는 영향이 없습니다.',
+      },
+      {
+        id: 'cp-2',
+        label: '계정 단위면 원인이 쌓인 점수라는 것을 안다',
+        description: '판매자 점수, 반복 취소, 배송 지연이 누적돼서 옵니다. 하루아침에 생기지 않고 경고가 먼저 옵니다.',
+      },
+      {
+        id: 'cp-3',
+        label: '소명 기한을 가장 먼저 확인한다',
+        warning: '기한을 넘기면 소명 기회 자체가 사라집니다. 내용을 고민하기 전에 날짜부터 보세요.',
+      },
+      {
+        id: 'cp-4',
+        label: '소명서에 사실·개선·재발방지 세 가지만 적는다',
+        description: '무엇이 잘못됐고, 어떻게 고쳤고, 재발을 어떻게 막을지. 감정은 넣지 않습니다.',
+      },
+      {
+        id: 'cp-5',
+        label: '페널티 트래커로 점수를 정기적으로 본다',
+        description: '계정 제재는 예고가 있습니다. 보고 있으면 오기 전에 막을 수 있습니다.',
+        link: { url: '/my/penalty', label: '페널티 트래커' },
+      },
+    ],
+    roadmap: { icon: 'AlertTriangle', cost: '무료', waitDays: 0 },
     verify: {
       level: 3,
       checklist: [

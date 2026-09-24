@@ -14,7 +14,17 @@
  * 체크 상태는 `StepHowto.id` 로 localStorage 에 저장된다 → id 를 바꾸면 사용자의 체크가 날아간다.
  */
 
-import { getActSteps, type AcademyStep } from './academy';
+import { getActSteps, ACT_META, type AcademyStep, type AcademyAct } from './academy';
+
+/**
+ * 공개 로드맵에 싣는 막(Act).
+ *
+ * ★ 되돌리는 법: 이 배열을 `[1, 2]` 로 줄이면 예전 범위(입점·등록까지만 무료)로 돌아간다.
+ *   설계도 §16-1 은 Act 3~5 를 PT 전용으로 잡았으나, 2026-09-24 에 주문처리·CS까지
+ *   공개하기로 바꿨다. 화면·SEO·구조화 데이터가 전부 이 배열을 따라가므로 여기만 고치면 된다.
+ *   (Act 5 성장은 아직 howto 를 안 썼다. 쓰면 여기에 5 를 더하면 된다.)
+ */
+export const ROADMAP_ACTS: AcademyAct[] = [1, 2, 3, 4];
 
 export interface SubStep {
   id: string;
@@ -39,6 +49,22 @@ export interface RoadmapStep {
   subSteps: SubStep[];
   /** 로그인하면 시스템이 직접 판정해주는 아카데미 단계로 가는 링크 */
   academyHref: string;
+  /** 몇 번째 막인가. 26단계를 한 줄로 늘어놓으면 어디쯤 왔는지 알 수 없다. */
+  act: AcademyAct;
+}
+
+/** 막 머리말 — 단계 목록 사이에 끼워 "지금 어느 구간인가"를 말해준다. */
+export interface RoadmapPhase {
+  act: AcademyAct;
+  /** '1부 · 개업' */
+  label: string;
+  /** '팔 수 있는 상태 만들기' */
+  subtitle: string;
+  /** 이 막의 첫 단계 번호 (1-based) */
+  firstStepNumber: number;
+  stepCount: number;
+  /** 이 막에서 실제로 기다리는 영업일 합계 */
+  waitDays: number;
 }
 
 export interface FAQItem {
@@ -83,16 +109,46 @@ function toRoadmapStep(step: AcademyStep, index: number): RoadmapStep {
       link: h.link,
     })),
     academyHref: `/my/academy/${step.key}`,
+    act: step.act,
   };
 }
 
 /**
- * Act 1 + Act 2. howto 가 비어 있는 단계는 내보내지 않는다 —
- * 설명 없는 빈 카드가 로드맵에 뜨면 "여긴 뭐지" 하고 거기서 멈춘다.
+ * 공개 로드맵의 단계 목록.
+ * howto 가 비어 있는 단계는 내보내지 않는다 — 설명 없는 빈 카드가 뜨면
+ * "여긴 뭐지" 하고 거기서 멈춘다.
  */
-export const ROADMAP_STEPS: RoadmapStep[] = [...getActSteps(1), ...getActSteps(2)]
+export const ROADMAP_STEPS: RoadmapStep[] = ROADMAP_ACTS
+  .flatMap((act) => getActSteps(act))
   .filter((s) => (s.howto?.length ?? 0) > 0)
   .map(toRoadmapStep);
+
+/** 막 머리말. 화면과 목차가 같은 데이터를 보도록 여기서 한 번만 계산한다. */
+export const ROADMAP_PHASES: RoadmapPhase[] = ROADMAP_ACTS
+  .map((act) => {
+    const steps = ROADMAP_STEPS.filter((s) => s.act === act);
+    if (steps.length === 0) return null;
+    return {
+      act,
+      label: `${act}부 · ${ACT_META[act].title}`,
+      subtitle: ACT_META[act].subtitle,
+      firstStepNumber: steps[0].number,
+      stepCount: steps.length,
+      waitDays: steps.reduce((sum, s) => sum + s.estimatedDays, 0),
+    };
+  })
+  .filter((p): p is RoadmapPhase => p !== null);
+
+/**
+ * 첫 상품을 올리기까지(Act 1·2) 기다리는 영업일.
+ *
+ * ★ 전체 26단계의 합이 아니다. Act 3·4 는 "첫 주문이 들어오면" 열리는 구간이라
+ *   날짜로 더할 수 있는 성질이 아니다. 그걸 더해서 "예상 40일" 같은 숫자를 띄우면
+ *   시작도 하기 전에 사람을 돌려보내게 된다.
+ */
+export const DAYS_TO_FIRST_PRODUCT = ROADMAP_STEPS
+  .filter((s) => s.act === 1 || s.act === 2)
+  .reduce((sum, s) => sum + s.estimatedDays, 0);
 
 export const ROADMAP_FAQS: FAQItem[] = [
   {
@@ -144,6 +200,31 @@ export const ROADMAP_FAQS: FAQItem[] = [
     question: '다 했는지 누가 확인해주나요?',
     answer:
       '로그인하면 시스템이 쿠팡에 직접 물어봐서 확인해줍니다. API 연동·출고지 등록·상품 등록·판매중 여부는 전부 자동으로 판정되고, 안 됐으면 무엇이 몇 건으로 조회되는지까지 알려줍니다.',
+  },
+  {
+    question: '주문이 들어오면 제가 직접 포장해서 보내나요?',
+    answer:
+      '아닙니다. 위탁판매는 물건을 내가 가지고 있지 않습니다. 소싱처에 고객 주소로 직배송을 걸고(발주), 소싱처가 준 운송장 번호를 쿠팡에 등록하면 끝입니다. ① 주문 확인 ② 발주 ③ 송장 등록, 이 세 가지가 주문 처리의 전부입니다.',
+  },
+  {
+    question: '주문 처리에서 가장 많이 하는 실수는 뭔가요?',
+    answer:
+      '발주할 때 배송지에 내 주소를 넣는 것입니다. 고객 주소로 넣어야 물건이 고객에게 바로 갑니다. 그다음이 안심번호(050으로 시작)를 방치하는 것 — 기간이 지나면 끊겨서 택배기사가 연락을 못 합니다. 그래서 발주를 미루면 안 됩니다.',
+  },
+  {
+    question: '팔았는데 소싱처가 품절이면 어떻게 하나요?',
+    answer:
+      '다른 소싱처에 같은 상품이 있는지 먼저 봅니다. 없으면 고객에게 먼저 연락하고(통보가 아니라 사과와 안내) 주문을 품절 사유로 취소합니다. 그리고 반드시 그 상품의 판매를 중지하세요. 안 하면 같은 품절 주문이 계속 들어와 취소율이 쌓입니다.',
+  },
+  {
+    question: '고객 문의나 반품을 안 하고 두면 어떻게 되나요?',
+    answer:
+      '판매자 점수에 바로 들어갑니다. 미답변 문의와 미처리 반품은 쌓일수록 노출이 줄고, 누적되면 계정 제재까지 갑니다. 반품은 회수 운송장을 등록해야 처리가 끝나고, 그전까지는 정산도 묶입니다.',
+  },
+  {
+    question: '브랜드사에서 내용증명이 오면 어떡하나요?',
+    answer:
+      '내용증명은 소송이 아니라 "이렇게 주장한다"는 편지입니다. 가장 하면 안 되는 건 놀라서 잘못을 인정하는 답장을 보내는 것 — 그 답장이 증거가 됩니다. 정품을 사서 되판 것이라면 상표권 침해가 아닐 수 있습니다(대법원 2002다42322 취지). 다만 사건마다 사실관계가 다르니 금액이 크거나 형사 고소가 언급되면 변호사에게 확인하세요.',
   },
   {
     question: '쿠팡 외에 다른 마켓(네이버, 11번가 등)도 같은 절차인가요?',

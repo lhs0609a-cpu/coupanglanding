@@ -37,8 +37,15 @@ import {
   ListChecks,
   Upload,
   CheckCircle2,
+  Inbox,
+  ClipboardCheck,
+  ShoppingCart,
+  PackageX,
+  MessageSquare,
+  ShieldAlert,
+  Scale,
 } from 'lucide-react';
-import type { RoadmapStep, FAQItem } from '@/lib/data/start-roadmap';
+import type { RoadmapStep, RoadmapPhase, FAQItem } from '@/lib/data/start-roadmap';
 import {
   getStartProgress,
   toggleCheck,
@@ -77,6 +84,16 @@ const STEP_ICONS: Record<string, React.ElementType> = {
   ListChecks,
   Upload,
   CheckCircle2,
+  Inbox,
+  ClipboardCheck,
+  ShoppingCart,
+  PackageX,
+  MessageSquare,
+  ShieldAlert,
+  Scale,
+  Clock,
+  RotateCcw,
+  AlertTriangle,
 };
 
 /** 단계별 체크박스 id 목록. 진행률·완료 판정이 전부 이걸 기준으로 돈다. */
@@ -235,8 +252,8 @@ function Header() {
 function HeroSection({ totalSteps }: { totalSteps: number }) {
   const stats = [
     { label: '필수 비용', value: '4~6만원', icon: DollarSign },
-    { label: '예상 소요', value: '약 2~3주', icon: Clock },
-    { label: '총 단계', value: `${totalSteps}단계`, icon: CalendarCheck },
+    { label: '첫 상품까지', value: '약 2~3주', icon: Clock },
+    { label: '입점부터 CS까지', value: `${totalSteps}단계`, icon: CalendarCheck },
   ];
 
   return (
@@ -278,7 +295,7 @@ function HeroSection({ totalSteps }: { totalSteps: number }) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, delay: 0.2 }}
         >
-          사업자등록부터 쿠팡 윙 입점까지,
+          사업자등록부터 첫 주문 처리와 고객 응대까지,
           <br className="hidden sm:block" /> 체크리스트로 하나씩 따라하면 됩니다.
         </motion.p>
 
@@ -320,6 +337,25 @@ function HeroSection({ totalSteps }: { totalSteps: number }) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PhaseHeader — 막 머리말
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function PhaseHeader({ phase }: { phase: RoadmapPhase }) {
+  return (
+    <AnimatedSection
+      id={`phase-${phase.act}`}
+      className="max-w-3xl mx-auto px-4 sm:px-6 pt-10 pb-4"
+    >
+      <motion.div variants={fadeInUp} className="flex items-baseline gap-3 flex-wrap">
+        <h2 className="text-xl sm:text-2xl font-bold text-white">{phase.label}</h2>
+        <span className="text-sm text-gray-400">{phase.subtitle}</span>
+        <span className="ml-auto text-xs text-gray-500">{phase.stepCount}단계</span>
+      </motion.div>
+      <motion.div variants={fadeInUp} className="mt-3 h-px bg-gradient-to-r from-[#E31837]/60 to-transparent" />
+    </AnimatedSection>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // CompletionDateWidget
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function CompletionDateWidget({
@@ -331,9 +367,13 @@ function CompletionDateWidget({
   steps: RoadmapStep[];
   allSubIds: string[][];
 }) {
+  // ★ 1·2부(개업·등록)만 센다.
+  //   3·4부(주문·CS)는 "첫 주문이 들어오면" 열리는 구간이라 날짜로 더할 수 있는 성질이
+  //   아니다. 전부 더해서 "예상 40일" 같은 숫자를 띄우면 시작도 전에 사람을 돌려보낸다.
   const remainingDays = useMemo(() => {
     let days = 0;
     steps.forEach((step, i) => {
+      if (step.act !== 1 && step.act !== 2) return;
       if (!isStepCompleted(allSubIds[i], progress)) {
         days += step.estimatedDays;
       }
@@ -354,7 +394,7 @@ function CompletionDateWidget({
         <div className="flex items-center gap-3">
           <CalendarCheck className="w-5 h-5 text-blue-400" />
           <div>
-            <p className="text-sm text-gray-400">예상 완료일</p>
+            <p className="text-sm text-gray-400">첫 상품 등록까지</p>
             <p className="text-lg font-bold text-white">
               {formatDate(estimatedDate)}
             </p>
@@ -728,11 +768,12 @@ function FinalCTA() {
         className="text-center p-8 sm:p-12 rounded-2xl bg-gradient-to-br from-[#E31837]/10 to-purple-500/10 border border-[#E31837]/20"
       >
         <h2 className="text-2xl sm:text-3xl font-bold text-white mb-4">
-          입점 준비 완료!
+          여기까지가 전부입니다
         </h2>
         <p className="text-gray-400 mb-8 max-w-lg mx-auto">
-          모든 단계를 마치셨다면 이제 쿠팡에서 상품을 등록하고 판매를 시작할 차례입니다.
-          메가로드로 상품 등록을 자동화해보세요.
+          입점부터 상품 등록, 주문 발주와 송장, 반품과 고객 응대까지 — 셀러가 실제로 하는
+          일은 여기 적힌 것이 전부입니다. 로그인하면 각 단계를 다 했는지 시스템이 쿠팡에
+          직접 물어서 확인해드립니다.
         </p>
         <Link
           href={CTA_URL}
@@ -804,9 +845,11 @@ function CelebrationOverlay({ onClose }: { onClose: () => void }) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 export default function StartClient({
   steps,
+  phases,
   faqs,
 }: {
   steps: RoadmapStep[];
+  phases: RoadmapPhase[];
   faqs: FAQItem[];
 }) {
   const allSubIds = useMemo(() => subIdsOf(steps), [steps]);
@@ -928,6 +971,13 @@ export default function StartClient({
         {/* Step간 연결선 */}
         {steps.map((step, i) => (
           <div key={step.id}>
+            {/* 막이 바뀌는 자리에 머리말을 끼운다. 26단계를 평평하게 늘어놓으면
+                어디쯤 왔는지 알 수 없고, 그러면 3부부터는 아무도 안 본다. */}
+            {phases.map((p) =>
+              p.firstStepNumber === step.number ? (
+                <PhaseHeader key={p.act} phase={p} />
+              ) : null,
+            )}
             <StepCard
               step={step}
               stepIndex={i}
