@@ -128,15 +128,36 @@ function AnimatedSection({
   className?: string;
   id?: string;
 }) {
-  const ref = useRef(null);
+  const ref = useRef<HTMLElement>(null);
   const isInView = useInView(ref, { once: true, margin: '-80px' });
+
+  /**
+   * 건너뛴 구간을 구해내는 안전장치.
+   *
+   * 등장 애니메이션은 화면에 들어와야 터진다. 그런데 `/start#phase-3` 같은 딥링크로
+   * 들어오면 그 위의 구간들은 한 번도 화면에 걸리지 않고 지나가버려서, 스크롤을 올려도
+   * opacity 0 인 빈 화면만 남는다. 26단계가 되면서 앵커가 생겼으니 실제로 겪게 된다.
+   *
+   * 그래서 "이미 지나간 구간" 은 애니메이션 없이 그냥 보여준다.
+   */
+  const [skipped, setSkipped] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || el.getBoundingClientRect().bottom >= 0) return;
+    // 렌더 중 동기 setState 를 피해 한 틱 미룬다(연쇄 렌더 방지).
+    const t = setTimeout(() => setSkipped(true), 0);
+    return () => clearTimeout(t);
+  }, []);
+
+  const show = isInView || skipped;
+
   return (
     <motion.section
       ref={ref}
       id={id}
       className={className}
       initial="hidden"
-      animate={isInView ? 'visible' : 'hidden'}
+      animate={show ? 'visible' : 'hidden'}
       variants={staggerContainer}
     >
       {children}
