@@ -58,6 +58,7 @@ const ENTRIES: Entry[] = [
   // 카테고리·키워드 허브도 여기서 한 번 더 알린다 (각자 사이트맵에도 들어 있다)
   { path: "/coupang/category", lastmod: STATIC_UPDATED, changefreq: "monthly", priority: 0.8, hreflang: true },
   { path: "/coupang/keyword", lastmod: STATIC_UPDATED, changefreq: "weekly", priority: 0.8, hreflang: true },
+  { path: "/coupang/margin-calculator", lastmod: "2026-09-25", changefreq: "monthly", priority: 0.8, hreflang: true },
   { path: "/terms", lastmod: LEGAL_UPDATED, changefreq: "yearly", priority: 0.3 },
   { path: "/privacy", lastmod: LEGAL_UPDATED, changefreq: "yearly", priority: 0.3 },
   { path: "/refund", lastmod: LEGAL_UPDATED, changefreq: "yearly", priority: 0.3 },

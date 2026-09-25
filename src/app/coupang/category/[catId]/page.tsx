@@ -262,6 +262,14 @@ export default async function CoupangCategoryPage({
                 </tbody>
               </table>
             </div>
+            <p className="mt-3">
+              <Link
+                href={`/coupang/margin-calculator?cat=${c.id}`}
+                className="inline-flex items-center px-3.5 py-2 rounded-xl border border-[#E31837] text-[#E31837] text-sm font-semibold hover:bg-[#E31837] hover:text-white transition-colors"
+              >
+                이 카테고리로 마진 계산하기
+              </Link>
+            </p>
             <p className="mt-3 text-xs text-gray-500 leading-relaxed">
               위 금액은 <strong>판매수수료만</strong> 반영한 값입니다. 실제 정산액은 여기서 결제수수료가
               추가로 차감되고, 쿠팡 정산 주기(주정산·월정산)에 따라 입금 시점이 나뉩니다. 정산 구조는{" "}

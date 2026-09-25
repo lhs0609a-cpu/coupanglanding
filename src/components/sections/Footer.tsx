@@ -95,6 +95,14 @@ export default function Footer() {
               </li>
               <li>
                 <Link
+                  href="/coupang/margin-calculator"
+                  className="text-sm text-gray-500 hover:text-gray-900 transition-colors"
+                >
+                  마진 계산기
+                </Link>
+              </li>
+              <li>
+                <Link
                   href="/pt"
                   className="text-sm text-gray-500 hover:text-gray-900 transition-colors"
                 >
