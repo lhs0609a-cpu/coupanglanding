@@ -119,10 +119,18 @@ export const metadata: Metadata = {
         process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
       ) || "m6A0ePDxMBEU5ZbY1mx7_3NVkfP_zAANogVDUHUXoS8",
     other: {
-      "naver-site-verification":
-        extractVerificationContent(
-          process.env.NEXT_PUBLIC_NAVER_SITE_VERIFICATION
-        ) || "3dafac8b547ac0b0c073126d3a46face421c3eb2",
+      // 네이버는 apex(megaload.co.kr)와 www 를 **다른 사이트**로 본다. 한 앱이 두 도메인에
+      // 다 응답하므로 두 속성의 토큰을 함께 내보낸다 — 하나로 덮어쓰면 다른 쪽 소유확인이
+      // 조용히 풀린다. 배열로 주면 <meta> 가 두 줄 렌더된다.
+      // 순서에 뜻이 있다: 네이버가 같은 이름의 태그 중 첫 번째만 읽는 경우에도
+      // **대표 도메인(www)** 이 먼저 통과해야 한다. apex 는 리다이렉트 전용이라 뒤로 둔다.
+      // [0] www 속성(2026-09-25 추가, 대표 도메인) [1] apex 속성(기존)
+      "naver-site-verification": [
+        "aee05e32805d45743c7bbde357c39d8195fb03a4",
+        "3dafac8b547ac0b0c073126d3a46face421c3eb2",
+        // env 로 토큰을 더 넣을 수 있다(속성을 또 추가할 때). 중복은 아래에서 걸러진다.
+        extractVerificationContent(process.env.NEXT_PUBLIC_NAVER_SITE_VERIFICATION),
+      ].filter((v, i, arr): v is string => Boolean(v) && arr.indexOf(v) === i),
       ...(process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION && {
         "msvalidate.01":
           extractVerificationContent(
