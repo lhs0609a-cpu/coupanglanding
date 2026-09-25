@@ -26,6 +26,12 @@ function arg(name, fallback) {
 }
 const LIMIT = Number(arg('--limit', '0')) || 0;
 const OUT = arg('--out', path.join(ROOT, 'seo-keywords.json'));
+/**
+ * 시드를 파일에서 읽는다 (한 줄에 하나, '#' 주석 허용).
+ * 없으면 trend-seed-keywords.ts 의 상품 시드를 쓴다.
+ * 상품 키워드 말고 다른 주제(부업·세금 등)의 수요를 잴 때 쓴다.
+ */
+const SEED_FILE = arg('--seed-file', '');
 
 // ── .env.local 로드 (dotenv 규칙: 큰따옴표 벗기고 escape 확장) ──
 const env = {};
@@ -64,14 +70,26 @@ const seedsByCategory = {};
 }
 
 const allSeeds = [];
-for (const [cat, words] of Object.entries(seedsByCategory)) {
-  for (const w of words) allSeeds.push({ category: cat, seed: w });
+if (SEED_FILE) {
+  // 파일의 시드는 카테고리 구분이 없다 — 한 덩어리로 본다
+  const lines = fs
+    .readFileSync(SEED_FILE, 'utf8')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#'));
+  for (const w of lines) allSeeds.push({ category: '사용자지정', seed: w });
+} else {
+  for (const [cat, words] of Object.entries(seedsByCategory)) {
+    for (const w of words) allSeeds.push({ category: cat, seed: w });
+  }
 }
 const seeds = LIMIT ? allSeeds.slice(0, LIMIT) : allSeeds;
 
 console.log(
-  `시드 ${allSeeds.length}개 (카테고리 ${Object.keys(seedsByCategory).length}개)` +
-    (LIMIT ? ` → 이번 실행 ${seeds.length}개로 제한` : '')
+  SEED_FILE
+    ? `시드 ${allSeeds.length}개 (${path.relative(ROOT, SEED_FILE)})`
+    : `시드 ${allSeeds.length}개 (카테고리 ${Object.keys(seedsByCategory).length}개)` +
+        (LIMIT ? ` → 이번 실행 ${seeds.length}개로 제한` : '')
 );
 
 // ── API ──
