@@ -33,6 +33,8 @@ const MAX_ITEMS = 50;
 const CHANNEL_GUIDE_UPDATED = "2026-08-20";
 /** 오픈마켓 비교표 갱신일 — 위와 같은 이유로 수동 관리 */
 const COMPARISON_UPDATED = "2026-08-20";
+/** 쿠팡 카테고리·키워드 자료 발행일 */
+const DATASET_PUBLISHED = "2026-09-24";
 
 const PUBLIC_CHANNELS = (Object.keys(CHANNEL_ONBOARDING_GUIDES) as Channel[])
   .filter((c) => CHANNEL_ONBOARDING_GUIDES[c]?.available);
@@ -94,7 +96,31 @@ function buildItems(): FeedItem[] {
     categories: ["오픈마켓 비교", "오픈마켓 수수료", "입점 조건"],
   };
 
-  return [...articles, ...channelGuides, comparison]
+  /**
+   * 카테고리·키워드 자료의 **허브만** 넣는다.
+   * 문서 자체는 8만 개라 RSS 에 넣을 수 없고 넣어서도 안 된다 — RSS 는 발행물 피드이고
+   * 상한도 50개다. 대량 URL은 사이트맵 인덱스(/sitemap.xml)가 맡는다.
+   */
+  const datasets: FeedItem[] = [
+    {
+      url: `${SITE_URL}/coupang/category`,
+      title: "쿠팡 카테고리별 판매수수료·필수속성 전체 목록",
+      description:
+        "쿠팡 카테고리 11,657개의 실제 판매수수료율(4~10.9%)과 상품 등록 시 반드시 입력해야 하는 속성을 카테고리별로 정리했습니다. 판매가별 실수령액까지 함께 볼 수 있습니다.",
+      date: DATASET_PUBLISHED,
+      categories: ["쿠팡 카테고리 수수료", "쿠팡 판매수수료", "쿠팡 필수속성", "쿠팡 상품등록"],
+    },
+    {
+      url: `${SITE_URL}/coupang/keyword`,
+      title: "상품 키워드 월 검색량 — 네이버 실검색량 69,522개",
+      description:
+        "상품 키워드 69,522개의 네이버 월 검색량과 경쟁 정도입니다. PC·모바일 검색량 분해와, 쿠팡에서 팔 때의 카테고리·판매수수료까지 키워드별로 확인할 수 있습니다.",
+      date: DATASET_PUBLISHED,
+      categories: ["키워드 검색량", "네이버 검색량 조회", "소싱 키워드", "쿠팡 키워드"],
+    },
+  ];
+
+  return [...articles, ...channelGuides, comparison, ...datasets]
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, MAX_ITEMS);
 }

@@ -4,9 +4,11 @@ www.megaload.co.kr 의 색인용 피드는 전부 코드에서 생성된다. 별
 
 | 주소 | 생성 파일 | 내용 |
 | --- | --- | --- |
-| https://www.megaload.co.kr/sitemap.xml | `src/app/sitemap.ts` | 공개 URL 전체(홈·PT·프로그램·가이드·채널가이드·약관 등) |
+| https://www.megaload.co.kr/sitemap.xml | `src/app/sitemap.xml/route.ts` | **사이트맵 인덱스 — 검색엔진에는 이것 하나만 제출하면 된다** |
+| https://www.megaload.co.kr/pages-sitemap.xml | `src/app/pages-sitemap.xml/route.ts` | 핵심 페이지·가이드 28개 (인덱스의 자식) |
 | https://www.megaload.co.kr/rss.xml | `src/app/rss.xml/route.ts` | 콘텐츠 문서만(가이드 아티클 8 + 채널 입점 가이드 7 + 오픈마켓 비교 1) |
-| https://www.megaload.co.kr/coupang/category/sitemap.xml | `src/app/coupang/category/sitemap.ts` | 쿠팡 카테고리 문서 **11,657개** (색인 대상만) |
+| https://www.megaload.co.kr/coupang/category/sitemap.xml | `src/app/coupang/category/sitemap.ts` | 쿠팡 카테고리 문서 **11,657개** (인덱스의 자식) |
+| https://www.megaload.co.kr/coupang/keyword/sitemap/{0,1,2}.xml | `src/app/coupang/keyword/sitemap.ts` | 키워드 문서 **69,522개** (인덱스의 자식) |
 | https://www.megaload.co.kr/robots.txt | `src/app/robots.ts` | 크롤러 규칙 + 위 사이트맵·RSS 주소 고지 |
 | https://www.megaload.co.kr/llms.txt | `src/app/llms.txt/route.ts` | AI 검색 크롤러용 요약 |
 
@@ -21,8 +23,14 @@ apex(`megaload.co.kr`)는 Vercel 에서 `www.megaload.co.kr` 로 307 리다이�
 **코드의 `SITE_URL` 도 전부 www 기준이다**(2026-09-24 통일). sitemap `<loc>`, canonical,
 RSS `<link>`, llms.txt 가 모두 www 를 가리킨다.
 
-검색엔진에는 **www 속성으로 등록**한다. apex 로 등록하면 모든 URL이 리다이렉트를 한 번 더
-거치고, 네이버는 그런 사이트맵/RSS 를 수집 실패로 처리하는 경우가 있다.
+검색엔진에는 **반드시 www 속성으로 등록**한다.
+
+⚠️ apex(`https://megaload.co.kr/sitemap.xml`)로 제출하면 두 가지가 동시에 터진다.
+   1) 그 주소 자체가 307 로 www 에 리다이렉트된다
+   2) 사이트맵 안의 `<loc>` 는 전부 `www.` 라서, apex 속성에서는 **소유확인되지 않은
+      도메인의 URL**로 취급되어 한 건도 수집되지 않는다
+   apex 속성에 이미 제출했다면 www 속성을 새로 추가하고 거기에 다시 제출한다.
+   소유확인 메타태그는 같은 앱이 두 도메인에 다 응답하므로 즉시 확인된다.
 
 소유확인 메타태그(`src/app/layout.tsx` 의 `verification`)는 같은 앱이 두 도메인에 다 응답하므로
 **www 속성에서도 같은 태그로 즉시 확인된다.** 새 토큰을 받을 필요가 없다.
@@ -36,8 +44,9 @@ https://searchadvisor.naver.com → 웹마스터도구 → 사이트 선택
 1. **사이트 소유확인** — www 속성을 새로 추가하고 소유확인한다(apex 속성은 그대로 둬도 된다). 메타태그 방식이고 토큰은 `src/app/layout.tsx` 의
    `verification.other["naver-site-verification"]` 에 박혀 있다 (env `NEXT_PUBLIC_NAVER_SITE_VERIFICATION` 이 있으면 그쪽 우선).
    소유확인이 풀리면 색인이 통째로 멈추므로 이 값을 건드리지 않는다.
-2. **요청 → 사이트맵 제출** — `sitemap.xml` 입력 후 확인. (도메인 뒤 경로만 넣는 칸이다)
-   이어서 `coupang/category/sitemap.xml` 도 **따로 한 번 더** 제출한다. 사이트맵은 여러 개 등록된다.
+2. **요청 → 사이트맵 제출** — `sitemap.xml` **하나만** 넣으면 된다. (도메인 뒤 경로만 넣는 칸이다)
+   이건 사이트맵 인덱스라 카테고리·키워드 사이트맵이 그 안에서 따라 들어간다.
+   자식 사이트맵을 따로 제출할 필요가 없다.
 3. **요청 → RSS 제출** — `rss.xml` 입력 후 확인.
 4. **요청 → 웹페이지 수집** — 새로 쓴 문서 URL을 직접 넣으면 즉시 수집 요청이 간다. 하루 한도가 있으니
    중요한 글(가이드 아티클)에만 쓴다.
@@ -50,14 +59,13 @@ https://searchadvisor.naver.com → 웹마스터도구 → 사이트 선택
 
 https://search.google.com/search-console
 
-1. 색인 생성 → **Sitemaps** → `sitemap.xml` 제출.
-2. 같은 화면에 `coupang/category/sitemap.xml` 과 `rss.xml` 도 추가 제출.
-   구글은 RSS 를 사이트맵의 한 종류로 받는다.
+1. 색인 생성 → **Sitemaps** → `sitemap.xml` 제출. 인덱스라 자식들이 따라 들어간다.
+2. 같은 화면에 `rss.xml` 도 추가 제출. 구글은 RSS 를 사이트맵의 한 종류로 받는다.
 3. 개별 문서는 상단 검색창에 URL을 넣고 **색인 생성 요청**.
 
 ## 3. 빙 웹마스터 도구
 
-https://www.bing.com/webmasters — Sitemaps 에 `sitemap.xml`, `coupang/category/sitemap.xml`, `rss.xml` 모두 등록.
+https://www.bing.com/webmasters — Sitemaps 에 `sitemap.xml` 과 `rss.xml` 등록.
 구글 서치 콘솔 계정에서 사이트를 그대로 가져오는(Import) 기능이 있다.
 
 ## 4. 다음(카카오)
@@ -127,9 +135,9 @@ https://register.search.daum.net/index.daum — 신규 등록 폼에 사이트 �
 
 ```bash
 curl -s https://www.megaload.co.kr/rss.xml | head -20        # 200 + application/rss+xml
-curl -s https://www.megaload.co.kr/sitemap.xml | grep -c "<loc>"
+curl -s https://www.megaload.co.kr/sitemap.xml | grep -c "<sitemap>"            # 5 (인덱스)
 curl -s https://www.megaload.co.kr/coupang/category/sitemap.xml | grep -c "<loc>"  # 11658
-curl -s https://www.megaload.co.kr/robots.txt | grep Sitemap  # 세 줄 나와야 정상
+curl -s https://www.megaload.co.kr/robots.txt | grep Sitemap  # 두 줄(인덱스 + RSS)
 ```
 
 RSS 문법 검증은 https://validator.w3.org/feed/ 에 주소를 넣어 확인한다.
