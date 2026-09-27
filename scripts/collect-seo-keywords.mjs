@@ -103,13 +103,27 @@ function parseCount(value) {
   return 0;
 }
 
+/**
+ * 힌트 키워드 정제 — 네이버 키워드도구는 **공백이 든 힌트를 400 으로 거부한다.**
+ *
+ * 처음엔 상품 시드(공백 없음)만 돌려서 드러나지 않았다. 쿠팡 카테고리명을 시드로 쓰자
+ * 1,564개에 공백이 있었고, 배치가 5개 묶음이라 하나만 걸려도 배치 전체가 버려졌다.
+ * 실측 결과 1,442회 중 622회(43%)가 실패했다 — 시드의 43%가 그냥 날아갔다.
+ */
+function sanitizeHint(s) {
+  return s.replace(/\s+/g, '');
+}
+
 async function fetchKeywords(hints) {
   const ts = Date.now();
   const sig = crypto
     .createHmac('sha256', SECRET)
     .update(`${ts}.GET./keywordstool`)
     .digest('base64');
-  const params = new URLSearchParams({ hintKeywords: hints.join(','), showDetail: '1' });
+  const params = new URLSearchParams({
+    hintKeywords: hints.map(sanitizeHint).filter(Boolean).join(','),
+    showDetail: '1',
+  });
   const res = await fetch(`https://api.searchad.naver.com/keywordstool?${params}`, {
     headers: {
       'X-API-KEY': ACCESS,
@@ -133,28 +147,78 @@ const collected = new Map();
 const BATCH = 5;
 let calls = 0;
 let failures = 0;
+let recovered = 0;
+let lostSeeds = 0;
 const startedAt = Date.now();
+
+/** 응답의 키워드를 수집 맵에 넣는다 */
+function absorb(list, category) {
+  for (const item of list) {
+    const kw = String(item.relKeyword || '').trim();
+    if (!kw) continue;
+    const pc = parseCount(item.monthlyPcQcCnt);
+    const mo = parseCount(item.monthlyMobileQcCnt);
+    const total = pc + mo;
+    if (total <= 0) continue; // 검색량 0 은 문서를 만들 이유가 없다
+
+    const key = kw.toLowerCase();
+    const prev = collected.get(key);
+    if (prev) {
+      prev.categories.add(category);
+      if (total > prev.total) {
+        prev.pc = pc;
+        prev.mo = mo;
+        prev.total = total;
+        prev.comp = item.compIdx || prev.comp;
+      }
+    } else {
+      collected.set(key, {
+        keyword: kw,
+        pc,
+        mo,
+        total,
+        comp: item.compIdx || '낮음',
+        categories: new Set([category]),
+      });
+    }
+  }
+}
+
+async function callOnce(hints) {
+  try {
+    return await fetchKeywords(hints);
+  } catch (e) {
+    return { ok: false, status: 0, list: [], error: String(e) };
+  }
+}
 
 for (let i = 0; i < seeds.length; i += BATCH) {
   const batch = seeds.slice(i, i + BATCH);
   const hints = batch.map((b) => b.seed);
   const category = batch[0].category;
 
-  let result;
-  try {
-    result = await fetchKeywords(hints);
-  } catch (e) {
-    result = { ok: false, status: 0, list: [], error: String(e) };
-  }
+  const result = await callOnce(hints);
   calls++;
 
   if (!result.ok) {
     failures++;
-    // 429/5xx 는 잠시 쉬고 넘어간다. 한 배치 실패로 전체를 멈추지 않는다.
-    if (failures <= 5 || failures % 20 === 0) {
-      console.warn(`  배치 ${calls} 실패 (HTTP ${result.status}) — 누적 실패 ${failures}`);
+    if (failures <= 5 || failures % 50 === 0) {
+      console.warn(`  배치 ${calls} 실패 (HTTP ${result.status}) — 누적 ${failures}, 개별 재시도로 회수 중`);
     }
-    await sleep(result.status === 429 ? 5000 : 1000);
+    // 429 는 서버가 밀린 것이니 쉬었다가, 그 외에는 바로 시드별로 쪼개 재시도한다.
+    // 배치 하나가 통째로 버려지면 멀쩡한 시드 4개까지 같이 날아간다 — 실제로 43%를 잃었다.
+    await sleep(result.status === 429 ? 5000 : 300);
+    for (const b of batch) {
+      const one = await callOnce([b.seed]);
+      calls++;
+      if (one.ok) {
+        recovered++;
+        absorb(one.list, b.category);
+      } else {
+        lostSeeds++;
+      }
+      await sleep(250);
+    }
     continue;
   }
 
@@ -226,7 +290,10 @@ for (const r of rows) {
 
 console.log('');
 console.log('── 수집 완료 ──');
-console.log(`  API 호출 ${calls}회 (실패 ${failures}회) · ${((Date.now() - startedAt) / 1000 / 60).toFixed(1)}분`);
+console.log(
+  `  API 호출 ${calls}회 (배치 실패 ${failures}회 → 개별 회수 ${recovered}개, 최종 손실 ${lostSeeds}개) · ` +
+    `${((Date.now() - startedAt) / 1000 / 60).toFixed(1)}분`
+);
 console.log(`  검색량 있는 고유 키워드: ${rows.length.toLocaleString()}개`);
 console.log(`  검색량 분포:`, buckets);
 console.log(`  저장: ${path.relative(ROOT, OUT)} (${(fs.statSync(OUT).size / 1024 / 1024).toFixed(2)}MB)`);
