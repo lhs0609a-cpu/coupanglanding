@@ -142,10 +142,20 @@ export class CoupangAdapter extends BaseAdapter {
     }
   }
 
-  async getProducts(params: { page?: number; size?: number; status?: string }) {
-    const { page = 1, size = 100, status } = params;
+  /**
+   * 판매자 상품 목록.
+   *
+   * ⚠️ 쿠팡의 `nextToken` 은 페이지 번호가 아니라 **응답으로 받아 그대로 돌려줘야 하는 커서**다.
+   *    페이지 번호를 넣으면 2페이지부터 빈 배열이 온다(실측 2026-09-28: 상품 342개인 계정이
+   *    page=1 에 100건, page=2 에 0건). 그래서 호출 측이 이어 받을 수 있게 nextToken 을 돌려준다.
+   *    전량이 필요하면 응답의 nextToken 이 빌 때까지 다시 부른다.
+   */
+  async getProducts(params: { page?: number; size?: number; status?: string; nextToken?: string }) {
+    const { size = 100, status, nextToken } = params;
     const path = '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
-    const queryParts = [`vendorId=${this.vendorId}`, `nextToken=${page}`, `maxPerPage=${size}`];
+    // 첫 호출은 nextToken=1 로 시작한다(쿠팡이 요구하는 초기값).
+    const token = nextToken ?? '1';
+    const queryParts = [`vendorId=${this.vendorId}`, `nextToken=${token}`, `maxPerPage=${size}`];
     if (status) queryParts.push(`status=${status}`);
     const query = queryParts.join('&');
 
@@ -165,8 +175,11 @@ export class CoupangAdapter extends BaseAdapter {
       items = payload.content;
     }
 
-    console.log(`[CoupangAdapter] getProducts: raw keys=${Object.keys(raw || {}).join(',')}, items=${items.length}`);
-    return { items, totalCount: items.length };
+    // 다음 커서 — 빈 문자열/null 이면 마지막 페이지다.
+    const next = raw?.nextToken != null && String(raw.nextToken) !== '' ? String(raw.nextToken) : null;
+
+    console.log(`[CoupangAdapter] getProducts: raw keys=${Object.keys(raw || {}).join(',')}, items=${items.length}, nextToken=${next ?? '(끝)'}`);
+    return { items, totalCount: items.length, nextToken: next };
   }
 
   /**
