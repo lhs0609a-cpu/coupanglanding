@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { LayoutDashboard, TrendingUp, History, FileText, BookOpen, Settings, GraduationCap, X, School, Flame, ShieldAlert, Gavel, Receipt, MessageSquare, Map, ShieldCheck, Trophy, Search, Megaphone, Lightbulb, Building2, Bell, MessageCircle, HelpCircle, Tv, PlaySquare, Zap, ArrowRight, ChevronDown } from 'lucide-react';
 import type { SettlementBadgeData, FeePaymentBadgeData } from './DashboardLayout';
 import FeePaymentBanner from '@/components/settlement/FeePaymentBanner';
+import { KAKAO_SUPPORT_URL, KAKAO_SUPPORT_LABEL } from '@/lib/support-link';
 import type { FeePaymentStatus } from '@/lib/supabase/types';
 import { useSidebarUsage } from '@/hooks/useSidebarUsage';
 
@@ -35,7 +36,8 @@ const baseNavItems = [
   { href: '/my/training-videos', label: '교육 영상', icon: PlaySquare },
   { href: '/my/guides', label: '운영 가이드', icon: BookOpen },
   { href: '/my/notices', label: '공지사항', icon: Bell },
-  { href: '/my/support', label: '1:1 문의', icon: MessageCircle },
+  // 1:1 문의 게시판을 없애고 카톡고객센터로 보낸다 (사용자 확정 2026-09-28).
+  { href: KAKAO_SUPPORT_URL, label: KAKAO_SUPPORT_LABEL, icon: MessageCircle, external: true },
   { href: '/my/faq', label: 'FAQ', icon: HelpCircle },
   { href: '/my/settings', label: '계정 설정', icon: Settings },
 ];
@@ -84,6 +86,26 @@ export default function UserSidebar({ isOpen, onClose, isTrainer, settlementBadg
     const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
     const Icon = item.icon;
     const isReportItem = item.href === '/my/report';
+
+    // 외부 링크(카톡고객센터)는 Link 로 렌더하면 Next 라우터가 가로채 404 가 난다.
+    if ('external' in item && item.external) {
+      return (
+        <a
+          key={item.href}
+          href={item.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => { trackClick(item.href); onClose(); }}
+          className="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 transition hover:bg-gray-100 hover:text-gray-900"
+        >
+          <span className="flex items-center gap-3">
+            <Icon className="w-5 h-5" />
+            {item.label}
+          </span>
+        </a>
+      );
+    }
+
     return (
       <Link
         key={item.href}

@@ -24,8 +24,6 @@ export interface ToolContext {
   /** 이번 답변에 같이 띄울 이미지/영상 (툴이 채운다) */
   media: AssistantMedia[];
   /** 봇이 만든 티켓 — 대화에 링크로 남긴다 */
-  createdTicketId?: string;
-  createdBugReportId?: string;
   /** 대화 전문 (티켓 본문에 붙임) */
   transcript: string;
 }
@@ -90,50 +88,9 @@ export function toolSpecs(ctx: ToolContext): ToolSpec[] {
     });
   }
 
-  if (ctx.ptUserId) {
-    specs.push({
-      name: 'create_support_ticket',
-      description:
-        '관리자에게 전달되는 1:1 문의를 생성한다. ' +
-        '봇이 해결할 수 없는 문제(정산 금액 이견, 계약, 결제 오류, 개인 계정 조치)이거나 ' +
-        '사용자가 "사람에게 문의하고 싶다"고 했을 때만 호출한다. ' +
-        '호출 전에 반드시 사용자에게 "1:1 문의를 남길까요?"라고 물어서 동의를 받는다. 지금까지의 대화가 자동으로 첨부된다.',
-      parameters: {
-        type: 'object',
-        properties: {
-          category: {
-            type: 'string',
-            enum: ['settlement', 'contract', 'coupang_api', 'tax_invoice', 'system_error', 'other'],
-            description: '정산/계약/쿠팡API/세금계산서/시스템오류/기타',
-          },
-          title: { type: 'string', description: '한 줄 제목' },
-          message: { type: 'string', description: '관리자가 바로 이해할 수 있게 정리한 상황 설명' },
-        },
-        required: ['category', 'title', 'message'],
-      },
-    });
-  }
-
-  if (ctx.megaloadUserId) {
-    specs.push({
-      name: 'create_bug_report',
-      description:
-        '프로그램 버그·이상 동작을 오류문의로 등록한다. ' +
-        '재현되는 오류이고 사용자가 동의했을 때만 호출한다. 현재 페이지 URL이 자동으로 첨부된다.',
-      parameters: {
-        type: 'object',
-        properties: {
-          category: {
-            type: 'string',
-            enum: ['ui_bug', 'data_error', 'api_error', 'performance', 'feature_request', 'general'],
-          },
-          title: { type: 'string' },
-          description: { type: 'string', description: '무엇을 했더니 어떻게 됐는지, 오류 메시지 원문 포함' },
-        },
-        required: ['category', 'title', 'description'],
-      },
-    });
-  }
+  // 1:1 문의·오류문의 등록 툴은 없앴다 (사용자 확정 2026-09-28).
+  // 창구를 카톡고객센터 한 곳으로 모으기로 해서, 봇이 게시판에 글을 만들면 안 된다.
+  // 봇이 못 푸는 건 프롬프트가 카톡으로 안내한다.
 
   return specs;
 }
@@ -247,73 +204,6 @@ export async function runTool(
       }
 
       return lines.length ? lines.join('\n') : '최근 등록 실패나 접수된 오류문의가 없습니다.';
-    }
-
-    case 'create_support_ticket': {
-      if (!ctx.ptUserId) return '오류: PT 회원만 1:1 문의를 남길 수 있습니다.';
-      const category = String(args.category ?? 'other');
-      const title = String(args.title ?? '').slice(0, 200);
-      const message = String(args.message ?? '');
-      if (!title || !message) return '오류: title 과 message 가 필요합니다.';
-
-      try {
-        const { data: ticket, error } = await ctx.serviceClient
-          .from('support_tickets')
-          .insert({ pt_user_id: ctx.ptUserId, category, title, status: 'pending', priority: 'normal' })
-          .select('id')
-          .single();
-        if (error) throw error;
-
-        const ticketId = (ticket as { id: string }).id;
-        const body =
-          `${message}\n\n` +
-          `— AI 상담에서 자동 전달 (${ctx.path || '경로 미상'}) —\n\n` +
-          `[상담 내용]\n${ctx.transcript.slice(0, 4000)}`;
-
-        await ctx.serviceClient.from('ticket_messages').insert({
-          ticket_id: ticketId,
-          sender_id: ctx.profileId,
-          sender_role: 'user',
-          content: body,
-        });
-
-        ctx.createdTicketId = ticketId;
-        return `1:1 문의를 등록했습니다. 티켓 번호: ${ticketId}. 사용자에게 "1:1 문의에 등록했고 관리자가 확인하면 답변이 온다"고 알리고, /my/support 링크를 안내하세요.`;
-      } catch (e) {
-        return `1:1 문의 등록에 실패했습니다: ${e instanceof Error ? e.message : '알 수 없는 오류'}. 사용자에게 /my/support 에서 직접 남겨달라고 안내하세요.`;
-      }
-    }
-
-    case 'create_bug_report': {
-      if (!ctx.megaloadUserId) return '오류: 메가로드 사용자만 오류문의를 남길 수 있습니다.';
-      const category = String(args.category ?? 'general');
-      const title = String(args.title ?? '').slice(0, 200);
-      const description = String(args.description ?? '');
-      if (!title || !description) return '오류: title 과 description 이 필요합니다.';
-
-      try {
-        const { data: report, error } = await ctx.serviceClient
-          .from('sh_bug_reports')
-          .insert({
-            megaload_user_id: ctx.megaloadUserId,
-            title,
-            description:
-              `${description}\n\n— AI 상담에서 자동 전달 —\n\n[상담 내용]\n${ctx.transcript.slice(0, 4000)}`,
-            category,
-            status: 'pending',
-            priority: 'normal',
-            page_url: ctx.path ?? null,
-            context: { source: 'assistant' },
-          })
-          .select('id')
-          .single();
-        if (error) throw error;
-
-        ctx.createdBugReportId = (report as { id: string }).id;
-        return `오류문의를 등록했습니다. 사용자에게 /megaload/bug-reports 에서 진행 상황을 볼 수 있다고 안내하세요.`;
-      } catch (e) {
-        return `오류문의 등록에 실패했습니다: ${e instanceof Error ? e.message : '알 수 없는 오류'}. /megaload/bug-reports 에서 직접 남겨달라고 안내하세요.`;
-      }
     }
 
     default:

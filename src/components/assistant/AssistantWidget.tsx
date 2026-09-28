@@ -17,6 +17,7 @@ import {
 import Markdown from './Markdown';
 import MediaBlock, { type MediaItem } from './MediaBlock';
 import { resolvePage } from '@/lib/assistant/kb/pages';
+import { KAKAO_SUPPORT_URL, KAKAO_SUPPORT_LABEL } from '@/lib/support-link';
 
 /**
  * 모든 페이지에 뜨는 AI 상담 위젯.
@@ -27,7 +28,7 @@ import { resolvePage } from '@/lib/assistant/kb/pages';
  * 전체 새로고침 대비로 대화는 sessionStorage 에, 대화 id/방문자 키는 localStorage 에 둔다.
  */
 
-const KAKAO_URL = 'https://open.kakao.com/o/skLRf9li';
+const KAKAO_URL = KAKAO_SUPPORT_URL;
 const LS_CONV = 'megaload_assistant_conv';
 const LS_ANON = 'megaload_assistant_anon';
 const LS_SEEN = 'megaload_assistant_seen';
@@ -42,7 +43,7 @@ interface Source {
   href?: string;
 }
 interface Action {
-  kind: 'navigate' | 'kakao' | 'ticket' | 'bug_report' | 'external';
+  kind: 'navigate' | 'kakao' | 'external';
   label: string;
   href?: string;
 }
@@ -62,8 +63,6 @@ const TOOL_LABEL: Record<string, string> = {
   open_kb: '문서 읽는 중',
   get_my_status: '내 계정 상태 확인 중',
   list_recent_errors: '최근 오류 확인 중',
-  create_support_ticket: '1:1 문의 등록 중',
-  create_bug_report: '오류문의 등록 중',
 };
 
 const DEFAULT_SUGGESTIONS = [
@@ -204,7 +203,7 @@ export default function AssistantWidget() {
                     ...m,
                     streaming: false,
                     content: msg,
-                    actions: [{ kind: 'kakao', label: '카톡 상담 열기', href: KAKAO_URL }],
+                    actions: [{ kind: 'kakao', label: `${KAKAO_SUPPORT_LABEL} 열기`, href: KAKAO_URL }],
                   }
                 : m,
             ),
@@ -282,7 +281,7 @@ export default function AssistantWidget() {
                     content:
                       m.content ||
                       '연결에 문제가 생겼습니다. 잠시 후 다시 시도해주세요. 급한 건이면 아래 카톡 상담으로 연결해드립니다.',
-                    actions: [{ kind: 'kakao', label: '카톡 상담 열기', href: KAKAO_URL }],
+                    actions: [{ kind: 'kakao', label: `${KAKAO_SUPPORT_LABEL} 열기`, href: KAKAO_URL }],
                   }
                 : m,
             ),
@@ -521,7 +520,7 @@ export default function AssistantWidget() {
                             rel="noopener noreferrer"
                             className="ml-1 text-[11px] font-medium text-[#E31837] underline underline-offset-2"
                           >
-                            사람에게 연결하기
+                            {KAKAO_SUPPORT_LABEL}로 연결
                           </a>
                         )}
                       </div>
@@ -569,7 +568,7 @@ export default function AssistantWidget() {
                   className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-gray-500 transition hover:text-[#3C1E1E]"
                 >
                   <MessageCircle className="h-3 w-3" />
-                  사람 상담
+                  {KAKAO_SUPPORT_LABEL}
                 </a>
               </div>
             </div>

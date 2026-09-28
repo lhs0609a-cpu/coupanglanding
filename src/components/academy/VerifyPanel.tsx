@@ -10,6 +10,7 @@
  */
 
 import { useState } from 'react';
+import { KAKAO_SUPPORT_URL, KAKAO_SUPPORT_LABEL } from '@/lib/support-link';
 import { CheckCircle2, XCircle, Loader2, HelpCircle, ShieldQuestion } from 'lucide-react';
 
 interface QuizQ { q: string; choices: string[] }
@@ -247,7 +248,11 @@ export function TroubleList({ items }: { items: { symptom: string; cause: string
         ))}
       </div>
       <p className="border-t border-gray-100 px-3 py-2 text-xs text-gray-500">
-        여기에 없는 문제면 <a href="/my/support" className="underline">1:1 문의</a>로 알려주세요.
+        여기에 없는 문제면{' '}
+        <a href={KAKAO_SUPPORT_URL} target="_blank" rel="noopener noreferrer" className="underline">
+          {KAKAO_SUPPORT_LABEL}
+        </a>
+        로 알려주세요.
       </p>
     </div>
   );

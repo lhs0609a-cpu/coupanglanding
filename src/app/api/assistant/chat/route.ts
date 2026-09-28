@@ -9,6 +9,7 @@ import { toolSpecs, runTool, type ToolContext } from '@/lib/assistant/tools';
 import { buildUserStatus, formatStatus } from '@/lib/assistant/diagnostics';
 import type { AssistantAction, AssistantMedia, AssistantSource } from '@/lib/assistant/types';
 import { checkRateLimit, clientIp, rateLimitMessage } from '@/lib/assistant/rate-limit';
+import { KAKAO_SUPPORT_URL, KAKAO_SUPPORT_LABEL } from '@/lib/support-link';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -305,11 +306,10 @@ export async function POST(request: NextRequest) {
             actions.push({ kind: 'navigate', label: linkLabel(s.href), href: s.href });
           }
         }
-        if (ctx.createdTicketId) {
-          actions.unshift({ kind: 'navigate', label: '내 1:1 문의 보기', href: '/my/support' });
-        }
-        if (ctx.createdBugReportId) {
-          actions.unshift({ kind: 'navigate', label: '오류문의 보기', href: '/megaload/bug-reports' });
+        // 문의 창구는 카톡고객센터 한 곳이다 — 답 끝에 항상 붙여 둔다.
+        // (예전에는 여기서 1:1 문의·오류문의 게시판으로 보냈다. 게시판을 없앴다.)
+        if (!actions.some((a) => a.kind === 'kakao')) {
+          actions.push({ kind: 'kakao', label: `${KAKAO_SUPPORT_LABEL} 열기`, href: KAKAO_SUPPORT_URL });
         }
 
         send('done', {
@@ -397,14 +397,8 @@ async function persist(
       last_path: path,
       updated_at: new Date().toISOString(),
     };
-    if (ctx.createdTicketId) {
-      patch.escalated = true;
-      patch.escalated_ticket_id = ctx.createdTicketId;
-    }
-    if (ctx.createdBugReportId) {
-      patch.escalated = true;
-      patch.escalated_bug_report_id = ctx.createdBugReportId;
-    }
+    // 예전에는 봇이 티켓/오류문의를 만들면 그 id 를 여기 남겼다. 게시판을 없앴으니
+    // 만들 것도 남길 것도 없다 — escalated 컬럼은 과거 기록 조회를 위해 그대로 둔다.
     await serviceClient.from('assistant_conversations').update(patch).eq('id', conversationId);
   } catch {
     /* 저장 실패로 상담이 깨지면 안 된다 */
@@ -434,7 +428,7 @@ function streamStatic(
           actions.push({ kind: 'navigate', label: linkLabel(s.href), href: s.href });
         }
       }
-      actions.push({ kind: 'kakao', label: '카톡 상담 열기', href: 'https://open.kakao.com/o/skLRf9li' });
+      actions.push({ kind: 'kakao', label: `${KAKAO_SUPPORT_LABEL} 열기`, href: KAKAO_SUPPORT_URL });
       controller.enqueue(
         encoder.encode(sse('done', { sources, actions: actions.slice(0, 5), media, conversationId })),
       );

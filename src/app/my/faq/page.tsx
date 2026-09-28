@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { HelpCircle, Search, ChevronDown, ChevronUp, BookOpen, TrendingUp, CreditCard, ShieldAlert, Settings, Code, FileText, AlertTriangle, Loader2, MessageCircle } from 'lucide-react';
 import Card from '@/components/ui/Card';
+import { KAKAO_SUPPORT_URL, KAKAO_SUPPORT_LABEL } from '@/lib/support-link';
 
 type FaqCategory = 'signup' | 'settlement' | 'commission' | 'coupang_api' | 'tax_invoice' | 'penalty' | 'other';
 
@@ -321,11 +322,13 @@ export default function FaqPage() {
           원하는 답변을 찾지 못하셨나요?
         </p>
         <a
-          href="/my/support"
+          href={KAKAO_SUPPORT_URL}
+          target="_blank"
+          rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 mt-2 text-sm font-medium text-[#E31837] hover:underline"
         >
           <MessageCircle className="w-4 h-4" />
-          1:1 문의하기
+          {KAKAO_SUPPORT_LABEL}로 문의하기
         </a>
       </div>
     </div>

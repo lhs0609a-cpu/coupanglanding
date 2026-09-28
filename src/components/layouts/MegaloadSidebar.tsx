@@ -4,18 +4,19 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import DesktopStatusIndicator from '@/components/megaload/DesktopStatusIndicator';
+import { KAKAO_SUPPORT_URL, KAKAO_SUPPORT_LABEL } from '@/lib/support-link';
 import {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
   Receipt, BarChart3, Zap, Globe, Link as LinkIcon, Settings, X,
   Upload, User, ArrowRight, Search, PackageSearch, ExternalLink, Loader2, Lock, RotateCcw, RefreshCw, Bug,
-  BookOpen, MonitorDown, Megaphone, AlertTriangle, Grid3x3, Handshake, Bell,
+  BookOpen, MonitorDown, Megaphone, AlertTriangle, Grid3x3, Handshake, Bell, MessageCircle,
 } from 'lucide-react';
 import type { MegaloadBadgeData } from '@/lib/megaload/types';
 import type { SettlementGateLevel } from '@/lib/utils/settlement';
 
 const iconMap = {
   LayoutDashboard, ShoppingCart, Package, Warehouse, MessageSquare,
-  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug, BookOpen, MonitorDown, Megaphone, AlertTriangle, Grid3x3, Handshake, Search, PackageSearch, Bell,
+  Receipt, BarChart3, Zap, Globe, Link: LinkIcon, Settings, Upload, RotateCcw, RefreshCw, Bug, BookOpen, MonitorDown, Megaphone, AlertTriangle, Grid3x3, Handshake, Search, PackageSearch, Bell, MessageCircle,
 } as const;
 
 const navItems = [
@@ -53,7 +54,8 @@ const navItems = [
   { href: '/megaload/channels/automation', label: '멀티채널 자동전파', icon: 'Zap' as const },
   { href: '/megaload/products/channel-status', label: '채널 등록현황', icon: 'Grid3x3' as const },
   { href: '/megaload/products/exceptions', label: '등록 예외큐', icon: 'AlertTriangle' as const },
-  { href: '/megaload/bug-reports', label: '오류문의', icon: 'Bug' as const, badgeKey: 'unreadBugReports' as const },
+  // 오류문의 게시판을 없애고 카톡고객센터로 보낸다 (사용자 확정 2026-09-28).
+  { href: KAKAO_SUPPORT_URL, label: KAKAO_SUPPORT_LABEL, icon: 'MessageCircle' as const, external: true as const },
   { href: '/megaload/settings', label: '설정', icon: 'Settings' as const },
 ];
 
@@ -69,7 +71,6 @@ const GATE_ALLOWED_PATHS = [
   '/megaload/dashboard',
   '/megaload/settlement',
   '/megaload/cs',
-  '/megaload/bug-reports',
   '/megaload/settings',
 ];
 
@@ -319,7 +320,28 @@ export default function MegaloadSidebar({ isOpen, onClose, badges, gateLevel, us
             const Icon = iconMap[item.icon];
             const badgeCount = item.badgeKey && badges ? badges[item.badgeKey] : 0;
             const isLocked = gateLevel === 'restricted' &&
+              !('external' in item && item.external) &&
               !GATE_ALLOWED_PATHS.some((p) => hrefPath === p || hrefPath.startsWith(p + '/'));
+
+            // 외부 링크(카톡고객센터)는 Link 가 아니라 새 탭으로 연다.
+            // 이용이 제한된 계정도 문의는 할 수 있어야 하므로 잠금에서 제외한다.
+            if ('external' in item && item.external) {
+              return (
+                <a
+                  key={item.href}
+                  href={item.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={onClose}
+                  className="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 transition hover:bg-gray-100 hover:text-gray-900"
+                >
+                  <span className="flex items-center gap-3">
+                    <Icon className="w-5 h-5" />
+                    {item.label}
+                  </span>
+                </a>
+              );
+            }
 
             if (isLocked) {
               return (
