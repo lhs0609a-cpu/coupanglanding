@@ -55,6 +55,10 @@ import {
   markCompleted,
   type StartProgress,
 } from '@/lib/utils/start-progress';
+// 화면 목업. academy 와 달리 이 모듈은 퀴즈 정답도 PT 전용 콘텐츠도 들고 있지 않아서
+// 클라이언트에서 직접 import 해도 안전하다(공개 화면 설명이 전부다).
+import StepMockup from '@/components/start/StepMockup';
+import { getStepMockups } from '@/lib/data/start-mockups';
 
 // ─── 상수 ───
 //
@@ -606,7 +610,15 @@ function StepCard({
               <div className="px-5 sm:px-6 pb-5 sm:pb-6 space-y-3">
                 <p className="text-sm text-gray-400 mb-4">{step.subtitle}</p>
 
-                {step.subSteps.map((ss) => {
+                {/* 화면 목업 — 글만 있으면 "그 버튼이 어디 있는데"에서 멈춘다.
+                    번호가 아래 체크리스트 번호와 1:1 로 붙는다. */}
+                <StepMockup
+                  screens={getStepMockups(step.id)}
+                  subIds={subIds}
+                  checkedItems={progress.checkedItems}
+                />
+
+                {step.subSteps.map((ss, ssIndex) => {
                   const checked = !!progress.checkedItems[ss.id];
                   return (
                     <div
@@ -636,6 +648,17 @@ function StepCard({
                           </div>
                         </div>
                         <div className="flex-1 min-w-0">
+                          {/* 목업의 빨간 번호와 같은 번호. 이 둘이 같은 숫자를
+                              가리켜야 "그 화면의 그 칸" 이 전달된다. */}
+                          <span
+                            className={`mr-1.5 inline-flex h-4 w-4 shrink-0 translate-y-[1px] items-center justify-center rounded-full text-[9px] font-bold tabular-nums ${
+                              checked
+                                ? 'bg-green-500/20 text-green-400'
+                                : 'bg-[#E31837] text-white'
+                            }`}
+                          >
+                            {ssIndex + 1}
+                          </span>
                           <span
                             className={`font-medium text-sm ${
                               checked

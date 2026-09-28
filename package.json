@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "migrate": "node scripts/migrate.mjs",
-    "migrate:baseline": "node scripts/migrate.mjs --baseline"
+    "migrate:baseline": "node scripts/migrate.mjs --baseline",
+    "check:start-mockups": "node scripts/check-start-mockups.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
