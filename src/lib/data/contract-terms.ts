@@ -27,6 +27,7 @@ export const CONTRACT_ARTICLES: ContractArticle[] = [
       { label: '2', text: '데이터 기반 상품 선정 및 소싱 컨설팅' },
       { label: '3', text: '쿠팡 광고 관리 및 최적화 가이드' },
       { label: '4', text: '정기적인 1:1 코칭 세션 제공' },
+      { label: '5', text: '회원의 신규 상품 등록이 3일 이상 없는 경우 회사가 회원 계정에 상품을 직접 등록하는 운영 대행' },
     ],
   },
   {
@@ -36,6 +37,7 @@ export const CONTRACT_ARTICLES: ContractArticle[] = [
       '① 회원은 서비스 이용을 위해 쿠팡 셀러 계정 정보(ID, 비밀번호)를 회사 시스템에 등록하여야 합니다.',
       '② 회원이 계정 정보를 변경한 경우, 변경일로부터 3영업일 이내에 시스템에서 갱신하여야 합니다.',
       '③ 계정 정보 미등록 또는 미갱신으로 인해 발생하는 서비스 중단, 매출 손실 등의 책임은 회원에게 있습니다.',
+      '④ 제2조 제5호에 따라 회사가 등록한 상품의 내역은 회원이 시스템에서 확인할 수 있으며, 회원은 개별 상품의 수정 또는 삭제를 요청할 수 있습니다.',
     ],
   },
   {
@@ -237,6 +239,7 @@ const TRIPLE_CONTRACT_ARTICLES: ContractArticle[] = [
       { label: '2', text: '데이터 기반 상품 선정 및 소싱 컨설팅' },
       { label: '3', text: '쿠팡 광고 관리 및 최적화 가이드' },
       { label: '4', text: '정기적인 1:1 코칭 세션 제공' },
+      { label: '5', text: '병의 신규 상품 등록이 3일 이상 없는 경우 갑이 병의 계정에 상품을 직접 등록하는 운영 대행' },
     ],
   },
   {
@@ -246,6 +249,7 @@ const TRIPLE_CONTRACT_ARTICLES: ContractArticle[] = [
       '① 병은 서비스 이용을 위해 쿠팡 셀러 계정 정보(ID, 비밀번호)를 갑의 시스템에 등록하여야 합니다.',
       '② 병이 계정 정보를 변경한 경우, 변경일로부터 3영업일 이내에 시스템에서 갱신하여야 합니다.',
       '③ 계정 정보 미등록 또는 미갱신으로 인해 발생하는 서비스 중단, 매출 손실 등의 책임은 을 및 병에게 있습니다.',
+      '④ 제3조 제5호에 따라 갑이 등록한 상품의 내역은 병이 시스템에서 확인할 수 있으며, 병은 개별 상품의 수정 또는 삭제를 요청할 수 있습니다.',
     ],
   },
   {
@@ -432,7 +436,7 @@ export function getContractArticles(mode: 'single' | 'triple' = 'single'): Contr
  * 서명 시 contracts.terms_version 에 기록되고, 이 값보다 작은 버전으로 서명한 회원은
  * 계약 페이지에서 개정 재동의가 요구된다.
  */
-export const CONTRACT_TERMS_VERSION = 2;
+export const CONTRACT_TERMS_VERSION = 3;
 
 export interface ContractTermsSnapshot {
   version: number;

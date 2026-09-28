@@ -86,3 +86,9 @@ supabase/.temp/
 
 # 일회성 진단 스크립트 — 읽기 전용이고 커밋 대상이 아니다
 scripts/_tmp-*
+
+# 대리등록 실행 로그 (로컬 전용)
+.bulk-live.log
+
+# 타입검사 임시 출력
+.tsc*.txt
