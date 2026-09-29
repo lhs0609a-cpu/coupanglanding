@@ -438,6 +438,18 @@ export function getContractArticles(mode: 'single' | 'triple' = 'single'): Contr
  */
 export const CONTRACT_TERMS_VERSION = 3;
 
+/**
+ * 기존 서명자에게 재동의를 받는 개정 버전.
+ *
+ * 본문 버전(CONTRACT_TERMS_VERSION)과 일부러 분리해 둔다. v3(운영 대행 조항)은
+ * 신규 계약자에게만 적용하기로 했으므로(사용자 결정 2026-09-28), 기존 서명자에게는
+ * v3 안내·동의 요청이 뜨지 않아야 한다. 아직 v2(광고비 정산 개정)에 동의하지 않은
+ * 기존 서명자에게만 재동의를 받는다.
+ *
+ * 앞으로 기존 계약자에게도 받아야 하는 개정을 넣을 때 이 값을 본문 버전과 같이 올린다.
+ */
+export const AMENDMENT_CONSENT_VERSION = 2;
+
 export interface ContractTermsSnapshot {
   version: number;
   mode: 'single' | 'triple';

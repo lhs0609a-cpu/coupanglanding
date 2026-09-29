@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { logSystemError } from '@/lib/utils/system-log';
-import { CONTRACT_TERMS_VERSION } from '@/lib/data/contract-terms';
+import { AMENDMENT_CONSENT_VERSION } from '@/lib/data/contract-terms';
 
 export const maxDuration = 20;
 
 /**
  * POST /api/contracts/agree-amendment
- * 기존 서명자가 개정 약관(현재 CONTRACT_TERMS_VERSION)에 재동의한 사실을 기록한다.
+ * 기존 서명자가 개정 약관(AMENDMENT_CONSENT_VERSION)에 재동의한 사실을 기록한다.
  * 본인 소유 + 이미 서명된 계약만 대상.
  */
 export async function POST(request: NextRequest) {
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     const { error: updateError } = await supabase
       .from('contracts')
       .update({
-        amendment_agreed_version: CONTRACT_TERMS_VERSION,
+        amendment_agreed_version: AMENDMENT_CONSENT_VERSION,
         amendment_agreed_at: now,
         amendment_agreed_ip: clientIp || 'unknown',
       })
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `동의 처리 실패: ${updateError.message}` }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, agreedVersion: CONTRACT_TERMS_VERSION, agreedAt: now });
+    return NextResponse.json({ success: true, agreedVersion: AMENDMENT_CONSENT_VERSION, agreedAt: now });
   } catch (err) {
     console.error('[agree-amendment] error:', err);
     void logSystemError({ source: 'contracts/agree-amendment', error: err }).catch(() => {});

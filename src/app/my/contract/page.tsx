@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { formatDate, formatPercent } from '@/lib/utils/format';
 import { CONTRACT_STATUS_LABELS, CONTRACT_STATUS_COLORS, CONTRACT_MODE_LABELS } from '@/lib/utils/constants';
-import { renderArticleText, getContractArticles, CONTRACT_TERMS_VERSION } from '@/lib/data/contract-terms';
+import { renderArticleText, getContractArticles, AMENDMENT_CONSENT_VERSION } from '@/lib/data/contract-terms';
 import type { ContractVariables } from '@/lib/data/contract-terms';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -63,7 +63,7 @@ function needsAmendmentConsent(c: Contract): boolean {
   if (!c.signed_at) return false; // 미서명 계약은 어차피 최신 약관으로 새로 서명
   if (c.status === 'terminated' || c.status === 'expired') return false;
   const agreed = c.amendment_agreed_version ?? c.terms_version ?? 1;
-  return agreed < CONTRACT_TERMS_VERSION;
+  return agreed < AMENDMENT_CONSENT_VERSION;
 }
 
 export default function MyContractPage() {
@@ -242,7 +242,7 @@ export default function MyContractPage() {
       setContracts((prev) =>
         prev.map((c) =>
           c.id === contractId
-            ? { ...c, amendment_agreed_version: CONTRACT_TERMS_VERSION, amendment_agreed_at: now }
+            ? { ...c, amendment_agreed_version: AMENDMENT_CONSENT_VERSION, amendment_agreed_at: now }
             : c
         )
       );
@@ -468,10 +468,10 @@ export default function MyContractPage() {
 
               {/* 개정 약관 재동의 완료 표시 (구버전 서명자가 재동의한 경우) */}
               {activeContract.amendment_agreed_at &&
-                (activeContract.terms_version ?? 1) < CONTRACT_TERMS_VERSION && (
+                (activeContract.terms_version ?? 1) < AMENDMENT_CONSENT_VERSION && (
                   <div className="mt-4 flex items-center gap-2 text-sm text-green-700">
                     <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                    개정 약관(v{CONTRACT_TERMS_VERSION}) 동의 완료 · {formatDate(activeContract.amendment_agreed_at)}
+                    개정 약관(v{AMENDMENT_CONSENT_VERSION}) 동의 완료 · {formatDate(activeContract.amendment_agreed_at)}
                   </div>
                 )}
 
