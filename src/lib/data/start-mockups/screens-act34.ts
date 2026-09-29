@@ -28,6 +28,7 @@ export const ACT34_MOCKUPS: Record<string, MockupScreen[]> = {
           ],
           pin: 'fo-1',
         },
+        { k: 'btn', label: '주문번호를 눌러 상세 열기', variant: 'sec', align: 'left', pin: 'fo-1' },
         {
           k: 'flow',
           items: [
@@ -519,6 +520,15 @@ export const ACT34_MOCKUPS: Record<string, MockupScreen[]> = {
           pin: 'df-2',
         },
         {
+          k: 'field',
+          label: '답변 입력',
+          value: '확인된 사실은 다음과 같습니다. 10월 2일 발송, 10월 4일 배송완료로 조회됩니다.',
+          state: 'ok',
+          hint: '감정은 빼고 사실과 절차만. 이 글이 나중에 그대로 기록으로 남습니다.',
+          pin: 'df-2',
+        },
+        { k: 'btn', label: '답변 등록', variant: 'primary', align: 'left', pin: 'df-2' },
+        {
           k: 'table',
           cols: ['이렇게 쓰지 말고', '이렇게 쓴다'],
           rows: [
@@ -544,6 +554,7 @@ export const ACT34_MOCKUPS: Record<string, MockupScreen[]> = {
           text: '욕설·협박이 오면 캡처하고 쿠팡 고객센터에 신고하세요. 혼자 감당하지 마세요. 신고는 정당한 절차입니다.',
           pin: 'df-4',
         },
+        { k: 'btn', label: '이 대화 신고하기', variant: 'danger', align: 'left', pin: 'df-4' },
         {
           k: 'table',
           cols: ['분쟁 금액', '권하는 선택'],
@@ -691,6 +702,7 @@ export const ACT34_MOCKUPS: Record<string, MockupScreen[]> = {
           ],
           pin: 'cp-4',
         },
+        { k: 'btn', label: '소명서 제출', variant: 'primary', align: 'left', pin: 'cp-4' },
         {
           k: 'notice',
           tone: 'info',
@@ -706,6 +718,7 @@ export const ACT34_MOCKUPS: Record<string, MockupScreen[]> = {
       accent: 'red',
       caption: '계정 제재에는 예고가 있습니다. 보고 있으면 오기 전에 막을 수 있습니다.',
       blocks: [
+        { k: 'btn', label: '페널티 트래커 열기', variant: 'sec', align: 'left', pin: 'cp-5' },
         {
           k: 'gauges',
           items: [

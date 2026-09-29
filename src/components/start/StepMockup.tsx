@@ -14,7 +14,18 @@
  */
 
 import { useState } from 'react';
-import { Check, Copy, Lock, ChevronDown, ChevronRight, Ban, X, Paperclip, Bell } from 'lucide-react';
+import {
+  Check,
+  Copy,
+  Lock,
+  ChevronDown,
+  ChevronRight,
+  Ban,
+  X,
+  Paperclip,
+  Bell,
+  MousePointerClick,
+} from 'lucide-react';
 import type {
   Cell,
   MockupBlock,
@@ -65,6 +76,27 @@ const ACCENT: Record<string, string> = {
   green: 'bg-[#0F9D58]',
   gray: 'bg-gray-800',
 };
+
+/**
+ * **누르는 것**인 블록들.
+ *
+ * 번호를 왼쪽 여백에만 두면 "몇 번째 설명" 이지 "어디를 눌러라" 가 아니다. 이 목록에 있는
+ * 블록은 점선 상자로 감싸고 번호를 그 위에 얹는다 — 캡처 화면의 핫스팟과 같은 뜻이 되게.
+ * 경고·표·설명은 누르는 것이 아니므로 여백 번호 그대로 둔다. 전부 점선을 치면
+ * 점선이 아무 뜻도 없어진다.
+ */
+const CLICK_KINDS = new Set<MockupBlock['k']>([
+  'btn',
+  'btnrow',
+  'select',
+  'field',
+  'radio',
+  'check',
+  'tabs',
+  'cards',
+  'thumbs',
+  'upload',
+]);
 
 // ─── 조각들 ───
 function Pin({ n, done }: { n: number; done: boolean }) {
@@ -738,6 +770,21 @@ function Frame({
   );
 }
 
+/** 이 화면이 다루는 체크리스트 번호 범위 — '1–4' 또는 '2'. 번호가 없으면 빈 값. */
+function numberRange(screen: MockupScreen, subIds: string[]): string {
+  const ns = (
+    isShot(screen)
+      ? screen.hotspots.map((h) => h.pin)
+      : screen.blocks.map((b) => b.pin).filter((p): p is string => !!p)
+  )
+    .map((p) => subIds.indexOf(p) + 1)
+    .filter((n) => n > 0);
+  if (ns.length === 0) return '';
+  const lo = Math.min(...ns);
+  const hi = Math.max(...ns);
+  return lo === hi ? `${lo}` : `${lo}–${hi}`;
+}
+
 // ─── 본체 ───
 export default function StepMockup({
   screens,
@@ -758,23 +805,27 @@ export default function StepMockup({
 
   return (
     <div className="mb-4">
-      {/* 화면이 여러 장이면 전환 탭 */}
+      {/* 화면이 여러 장이면 전환 탭 — 어느 번호를 다루는 화면인지까지 적는다.
+          "3번이 어느 화면에 있지" 를 탭을 하나씩 눌러 찾게 하면 안 된다. */}
       {screens.length > 1 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
-          {screens.map((s, i) => (
-            <button
-              key={s.tab}
-              onClick={() => setActive(i)}
-              className={`rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
-                i === active
-                  ? 'bg-white/15 text-white'
-                  : 'bg-white/[0.03] text-gray-500 hover:bg-white/[0.07] hover:text-gray-300'
-              }`}
-            >
-              <span className="mr-1 tabular-nums opacity-60">{i + 1}</span>
-              {s.tab}
-            </button>
-          ))}
+          {screens.map((s, i) => {
+            const range = numberRange(s, subIds);
+            return (
+              <button
+                key={s.tab}
+                onClick={() => setActive(i)}
+                className={`rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
+                  i === active
+                    ? 'bg-white/15 text-white'
+                    : 'bg-white/[0.03] text-gray-500 hover:bg-white/[0.07] hover:text-gray-300'
+                }`}
+              >
+                {s.tab}
+                {range && <span className="ml-1.5 tabular-nums opacity-60">{range}</span>}
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -798,11 +849,32 @@ export default function StepMockup({
           <Frame screen={screen}>
             {screen.blocks.map((b, i) => {
               const n = b.pin ? subIds.indexOf(b.pin) + 1 : 0;
+              const done = !!(b.pin && checkedItems[b.pin]);
+              // 누르는 것이면 번호를 요소 위에 얹고 점선으로 감싼다.
+              const target = n > 0 && CLICK_KINDS.has(b.k);
               return (
                 <div key={i} className="flex gap-2">
-                  <span className="w-5 shrink-0">{n > 0 && <Pin n={n} done={!!checkedItems[b.pin!]} />}</span>
+                  <span className="w-5 shrink-0">{n > 0 && !target && <Pin n={n} done={done} />}</span>
                   <div className="min-w-0 flex-1">
-                    <BlockView b={b} accent={accent} />
+                    {target ? (
+                      <div
+                        className={`relative rounded-lg border-2 border-dashed p-2 ${
+                          done ? 'border-emerald-500/60 bg-emerald-500/[0.04]' : 'border-[#E31837]/60 bg-[#E31837]/[0.03]'
+                        }`}
+                      >
+                        <span
+                          className={`absolute -left-2 -top-2.5 z-10 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white shadow-md ${
+                            done ? 'bg-emerald-500' : 'bg-[#E31837]'
+                          }`}
+                        >
+                          {done ? <Check className="h-3 w-3" strokeWidth={3} /> : <MousePointerClick className="h-3 w-3" />}
+                          <span className="tabular-nums">{n}</span>
+                        </span>
+                        <BlockView b={b} accent={accent} />
+                      </div>
+                    ) : (
+                      <BlockView b={b} accent={accent} />
+                    )}
                   </div>
                 </div>
               );
@@ -812,8 +884,10 @@ export default function StepMockup({
 
         <figcaption className="border-t border-white/10 bg-white/[0.02] px-3 py-2.5">
           <p className="text-[12px] leading-relaxed text-gray-400">{screen.caption}</p>
-          <p className="mt-1 text-[10.5px] text-gray-600">
-            빨간 번호는 아래 체크리스트의 번호와 같습니다. 체크하면 번호가 초록색으로 바뀝니다.
+          <p className="mt-1 text-[10.5px] leading-relaxed text-gray-600">
+            {shot
+              ? '빨간 번호가 찍힌 자리가 눌러야 할 곳입니다. 번호는 아래 체크리스트 번호와 같고, 체크하면 초록색으로 바뀝니다. 화면을 누르면 크게 볼 수 있습니다.'
+              : '점선으로 둘러싸인 곳이 직접 누르거나 입력하는 자리입니다. 번호는 아래 체크리스트 번호와 같고, 체크하면 초록색으로 바뀝니다.'}
           </p>
         </figcaption>
       </figure>
