@@ -7,7 +7,7 @@
  *
  * ⚠️ 링크를 바꿀 일이 생기면 여기만 고친다 — 화면마다 하드코딩하면 또 흩어진다.
  */
-export const KAKAO_SUPPORT_URL = 'https://open.kakao.com/o/gBFaNMPi';
+export const KAKAO_SUPPORT_URL = 'https://open.kakao.com/o/sXP8yVPi';
 
 /** 화면에 노출할 이름. 메뉴·버튼·봇 답변에서 같은 말을 쓴다. */
 export const KAKAO_SUPPORT_LABEL = '카톡고객센터';

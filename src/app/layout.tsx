@@ -286,8 +286,10 @@ export default function RootLayout({
         </a>
         <GlobalErrorCapture />
         {children}
-        {/* 모든 페이지에 뜨는 AI 상담 — 현재 경로를 읽어 화면 맥락에 맞게 답한다.
-            카카오톡 사람 상담은 이 패널 안에서 연결한다(플로팅 버튼 중복 제거). */}
+        {/* 모든 페이지에 뜨는 AI 상담 + 카톡고객센터 버튼.
+            AI 상담은 현재 경로를 읽어 화면 맥락에 맞게 답한다.
+            카톡고객센터는 패널을 열지 않아도 바로 닿도록 상시 노출한다
+            (사용자 지시 2026-09-29: 어느 페이지에서도 항상 보여야 한다). */}
         <AssistantWidget />
         {/* Google Analytics 4 */}
         {process.env.NEXT_PUBLIC_GA_ID && (

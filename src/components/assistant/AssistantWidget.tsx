@@ -34,7 +34,10 @@ const LS_ANON = 'megaload_assistant_anon';
 const LS_SEEN = 'megaload_assistant_seen';
 const SS_MSGS = 'megaload_assistant_msgs';
 
-/** 위젯을 띄우지 않을 경로 — 서명/인쇄처럼 화면을 가리면 안 되는 곳만. */
+/**
+ * AI 상담 패널을 띄우지 않을 경로 — 서명/인쇄처럼 화면을 가리면 안 되는 곳만.
+ * 카톡고객센터 버튼은 여기서도 계속 뜬다 (사용자 지시 2026-09-29: 어느 페이지에서도 항상 보여야 한다).
+ */
 const HIDDEN_PREFIXES = ['/sign/', '/screening/'];
 
 interface Source {
@@ -333,7 +336,10 @@ export default function AssistantWidget() {
     [router],
   );
 
-  if (!mounted || hidden) return null;
+  if (!mounted) return null;
+
+  // 서명·심사 화면에서는 AI 상담 패널을 띄우지 않지만, 카톡고객센터는 남긴다.
+  if (hidden) return <KakaoFloatingButton />;
 
   const suggestions = page?.suggestions?.length ? page.suggestions : DEFAULT_SUGGESTIONS;
 
@@ -353,6 +359,7 @@ export default function AssistantWidget() {
               <span className="text-gray-500">등록 실패 원인도 제가 직접 확인해드립니다.</span>
             </button>
           )}
+          <KakaoFloatingLink />
           <button
             type="button"
             onClick={openPanel}
@@ -576,5 +583,37 @@ export default function AssistantWidget() {
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * 카톡고객센터 상시 버튼.
+ *
+ * 사용자 지시(2026-09-29): 홈페이지 어느 페이지에서도 항상 보여야 한다.
+ * 예전에는 AI 상담 패널을 열어야 그 안에 카톡 링크가 있어서, 한 번 더 눌러야 닿았다.
+ * 색은 카카오 고유색(#FEE500 + 검정 글자)을 쓴다 — 무슨 창구인지 한눈에 알게.
+ */
+function KakaoFloatingLink() {
+  return (
+    <a
+      href={KAKAO_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={KAKAO_SUPPORT_LABEL + ' 열기'}
+      className="flex items-center gap-2 rounded-full bg-[#FEE500] px-4 py-3 text-sm font-bold text-[#181600] shadow-lg shadow-black/20 ring-1 ring-black/5 transition hover:scale-105 hover:bg-[#f5dc00] active:scale-95 sm:px-5 sm:py-3.5"
+    >
+      <MessageCircle className="h-5 w-5" />
+      <span className="hidden sm:inline">{KAKAO_SUPPORT_LABEL}</span>
+      <span className="sm:hidden">카톡</span>
+    </a>
+  );
+}
+
+/** AI 상담을 띄우지 않는 경로(/sign/, /screening/)에서 카톡만 남길 때 쓰는 래퍼. */
+function KakaoFloatingButton() {
+  return (
+    <div className="fixed bottom-5 right-4 z-[90] flex flex-col items-end gap-2 sm:bottom-6 sm:right-6">
+      <KakaoFloatingLink />
+    </div>
   );
 }
