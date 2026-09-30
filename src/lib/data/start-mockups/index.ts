@@ -8,6 +8,7 @@
 import type { MockupScreen } from './types';
 import { ACT12_MOCKUPS } from './screens-act12';
 import { ACT34_MOCKUPS } from './screens-act34';
+import { REVIEWED_MOCKUPS } from './reviewed-screens';
 
 export type {
   MockupScreen,
@@ -24,6 +25,7 @@ export { isShot } from './types';
 export const STEP_MOCKUPS: Record<string, MockupScreen[]> = {
   ...ACT12_MOCKUPS,
   ...ACT34_MOCKUPS,
+  ...REVIEWED_MOCKUPS,
 };
 
 export function getStepMockups(stepId: string): MockupScreen[] {

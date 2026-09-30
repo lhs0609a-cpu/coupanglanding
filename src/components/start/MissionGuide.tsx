@@ -35,6 +35,18 @@ export default function MissionGuide({ step, checkedItems, onCheck }: {
   const completed = subIds.filter(id => checkedItems[id]).length;
   const allDone = completed === subIds.length;
   return <div data-mission-guide className="space-y-4">
+    <section aria-label="준비물과 작업 경로" className="rounded-xl border border-blue-400/25 bg-blue-500/5 p-4 text-sm leading-6 text-gray-300">
+      <h4 className="font-bold text-white">시작 전에 준비하세요</h4>
+      <p className="mt-2">{step.support.prepare}</p>
+      {step.support.trigger && <p className="mt-2 text-amber-200">{step.support.trigger}</p>}
+      {step.support.prerequisite && <a className="mt-2 block text-blue-300 underline" href={`/start?stage=${step.support.prerequisite}`}>필요한 이전 단계 확인하기</a>}
+      <p className="mt-3 text-xs text-gray-400">로그인 후 이동할 메뉴: {step.support.path}</p>
+      <div className="mt-3 flex flex-wrap gap-3">
+        <a data-workspace-link href={step.support.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 font-bold text-white">실제 작업 화면 열기<ExternalLink size={14}/></a>
+        {step.support.url.startsWith('/megaload') && <a href="https://wing.coupang.com" target="_blank" rel="noopener noreferrer" className="py-2 text-blue-300 underline">메가로드 이용 권한이 없으면 쿠팡 윙에서 직접 처리</a>}
+      </div>
+      {step.support.url.startsWith('/megaload') && <p className="mt-2 text-xs">메가로드는 로그인·계정 승인·이용 권한이 필요합니다. 윙을 이용할 때는 위 메뉴 중 윙 경로를 따르세요. 메가로드 카탈로그·자동 등록 기능은 윙에서 동일하게 제공되지 않습니다.</p>}
+    </section>
     <div className="rounded-2xl border border-violet-400/25 bg-gradient-to-br from-violet-500/15 to-blue-500/5 p-4 sm:p-5">
       <div className="flex items-center justify-between gap-2 text-xs font-bold">
         <span className="flex items-center gap-2 text-violet-200"><Flag size={15} /> STAGE {String(step.number).padStart(2, '0')}</span>
@@ -82,6 +94,7 @@ export default function MissionGuide({ step, checkedItems, onCheck }: {
       {mission.warning && <p className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm leading-6 text-amber-200">확인해 주세요 · {mission.warning}</p>}
       {mission.link && <a href={mission.link.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-white/20 px-4 py-3 text-sm text-white hover:bg-white/10">{mission.link.label}<ExternalLink size={14} /></a>}
       <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+        <p className="mb-3 text-sm leading-6 text-emerald-200">단계 종료 기준: {step.support.complete}</p>
         <p className="mb-2 text-xs font-bold text-emerald-300">완료 체크</p>
         <label className="flex cursor-pointer items-start gap-3 text-sm leading-6 text-gray-200">
           <input type="checkbox" checked={done} onChange={() => onCheck(mission.id)} className="mt-1 h-4 w-4 shrink-0 accent-emerald-500" />
@@ -90,6 +103,14 @@ export default function MissionGuide({ step, checkedItems, onCheck }: {
         <p className="mt-2 text-xs leading-5 text-gray-500">이 체크는 직접 기록하는 진행률입니다. 화면 예시를 보는 것만으로 신청·저장·API 연결이 실행되지는 않습니다.</p>
       </div>
     </div>
+
+    <details className="rounded-xl border border-white/10 p-4 text-sm text-gray-300">
+      <summary className="cursor-pointer font-bold text-white">막혔을 때 · 도움말과 답변 문구</summary>
+      <div className="mt-4 space-y-4">
+        {step.troubleshoot.map(t => <div key={t.symptom}><p className="font-semibold text-amber-200">{t.symptom}</p><p className="mt-1 leading-6">{t.cause} {t.fix}</p></div>)}
+        {step.actions.map((action, i) => action.copyable ? <div key={i}><CopyValue label={action.copyable.label} value={action.copyable.text}/><p className="mt-1 text-xs">문구는 예시입니다. 실제 주문 상태·확인 일정에 맞게 고치고 확인하지 않은 사실은 삭제하세요.</p></div> : action.href ? <a key={i} href={action.href} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-blue-300 underline">{action.label}{action.href.startsWith('/my/') && ' (회원 권한 필요)'}<ExternalLink size={14}/></a> : null)}
+      </div>
+    </details>
 
     <div className="flex items-center justify-between gap-3 border-t border-white/10 pt-4">
       <button type="button" disabled={selected === 0} onClick={() => setSelected(i => i - 1)} className="flex items-center gap-1 rounded-lg px-3 py-3 text-sm text-gray-300 disabled:opacity-30"><ArrowLeft size={16} /> 이전</button>

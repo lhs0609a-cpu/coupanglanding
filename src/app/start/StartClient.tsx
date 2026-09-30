@@ -615,8 +615,8 @@ function StepCard({
                   className="mt-2 flex items-center justify-between gap-3 p-4 rounded-xl border border-[#E31837]/30 bg-[#E31837]/5 hover:bg-[#E31837]/10 transition-colors group"
                 >
                   <span className="text-xs text-gray-300">
-                    <span className="font-semibold text-white">다 했는지 확인받기</span>
-                    {' — '}로그인하면 시스템이 쿠팡에 직접 물어봐서 확인해드립니다.
+                    <span className="font-semibold text-white">회원 아카데미에서 추가 확인</span>
+                    {' — '}{step.verification} 로그인과 단계별 이용 권한이 필요합니다.
                   </span>
                   <ChevronRight className="w-4 h-4 text-[#E31837] flex-shrink-0 group-hover:translate-x-0.5 transition-transform" />
                 </Link>
@@ -715,8 +715,8 @@ function FinalCTA() {
         </h2>
         <p className="text-gray-400 mb-8 max-w-lg mx-auto">
           입점부터 상품 등록, 주문 발주와 송장, 반품과 고객 응대까지 — 셀러가 실제로 하는
-          일은 여기 적힌 것이 전부입니다. 로그인하면 각 단계를 다 했는지 시스템이 쿠팡에
-          직접 물어서 확인해드립니다.
+          준비물과 실제 작업 화면, 완료 기준을 따라 진행하세요. 체크는 이 브라우저의 자기 기록이며,
+          사업자 승인·상품 판매·환불 완료는 각 서비스의 실제 처리 결과로 확인해야 합니다.
         </p>
         <Link
           href={CTA_URL}
@@ -805,6 +805,7 @@ export default function StartClient({
   }));
   const [openStepIndex, setOpenStepIndex] = useState<number>(0);
   const [showCelebration, setShowCelebration] = useState(false);
+  const [progressLoaded, setProgressLoaded] = useState(false);
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -812,10 +813,14 @@ export default function StartClient({
       const saved = getStartProgress();
       setProgress(saved);
       const next = allSubIds.findIndex(ids => !isStepCompleted(ids, saved));
-      setOpenStepIndex(next === -1 ? 0 : next);
+      const requested = new URLSearchParams(window.location.search).get('stage');
+      const requestedIndex = steps.findIndex(s => s.id === requested);
+      setOpenStepIndex(requestedIndex >= 0 ? requestedIndex : next === -1 ? 0 : next);
+      setProgressLoaded(true);
+      if (requestedIndex >= 0) setTimeout(() => document.getElementById(`step-${steps[requestedIndex].number}`)?.scrollIntoView({ block: 'start' }), 100);
     });
     return () => cancelAnimationFrame(frame);
-  }, [allSubIds]);
+  }, [allSubIds, steps]);
 
   const completedCount = useMemo(
     () => getCompletedStepCount(allSubIds, progress),
@@ -903,6 +908,14 @@ export default function StartClient({
       <CompletionDateWidget progress={progress} steps={steps} allSubIds={allSubIds} />
 
       <section aria-label="전체 퀘스트 지도" className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
+        <div className="mb-6 rounded-xl border border-blue-500/30 p-5 text-sm leading-6 text-gray-300">
+          <h2 className="mb-2 text-lg font-bold text-white">처음 시작하는 분의 준비 체크</h2>
+          <p>PC 브라우저와 본인 인증 수단, 서류를 저장할 폴더를 준비하세요. 이 가이드는 공개되어 있지만 메가로드 작업 기능은 로그인·계정 승인·이용 권한이 필요합니다.</p>
+          <div className="my-3 flex flex-wrap gap-4"><a className="text-blue-300 underline" href="/auth/login?redirect=/megaload/channels">메가로드 로그인·권한 확인</a><a className="text-blue-300 underline" href="https://wing.coupang.com" target="_blank" rel="noopener noreferrer">윙 회원가입·로그인</a><a className="text-blue-300 underline" href="https://marketplace.coupang.com/mba-onepage" target="_blank" rel="noopener noreferrer">쿠팡 공식 준비서류</a></div>
+          <p>사업자등록 → 구매안전서비스 확인증 준비 → 통신판매업 신고 → 윙 사업자 인증 순서입니다. 확인증 발급을 위해 윙 계정을 먼저 만드는 것은 가능합니다. 이미 완료한 신청은 다시 접수하지 마세요.</p>
+          <p className="mt-2">주문·CS 단계는 실제 요청이 발생하면 사용합니다. 첫 주문을 기다리는 동안 미리볼 수 있지만, 아직 발생하지 않은 업무를 완료 처리할 필요는 없습니다.</p>
+          <details className="mt-3"><summary className="cursor-pointer text-white">처음 보는 용어</summary><p className="mt-2">소싱: 판매할 상품과 공급처 찾기 · 발주: 공급처에 실제 주문·결제하기 · 발주확인: 고객 주문을 확인했다는 상태 처리 · 송장: 택배 추적 번호 · 정산: 수수료 등을 반영해 받는 판매 대금 · 반품: 상품 회수와 환불 · 교환: 상품 회수와 대체 상품 재배송</p></details>
+        </div>
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div><p className="text-xs font-bold tracking-widest text-violet-300">YOUR QUEST MAP</p><h2 className="mt-2 text-2xl font-bold">한 칸씩, 첫 판매까지</h2></div>
           <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-4 py-2 text-sm font-bold text-emerald-300">{steps.reduce((n, s) => n + s.subSteps.filter(ss => progress.checkedItems[ss.id]).length * 10, 0)} XP</span>
@@ -936,7 +949,7 @@ export default function StartClient({
             <StepCard
               step={step}
               progress={progress}
-              isOpen={openStepIndex === i}
+              isOpen={progressLoaded && openStepIndex === i}
               onToggle={() =>
                 setOpenStepIndex(openStepIndex === i ? -1 : i)
               }

@@ -186,9 +186,10 @@ export default function OrdersPage() {
           <button onClick={handleBulkConfirm} className="px-3 py-1.5 text-xs font-medium text-white bg-[#E31837] rounded-lg hover:bg-red-700">
             발주확인
           </button>
-          <button className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
-            송장등록
-          </button>
+          <a href="https://wing.coupang.com" target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+            쿠팡 윙 송장등록 ↗
+          </a>
+          <span className="text-xs text-gray-500">주문번호로 다시 찾으세요. 다른 채널은 해당 판매자센터에서 입력합니다.</span>
         </div>
       )}
 
@@ -248,9 +249,7 @@ export default function OrdersPage() {
                   </button>
                 )}
                 {order.order_status === 'order_confirmed' && (
-                  <button className="px-3 py-1.5 text-xs font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700">
-                    송장등록
-                  </button>
+                  order.channel === 'coupang' ? <a href="https://wing.coupang.com" target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 text-xs font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700">윙에서 송장등록 ↗</a> : <span className="text-xs text-gray-500">해당 채널 판매자센터에서 송장을 입력하세요.</span>
                 )}
               </div>
             </div>

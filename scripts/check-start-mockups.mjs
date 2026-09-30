@@ -18,7 +18,7 @@ import { existsSync } from 'node:fs';
 import process from 'node:process';
 
 const root = process.cwd();
-const jiti = createJiti(import.meta.url, { alias: { '@': path.join(root, 'src') } });
+const jiti = createJiti(import.meta.url, { fsCache: false, tryNative: false, alias: { '@': path.join(root, 'src') } });
 
 const { ROADMAP_STEPS } = await jiti.import(path.join(root, 'src/lib/data/start-roadmap.ts'));
 const { STEP_MOCKUPS } = await jiti.import(path.join(root, 'src/lib/data/start-mockups/index.ts'));

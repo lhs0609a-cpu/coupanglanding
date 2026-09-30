@@ -125,28 +125,24 @@ export default function CsPage() {
 
       const result = await res.json();
 
-      if (!res.ok) {
-        // 채널 API 전송 실패 — DB에는 저장하되 경고 표시
-        setMessage({ type: 'error', text: result.error || '채널 답변 전송 실패. DB에만 저장됩니다.' });
+      if (!res.ok || result.channelSent !== true || result.success !== true) {
+        setMessage({ type: 'error', text: result.error || '전송 성공을 확인하지 못했습니다. 판매자센터에서 답변 여부를 확인하세요.' });
+        // 원격 전송 성공/로컬 저장 실패라면 중복 전송을 막고 목록을 재조회한다.
+        if (result.channelSent === true) {
+          setSelectedInquiry(null);
+          setAnswer('');
+          fetchInquiries();
+        }
+        return;
       }
 
-      // 2. DB 업데이트 (채널 전송 성공 여부와 관계없이)
-      await supabase.from('sh_cs_inquiries').update({
-        answer,
-        status: 'replied',
-        answered_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }).eq('id', selectedInquiry.id);
-
-      if (res.ok) {
-        setMessage({ type: 'success', text: '답변이 성공적으로 전송되었습니다.' });
-      }
+      setMessage({ type: 'success', text: '답변이 성공적으로 전송되었습니다.' });
 
       setSelectedInquiry(null);
       setAnswer('');
       fetchInquiries();
     } catch {
-      setMessage({ type: 'error', text: '답변 전송 중 오류가 발생했습니다.' });
+      setMessage({ type: 'error', text: '전송 결과를 확인하지 못했습니다. 작성 내용은 유지됩니다. 재전송 전에 판매자센터에서 답변 여부를 확인하세요.' });
     } finally {
       setSendLoading(false);
     }
