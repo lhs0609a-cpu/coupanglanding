@@ -27,7 +27,26 @@ import { fetchEnrolledCoupangBrands, resolveCoupangBrandId } from '@/lib/utils/c
 /** 쿠팡 물류정보 캐시 유효기간 — 출고지는 자주 바뀌지 않지만 폐기될 수 있다. */
 const SHIPPING_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * 대리 등록 금지 (사용자 지시 2026-09-30: "대리등록은 앞으로 금지해").
+ *
+ * 이건 일시 중단이 아니라 금지다. 올린 것을 전량 삭제하기로 하면서 기능 자체를 닫았다.
+ * 계정별 opt_out 이 아니라 여기서 막는 이유:
+ *   - 삭제 도중 대량등록이 한 번 더 돌아 16계정 × 7건 = 112건이 새로 올라갔다.
+ *     지우는 것과 올리는 것이 동시에 돌면 끝나지 않는다.
+ *   - opt_out 은 "셀러가 거부했다" 는 뜻이라 운영 중단에 쓰면 의미가 오염되고,
+ *     44개 계정 플래그를 나중에 하나씩 되돌려야 한다.
+ *   - 판정(checkEligibility)과 등록(registerCatalogProductForUser) 양쪽에서 막으므로
+ *     어느 경로로 호출해도 — 관리자 화면, 캠페인, 로컬 스크립트 — 아무것도 나가지 않는다.
+ *
+ * 되살리려면 이 값을 false 로 바꿔야 한다. 환경변수가 아니라 상수인 이유는
+ * 재개가 반드시 의도적인 코드 변경이어야 하기 때문이다(env 누락으로 조용히 되살아나면 안 된다).
+ * 되살리기 전에 사용자에게 반드시 확인할 것.
+ */
+const BULK_REGISTER_HALTED = true;
+
 export type SkipReason =
+  | 'halted'
   | 'opt_out'
   | 'contract_inactive'
   | 'no_credentials'
@@ -80,6 +99,11 @@ export async function checkEligibility(
   opts: { force?: boolean } = {},
 ): Promise<Eligibility> {
   const base: Eligibility = { megaloadUserId, eligible: false };
+
+  // 전면 중단이면 계정을 보지도 않는다 — 쿠팡 호출도 DB 조회도 일어나지 않는다.
+  if (BULK_REGISTER_HALTED) {
+    return { ...base, skipReason: 'halted', detail: '대리 등록이 전면 중단된 상태입니다.' };
+  }
 
   const { data: userRow } = await serviceClient
     .from('megaload_users')
@@ -454,6 +478,11 @@ export async function registerCatalogProductForUser(
   },
 ): Promise<RegisterResult> {
   const { megaloadUserId, catalogProductId, eligibility, stock = 999, dryRun = false, mainImageIndex } = params;
+
+  // 금지 스위치는 판정과 등록 양쪽에서 본다 — 호출측이 eligibility 를 직접 만들어 넘겨도 막히도록.
+  if (BULK_REGISTER_HALTED) {
+    return { ok: false, skipped: true, skipReason: 'halted', error: '대리 등록이 금지된 상태입니다.' };
+  }
 
   if (!eligibility.eligible || !eligibility.outboundCode || !eligibility.returnCode) {
     return { ok: false, skipped: true, skipReason: eligibility.skipReason || 'no_shipping', error: eligibility.detail };
