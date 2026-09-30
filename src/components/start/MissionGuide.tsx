@@ -27,7 +27,7 @@ export default function MissionGuide({ step, checkedItems, onCheck }: {
 }) {
   const [selected, setSelected] = useState(() => Math.max(0, step.subSteps.findIndex(s => !checkedItems[s.id])));
   const mission = step.subSteps[selected];
-  const workspaceUrl = mission.link?.label === '작업 화면 열기' ? mission.link.url : step.support.url;
+  const workspaceUrl = step.id === 'act1-05-api' && selected < 7 ? 'https://wing.coupang.com' : mission.link?.label === '작업 화면 열기' ? mission.link.url : step.support.url;
   const subIds = step.subSteps.map(s => s.id);
   const screens = getStepMockups(step.id, step.subSteps).filter(s => isShot(s)
     ? s.hotspots.some(h => h.pin === mission.id)
@@ -120,4 +120,3 @@ export default function MissionGuide({ step, checkedItems, onCheck }: {
     </div>
   </div>;
 }
-
