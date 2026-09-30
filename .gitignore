@@ -89,6 +89,9 @@ scripts/_tmp-*
 
 # 대리등록 실행 로그 (로컬 전용)
 .bulk-live.log
+.bulk-live2.log
+delete-bulk-registered.log
+reconcile-bulk-registered.log
 
 # 타입검사 임시 출력
 .tsc*.txt
