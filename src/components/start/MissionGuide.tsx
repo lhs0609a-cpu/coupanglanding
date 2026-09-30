@@ -27,6 +27,7 @@ export default function MissionGuide({ step, checkedItems, onCheck }: {
 }) {
   const [selected, setSelected] = useState(() => Math.max(0, step.subSteps.findIndex(s => !checkedItems[s.id])));
   const mission = step.subSteps[selected];
+  const workspaceUrl = mission.link?.label === '작업 화면 열기' ? mission.link.url : step.support.url;
   const subIds = step.subSteps.map(s => s.id);
   const screens = getStepMockups(step.id, step.subSteps).filter(s => isShot(s)
     ? s.hotspots.some(h => h.pin === mission.id)
@@ -42,10 +43,10 @@ export default function MissionGuide({ step, checkedItems, onCheck }: {
       {step.support.prerequisite && <a className="mt-2 block text-blue-300 underline" href={`/start?stage=${step.support.prerequisite}`}>필요한 이전 단계 확인하기</a>}
       <p className="mt-3 text-xs text-gray-400">로그인 후 이동할 메뉴: {step.support.path}</p>
       <div className="mt-3 flex flex-wrap gap-3">
-        <a data-workspace-link href={step.support.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 font-bold text-white">실제 작업 화면 열기<ExternalLink size={14}/></a>
-        {step.support.url.startsWith('/megaload') && <a href="https://wing.coupang.com" target="_blank" rel="noopener noreferrer" className="py-2 text-blue-300 underline">메가로드 이용 권한이 없으면 쿠팡 윙에서 직접 처리</a>}
+        <a data-workspace-link href={workspaceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 font-bold text-white">실제 작업 화면 열기<ExternalLink size={14}/></a>
+        {workspaceUrl.startsWith('/megaload') && <a href="https://wing.coupang.com" target="_blank" rel="noopener noreferrer" className="py-2 text-blue-300 underline">메가로드 이용 권한이 없으면 쿠팡 윙에서 직접 처리</a>}
       </div>
-      {step.support.url.startsWith('/megaload') && <p className="mt-2 text-xs">메가로드는 로그인·계정 승인·이용 권한이 필요합니다. 윙을 이용할 때는 위 메뉴 중 윙 경로를 따르세요. 메가로드 카탈로그·자동 등록 기능은 윙에서 동일하게 제공되지 않습니다.</p>}
+      {workspaceUrl.startsWith('/megaload') && <p className="mt-2 text-xs">메가로드는 로그인·계정 승인·이용 권한이 필요합니다. 윙을 이용할 때는 위 메뉴 중 윙 경로를 따르세요. 메가로드 카탈로그·자동 등록 기능은 윙에서 동일하게 제공되지 않습니다.</p>}
     </section>
     <div className="rounded-2xl border border-violet-400/25 bg-gradient-to-br from-violet-500/15 to-blue-500/5 p-4 sm:p-5">
       <div className="flex items-center justify-between gap-2 text-xs font-bold">

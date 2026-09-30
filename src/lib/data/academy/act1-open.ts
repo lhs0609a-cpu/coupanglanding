@@ -297,7 +297,7 @@ export const ACT1_STEPS: AcademyStep[] = [
     "label": "페이지 맨 아래 \"오픈 API 키 발급\"에서 발급받는다",
     "description": "\"API Key 발급 받기\"를 누르고, 팝업에서 \"오픈 API\"를 고른 뒤 확인을 누릅니다.",
     "link": {
-      "url": "/megaload/channels",
+      "url": "https://wing.coupang.com",
       "label": "작업 화면 열기"
     }
   },
@@ -307,7 +307,7 @@ export const ACT1_STEPS: AcademyStep[] = [
     "description": "발급 결과의 업체코드, Access Key, Secret Key를 구분해서 복사합니다. 다음 메가로드 입력 단계에서 각각 같은 이름의 칸에 붙여넣습니다.",
     "warning": "키는 본인만 접근할 수 있는 곳에 보관하고 공개 게시글이나 문의 화면 캡처에 노출하지 마세요. 이 가이드의 예시 키로는 연결할 수 없습니다.",
     "link": {
-      "url": "/megaload/channels",
+      "url": "https://wing.coupang.com",
       "label": "작업 화면 열기"
     }
   },
@@ -326,7 +326,7 @@ export const ACT1_STEPS: AcademyStep[] = [
     "description": "아래 IP 전체 복사를 누르고 윙의 접속 IP 입력란을 클릭합니다. 기존 값을 전체 선택한 뒤 붙여넣으세요. 쉼표로 구분된 IP 10개가 모두 들어가야 합니다.",
     "warning": "이걸 빠뜨리면 키는 발급됐는데 호출이 전부 막힙니다. API 연동이 실패하는 가장 흔한 원인이 바로 이 한 칸입니다.",
     "link": {
-      "url": "/megaload/channels",
+      "url": "https://wing.coupang.com",
       "label": "작업 화면 열기"
     }
   },
@@ -335,7 +335,7 @@ export const ACT1_STEPS: AcademyStep[] = [
     "label": "서비스 URL을 복사해서 URL 입력란에 붙여넣는다",
     "description": "IP 바로 아래 URL 입력란에 안내된 서비스 URL을 넣습니다. https://부터 마지막 /까지 그대로 복사하세요.",
     "link": {
-      "url": "/megaload/channels",
+      "url": "https://wing.coupang.com",
       "label": "작업 화면 열기"
     }
   },
@@ -344,7 +344,7 @@ export const ACT1_STEPS: AcademyStep[] = [
     "label": "확인을 눌러 저장하고 IP와 URL이 유지되는지 확인한다",
     "description": "입력만 하고 창을 닫으면 반영되지 않습니다. 확인 또는 저장을 누르고 연동 정보를 다시 열어 IP 10개와 URL이 그대로 남아 있는지 확인하세요.",
     "link": {
-      "url": "/megaload/channels",
+      "url": "https://wing.coupang.com",
       "label": "작업 화면 열기"
     }
   },
@@ -848,3 +848,4 @@ export const ACT1_STEPS: AcademyStep[] = [
     xp: 60,
   },
 ];
+

@@ -21,6 +21,8 @@ const examples: Record<string, MockupBlock[]> = {
  'rt-7': [{k:'table',cols:['서로 별개인 거래','확인할 결과'],rows:[['쿠팡 → 고객','환불 상태·금액'],['공급처 → 판매자','매입 환불·배송비 차감'],['쿠팡 → 판매자','정산 차감·최종 입금']]}],
 };
 export function getReviewedMockups(stepId: string, howto: StepHowto[]): MockupScreen[] | undefined {
+  // API setup already has precise field-by-field mockups and screenshots.
+  if (stepId === 'act1-05-api') return originals[stepId];
   if (!reviewedIds.has(stepId)) return undefined;
   const support = START_SUPPORT[stepId];
   const screens: MockupScreen[] = howto.flatMap(mission => {
