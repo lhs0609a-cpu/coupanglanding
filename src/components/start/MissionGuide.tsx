@@ -28,7 +28,7 @@ export default function MissionGuide({ step, checkedItems, onCheck }: {
   const [selected, setSelected] = useState(() => Math.max(0, step.subSteps.findIndex(s => !checkedItems[s.id])));
   const mission = step.subSteps[selected];
   const subIds = step.subSteps.map(s => s.id);
-  const screens = getStepMockups(step.id).filter(s => isShot(s)
+  const screens = getStepMockups(step.id, step.subSteps).filter(s => isShot(s)
     ? s.hotspots.some(h => h.pin === mission.id)
     : s.blocks.some(b => b.pin === mission.id));
   const done = !!checkedItems[mission.id];
@@ -119,3 +119,4 @@ export default function MissionGuide({ step, checkedItems, onCheck }: {
     </div>
   </div>;
 }
+

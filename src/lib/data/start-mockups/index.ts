@@ -6,9 +6,10 @@
  */
 
 import type { MockupScreen } from './types';
+import type { StepHowto } from '../academy/types';
 import { ACT12_MOCKUPS } from './screens-act12';
 import { ACT34_MOCKUPS } from './screens-act34';
-import { REVIEWED_MOCKUPS } from './reviewed-screens';
+import { getReviewedMockups } from './reviewed-screens';
 
 export type {
   MockupScreen,
@@ -28,6 +29,7 @@ export const STEP_MOCKUPS: Record<string, MockupScreen[]> = {
   ...REVIEWED_MOCKUPS,
 };
 
-export function getStepMockups(stepId: string): MockupScreen[] {
-  return STEP_MOCKUPS[stepId] ?? [];
+export function getStepMockups(stepId: string, howto?: StepHowto[]): MockupScreen[] {
+  return (howto ? getReviewedMockups(stepId, howto) : undefined) ?? STEP_MOCKUPS[stepId] ?? [];
 }
+

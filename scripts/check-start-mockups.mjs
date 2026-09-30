@@ -21,7 +21,8 @@ const root = process.cwd();
 const jiti = createJiti(import.meta.url, { fsCache: false, tryNative: false, alias: { '@': path.join(root, 'src') } });
 
 const { ROADMAP_STEPS } = await jiti.import(path.join(root, 'src/lib/data/start-roadmap.ts'));
-const { STEP_MOCKUPS } = await jiti.import(path.join(root, 'src/lib/data/start-mockups/index.ts'));
+const { getStepMockups } = await jiti.import(path.join(root, 'src/lib/data/start-mockups/index.ts'));
+const STEP_MOCKUPS = Object.fromEntries(ROADMAP_STEPS.map(s => [s.id, getStepMockups(s.id, s.subSteps)]));
 
 // 렌더러의 CLICK_KINDS 와 같은 목록. 여기와 StepMockup.tsx 가 어긋나면
 // 검사는 통과하는데 화면에는 점선이 안 쳐진다.
@@ -144,3 +145,4 @@ console.log(
 
 // Every mission now opens its own matching screen; a missing pin would render an empty guide.
 if (errors > 0 || warnings > 0) process.exit(1);
+

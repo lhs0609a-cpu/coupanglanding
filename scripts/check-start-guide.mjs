@@ -4,7 +4,8 @@ import path from 'node:path';
 import { createJiti } from 'jiti';
 const jiti=createJiti(import.meta.url,{fsCache:false,tryNative:false,alias:{'@':path.resolve('src')}});
 const {ROADMAP_STEPS,ROADMAP_FAQS}=await jiti.import(path.resolve('src/lib/data/start-roadmap.ts'));
-const {STEP_MOCKUPS}=await jiti.import(path.resolve('src/lib/data/start-mockups/index.ts'));
+const {getStepMockups}=await jiti.import(path.resolve('src/lib/data/start-mockups/index.ts'));
+const STEP_MOCKUPS = Object.fromEntries(ROADMAP_STEPS.map(s => [s.id, getStepMockups(s.id, s.subSteps)]));
 const urls=new Set(); const ids=new Set();
 for(const step of ROADMAP_STEPS){
  assert(step.support?.prepare && step.support?.complete && step.support?.path,`${step.id}: preparation/completion/path`);
@@ -43,3 +44,4 @@ assert(!JSON.stringify(ROADMAP_FAQS).includes('2002다42322'));
 const report={checkedAt:new Date().toISOString(),stages:ROADMAP_STEPS.length,missions:ids.size,links,limitations:'Live authenticated registration, payments, refunds and CS submissions are not performed by this audit.'};
 mkdirSync('artifacts/start-guide/review',{recursive:true});writeFileSync('artifacts/start-guide/review/audit.json',JSON.stringify(report,null,2));
 console.log(JSON.stringify(report,null,2));
+

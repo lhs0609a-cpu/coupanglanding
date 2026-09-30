@@ -1,4 +1,4 @@
-import { getActSteps } from '../academy';
+import type { StepHowto } from '../academy/types';
 import { START_SUPPORT } from '../academy/start-support';
 import { ACT12_MOCKUPS } from './screens-act12';
 import { ACT34_MOCKUPS } from './screens-act34';
@@ -20,11 +20,11 @@ const examples: Record<string, MockupBlock[]> = {
  'rt-6': [{k:'flow',items:[{text:'교환 재고·고객 합의',state:'done'},{text:'회수·검수 / 교환 재배송',state:'now'},{text:'교환 송장·배송 완료',state:'todo'}]}],
  'rt-7': [{k:'table',cols:['서로 별개인 거래','확인할 결과'],rows:[['쿠팡 → 고객','환불 상태·금액'],['공급처 → 판매자','매입 환불·배송비 차감'],['쿠팡 → 판매자','정산 차감·최종 입금']]}],
 };
-export const REVIEWED_MOCKUPS: Record<string, MockupScreen[]> = Object.fromEntries(
- [1,2,3,4].flatMap(act => getActSteps(act as 1|2|3|4)).filter(s => reviewedIds.has(s.key)).map(step => {
-  const support = START_SUPPORT[step.key];
-  const screens: MockupScreen[] = (step.howto ?? []).flatMap(mission => {
-   const shots: MockupScreen[] = (originals[step.key] ?? []).filter(s => s.kind === 'shot').filter(s => s.kind === 'shot' && s.hotspots.some(h => h.pin === mission.id)).map(s => s.kind === 'shot' ? {...s, caption: mission.label + ' — 기존 화면 캡처입니다. 실제 메뉴가 다르면 안내 경로와 필드 이름을 기준으로 찾으세요.', hotspots: s.hotspots.filter(h => h.pin === mission.id).map(h => ({...h,label:mission.label}))} : s);
+export function getReviewedMockups(stepId: string, howto: StepHowto[]): MockupScreen[] | undefined {
+  if (!reviewedIds.has(stepId)) return undefined;
+  const support = START_SUPPORT[stepId];
+  const screens: MockupScreen[] = howto.flatMap(mission => {
+   const shots: MockupScreen[] = (originals[stepId] ?? []).filter(s => s.kind === 'shot').filter(s => s.kind === 'shot' && s.hotspots.some(h => h.pin === mission.id)).map(s => s.kind === 'shot' ? {...s, caption: mission.label + ' — 기존 화면 캡처입니다. 실제 메뉴가 다르면 안내 경로와 필드 이름을 기준으로 찾으세요.', hotspots: s.hotspots.filter(h => h.pin === mission.id).map(h => ({...h,label:mission.label}))} : s);
    return [...shots, {
     tab: mission.label, chrome: 'browser', brand: '작업 설명도', url: mission.link?.url ?? support.url, path: support.path, accent: 'blue',
     caption: '작업 설명용 예시입니다. 실제 사이트의 화면 배치와 다를 수 있습니다. 입력 예시는 실제 값으로 바꾸세요.',
@@ -32,11 +32,11 @@ export const REVIEWED_MOCKUPS: Record<string, MockupScreen[]> = Object.fromEntri
      {k:'heading',text:mission.label},
      {k:'text',text:mission.description ?? ''},
      ...(examples[mission.id] ?? []),
-     {k:'check',pin:mission.id,label:'실제 작업 화면에서 확인',options:[{text:mission.label,note:'아래 실제 작업 화면 링크에서 처리한 후 완료 체크'}]},
+     {k:'check',pin:mission.id,label:'실제 작업 화면에서 확인',options:[{text:mission.label,note:'실제 작업 화면 열기 링크에서 처리한 후 완료 체크'}]},
      {k:'notice',tone:'ok',title:'단계 종료 전 확인',text:support.complete},
     ],
    } satisfies MockupScreen];
   });
-  return [step.key,screens];
- })
-);
+  return screens;
+}
+
