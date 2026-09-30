@@ -26,10 +26,8 @@ export { isShot } from './types';
 export const STEP_MOCKUPS: Record<string, MockupScreen[]> = {
   ...ACT12_MOCKUPS,
   ...ACT34_MOCKUPS,
-  ...REVIEWED_MOCKUPS,
 };
 
 export function getStepMockups(stepId: string, howto?: StepHowto[]): MockupScreen[] {
   return (howto ? getReviewedMockups(stepId, howto) : undefined) ?? STEP_MOCKUPS[stepId] ?? [];
 }
-
