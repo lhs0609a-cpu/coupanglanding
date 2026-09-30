@@ -6,6 +6,7 @@
  * 그 버튼을 못 찾고 거기서 멈춘다.
  */
 
+import { COUPANG_CONNECTION_IP_TEXT, COUPANG_CONNECTION_URL } from '@/lib/data/coupang-connection';
 import type { MockupScreen } from './types';
 
 export const ACT12_MOCKUPS: Record<string, MockupScreen[]> = {
@@ -328,7 +329,7 @@ export const ACT12_MOCKUPS: Record<string, MockupScreen[]> = {
       alt: '쿠팡 윙 사업자 정보입력 화면 — 사업자등록번호, 사업장 주소, 통신판매업신고번호, 정산계좌',
       source: '쿠팡 윙 판매자 회원가입',
       caption:
-        '1·2단계에서 받은 번호 두 개가 실제로 들어가는 화면입니다. 사업장 주소는 통신판매업 신고증에 적힌 주소와 같아야 하고(화면에도 그렇게 경고가 붙어 있습니다), 정산계좌는 사업자 명의여야 합니다.',
+        '1·2단계에서 받은 번호 두 개가 실제로 들어가는 화면입니다. 사업장 주소와 신고 서류를 대조하고, 개인사업자는 대표자 명의·법인은 법인 명의의 정산계좌를 준비합니다.',
       hotspots: [
         {
           pin: 'cw-2',
@@ -347,7 +348,7 @@ export const ACT12_MOCKUPS: Record<string, MockupScreen[]> = {
           pin: 'cw-4',
           x: 20,
           y: 80,
-          label: '정산계좌 — 예금주가 사업자 명의여야 합니다. 개인 명의를 넣으면 정산이 보류됩니다.',
+          label: '정산계좌 — 개인사업자는 대표자 명의, 법인은 법인 명의로 준비합니다.',
         },
       ],
     },
@@ -366,7 +367,7 @@ export const ACT12_MOCKUPS: Record<string, MockupScreen[]> = {
           text: '쿠팡 윙은 PC 기준으로 만들어져 있습니다. 모바일로 가입을 시도하면 중간에 막힙니다.',
           pin: 'cw-1',
         },
-        { k: 'upload', label: '첨부 파일', files: ['사업자등록증.pdf', '통장사본.jpg'], pin: 'cw-2' },
+        { k: 'upload', label: '첨부 파일', files: ['사업자등록증.pdf', '통신판매업신고증.pdf', '정산통장사본.jpg'], pin: 'cw-2' },
         { k: 'field', label: '사업자등록번호', value: '123-45-67890', state: 'ok', pin: 'cw-3' },
         { k: 'field', label: '통신판매업 신고번호', value: '2026-서울강남-01234', state: 'ok' },
         {
@@ -374,13 +375,13 @@ export const ACT12_MOCKUPS: Record<string, MockupScreen[]> = {
           label: '정산 계좌 예금주',
           value: '○○커머스',
           state: 'ok',
-          hint: '사업자 명의여야 합니다.',
+          hint: '개인사업자: 대표자 명의 / 법인사업자: 법인 명의',
           pin: 'cw-4',
         },
         {
           k: 'notice',
           tone: 'bad',
-          text: '개인 명의 계좌를 넣으면 정산이 보류됩니다. 돈이 안 들어오고 나서야 알게 되는 실수라 여기서 확실히 해두세요.',
+          text: '통장 사본의 예금주·은행·계좌번호와 입력한 값이 일치하는지 확인하세요. 사업자 유형에 맞는 명의로 준비합니다.',
         },
         { k: 'btn', label: '가입 신청', variant: 'primary', align: 'full' },
       ],
@@ -451,7 +452,7 @@ export const ACT12_MOCKUPS: Record<string, MockupScreen[]> = {
         { pin: 'api-3', x: 20, y: 50, label: '업체코드 — 메가로드 채널관리에 넣을 첫 번째 값.' },
         { pin: 'api-3', x: 34, y: 45, label: '유효기간과 남은 일수. 만료되면 연동이 끊기니 재발급으로 갱신합니다.' },
         { pin: 'api-3', x: 66, y: 50, label: 'Access Key — 두 번째 값.' },
-        { pin: 'api-3', x: 86, y: 50, label: 'Secret Key — 세 번째 값. 이 화면을 나가면 다시 볼 수 없습니다.' },
+        { pin: 'api-3', x: 86, y: 50, label: 'Secret Key — 세 번째 값. 본인 계정에서 발급받은 값을 복사하세요.' },
       ],
     },
     {
@@ -463,7 +464,7 @@ export const ACT12_MOCKUPS: Record<string, MockupScreen[]> = {
       path: '마이페이지 > 추가판매정보 > 페이지 맨 아래',
       accent: 'red',
       caption:
-        'API 키 세 값이 나오는 화면. 시크릿 키는 이 화면을 나가면 다시 볼 수 없고, 아래 "연동 정보" 한 칸을 빠뜨리는 것이 연동 실패의 1순위 원인입니다.',
+        '업체코드·Access Key·Secret Key를 각각 복사합니다. 예시 값 대신 본인 계정에서 발급받은 값을 사용하고, 다음 미션에서 연동 정보를 설정하세요.',
       blocks: [
         {
           k: 'text',
@@ -481,29 +482,65 @@ export const ACT12_MOCKUPS: Record<string, MockupScreen[]> = {
           items: [
             { k: '업체코드 (vendorId)', v: 'A00123456', copy: true },
             { k: 'Access Key', v: 'a1b2c3d4-5e6f-7890-abcd-ef1234567890', copy: true },
-            { k: 'Secret Key', v: '9f8e7d6c5b4a………  ← 지금 복사하지 않으면 끝', tone: 'bad', copy: true },
+            { k: 'Secret Key', v: '••••••••••••••••  (예시 · 본인 키 사용)', tone: 'mute' },
           ],
           pin: 'api-3',
         },
         {
           k: 'notice',
           tone: 'bad',
-          text: '시크릿 키는 이 화면을 나가면 다시 볼 수 없습니다. 나중에 복사하려고 미루면 키를 삭제하고 재발급받아야 합니다.',
+          text: '키는 본인만 접근할 수 있는 곳에 보관하세요. 이 화면은 입력 위치를 보여주는 예시이며, 실제 키는 윙에서 복사해 메가로드 채널관리에 입력합니다.',
         },
-        { k: 'heading', text: '연동 정보', sub: '같은 페이지 · "수정" 버튼' },
+      ],
+    },
+    {
+      tab: '연동 정보 · 수정 열기', chrome: 'browser', brand: '쿠팡 윙', url: 'wing.coupang.com',
+      path: '마이페이지 > 추가판매정보 > 연동 정보',
+      caption: '연동 정보 오른쪽의 수정 버튼을 누릅니다. 키 발급만으로 IP 등록이 끝나는 것은 아닙니다.',
+      blocks: [
+        { k: 'heading', text: '연동 정보' },
+        { k: 'radio', label: '연동 방식', options: [{ text: '자체개발(직접입력)', on: true }, { text: '연동업체 선택' }], pin: 'api-4-edit' },
+        { k: 'field', label: '업체명', value: '내 사업자명 (기존 값 유지)', state: 'lock' },
+        { k: 'btn', label: '수정', variant: 'primary', pin: 'api-4-edit' },
+      ],
+    },
+    {
+      tab: '접속 IP · 10개 붙여넣기', chrome: 'browser', brand: '쿠팡 윙', url: 'wing.coupang.com',
+      path: '추가판매정보 > 연동 정보 수정',
+      caption: '아래 복사 버튼으로 IP 10개 전체를 복사한 뒤 이 칸에 붙여넣습니다. 집이나 회사의 IP가 아니라 메가로드의 호출 서버 IP입니다.',
+      blocks: [
+        { k: 'heading', text: '연동 정보 수정', sub: '접속 IP 입력란 클릭 → 전체 선택 → 붙여넣기' },
         {
           k: 'field',
           label: '접속 IP  (콤마로 구분해 10개 전부)',
-          value: '76.76.21.21, 76.76.21.22, 76.76.21.61, …',
+          value: COUPANG_CONNECTION_IP_TEXT,
           state: 'ok',
           pin: 'api-4',
         },
-        { k: 'field', label: '서비스 URL', value: 'https://coupanglanding.vercel.app/', state: 'ok' },
         {
           k: 'notice',
           tone: 'bad',
           text: '이걸 빠뜨리면 키는 발급됐는데 호출이 전부 막힙니다. API 연동이 실패하는 가장 흔한 원인이 바로 이 한 칸입니다.',
         },
+      ],
+    },
+    {
+      tab: '서비스 URL · 붙여넣기', chrome: 'browser', brand: '쿠팡 윙', url: 'wing.coupang.com',
+      path: '추가판매정보 > 연동 정보 수정',
+      caption: 'IP 칸과 URL 칸을 혼동하지 마세요. 서비스 URL은 아래 별도 입력란에 넣습니다.',
+      blocks: [
+        { k: 'field', label: '접속 IP', value: COUPANG_CONNECTION_IP_TEXT, state: 'ok' },
+        { k: 'field', label: '서비스 URL', value: COUPANG_CONNECTION_URL, state: 'ok', pin: 'api-4-url' },
+      ],
+    },
+    {
+      tab: '연동 정보 · 저장 확인', chrome: 'browser', brand: '쿠팡 윙', url: 'wing.coupang.com',
+      caption: '확인을 눌러 저장한 다음 연동 정보를 다시 열어 확인하세요. 값이 사라졌다면 아직 완료가 아닙니다.',
+      blocks: [
+        { k: 'field', label: '접속 IP', value: COUPANG_CONNECTION_IP_TEXT, state: 'ok' },
+        { k: 'field', label: '서비스 URL', value: COUPANG_CONNECTION_URL, state: 'ok' },
+        { k: 'btn', label: '확인 · 저장', variant: 'primary', pin: 'api-4-save' },
+        { k: 'notice', tone: 'ok', title: '완료 기준', text: '연동 정보를 다시 열어도 IP 10개와 URL이 유지됩니다.' },
       ],
     },
     {

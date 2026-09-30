@@ -142,4 +142,5 @@ console.log(
   `\n${stepCount}단계 · 화면 ${screenCount}장(실제 캡처 ${shotCount}장) · 체크항목 ${subCount}개 · 누를 곳 ${clickCount}곳 — 오류 ${errors}, 미연결 ${warnings}`,
 );
 
-if (errors > 0) process.exit(1);
+// Every mission now opens its own matching screen; a missing pin would render an empty guide.
+if (errors > 0 || warnings > 0) process.exit(1);

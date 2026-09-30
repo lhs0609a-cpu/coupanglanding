@@ -5,3 +5,17 @@ proxy/
 .claude/
 # Local source image collection; runtime images are served from Storage/CDN.
 stock-image-bank/**
+# Local guide reviews and temporary development output are not deployment sources.
+artifacts/**
+.next-start-review/**
+.watch*.mjs
+node_modules/**
+**/node_modules/**
+.next/**
+**/.next/**
+*.Egg
+*.egg
+*.alz
+*.log
+*.tsbuildinfo
+.tsc*.txt

@@ -599,7 +599,9 @@ function ShotView({
   screen,
   subIds,
   checkedItems,
+  focusPin,
 }: {
+  focusPin?: string;
   screen: MockupShotScreen;
   subIds: string[];
   checkedItems: Record<string, boolean>;
@@ -607,7 +609,7 @@ function ShotView({
   const [zoom, setZoom] = useState(false);
   const [broken, setBroken] = useState(false);
 
-  const spots = screen.hotspots.map((h) => ({
+  const spots = screen.hotspots.filter(h => !focusPin || h.pin === focusPin).map((h) => ({
     ...h,
     n: subIds.indexOf(h.pin) + 1,
     done: !!checkedItems[h.pin],
@@ -631,7 +633,7 @@ function ShotView({
             alt={screen.alt}
             loading="lazy"
             onError={() => setBroken(true)}
-            className="block max-h-[420px] w-full bg-white object-contain"
+            className="block h-auto w-full bg-white"
           />
         </button>
         {spots.map((h, i) => (
@@ -790,7 +792,9 @@ export default function StepMockup({
   screens,
   subIds,
   checkedItems,
+  focusPin,
 }: {
+  focusPin?: string;
   screens: MockupScreen[];
   /** 이 단계의 체크리스트 id 순서. pin → 번호를 여기서 구한다. */
   subIds: string[];
@@ -844,7 +848,7 @@ export default function StepMockup({
         </div>
 
         {shot ? (
-          <ShotView screen={screen} subIds={subIds} checkedItems={checkedItems} />
+          <ShotView screen={screen} subIds={subIds} checkedItems={checkedItems} focusPin={focusPin} />
         ) : (
           <Frame screen={screen}>
             {screen.blocks.map((b, i) => {
@@ -853,7 +857,7 @@ export default function StepMockup({
               // 누르는 것이면 번호를 요소 위에 얹고 점선으로 감싼다.
               const target = n > 0 && CLICK_KINDS.has(b.k);
               return (
-                <div key={i} className="flex gap-2">
+                <div key={i} className={`flex gap-2 rounded-lg transition-opacity ${focusPin && b.pin && b.pin !== focusPin ? 'opacity-40' : ''} ${focusPin && b.pin === focusPin ? 'ring-2 ring-violet-400 ring-offset-4 ring-offset-white' : ''}`}>
                   <span className="w-5 shrink-0">{n > 0 && !target && <Pin n={n} done={done} />}</span>
                   <div className="min-w-0 flex-1">
                     {target ? (
@@ -886,8 +890,8 @@ export default function StepMockup({
           <p className="text-[12px] leading-relaxed text-gray-400">{screen.caption}</p>
           <p className="mt-1 text-[10.5px] leading-relaxed text-gray-600">
             {shot
-              ? '빨간 번호가 찍힌 자리가 눌러야 할 곳입니다. 번호는 아래 체크리스트 번호와 같고, 체크하면 초록색으로 바뀝니다. 화면을 누르면 크게 볼 수 있습니다.'
-              : '점선으로 둘러싸인 곳이 직접 누르거나 입력하는 자리입니다. 번호는 아래 체크리스트 번호와 같고, 체크하면 초록색으로 바뀝니다.'}
+              ? '빨간 번호가 현재 미션에서 확인할 자리입니다. 완료 체크하면 초록색으로 바뀝니다. 화면을 누르면 크게 볼 수 있습니다.'
+              : '점선으로 둘러싸인 곳이 누르거나 입력하는 자리입니다. 보라색 테두리가 현재 미션의 위치이며, 완료 체크하면 번호가 초록색으로 바뀝니다.'}
           </p>
         </figcaption>
       </figure>

@@ -11,8 +11,6 @@ import {
   ShoppingBag,
   Check,
   ChevronDown,
-  ExternalLink,
-  Lightbulb,
   AlertTriangle,
   SkipForward,
   Menu,
@@ -57,8 +55,7 @@ import {
 } from '@/lib/utils/start-progress';
 // 화면 목업. academy 와 달리 이 모듈은 퀴즈 정답도 PT 전용 콘텐츠도 들고 있지 않아서
 // 클라이언트에서 직접 import 해도 안전하다(공개 화면 설명이 전부다).
-import StepMockup from '@/components/start/StepMockup';
-import { getStepMockups } from '@/lib/data/start-mockups';
+import MissionGuide from '@/components/start/MissionGuide';
 
 // ─── 상수 ───
 //
@@ -297,7 +294,7 @@ function HeroSection({ totalSteps }: { totalSteps: number }) {
         >
           <div className="inline-flex items-center gap-2 px-4 py-1.5 mb-6 rounded-full border border-[#E31837]/30 bg-[#E31837]/10 text-[#ff6b81] text-sm font-medium">
             <Sparkles className="w-4 h-4" />
-            왕초보 셀러를 위한 완벽 가이드
+            처음부터 끝까지 · 셀러 퀘스트
           </div>
         </motion.div>
 
@@ -321,7 +318,7 @@ function HeroSection({ totalSteps }: { totalSteps: number }) {
           transition={{ duration: 0.7, delay: 0.2 }}
         >
           사업자등록부터 첫 주문 처리와 고객 응대까지,
-          <br className="hidden sm:block" /> 체크리스트로 하나씩 따라하면 됩니다.
+          <br className="hidden sm:block" /> 화면을 보며 미션을 하나씩 클리어하세요.
         </motion.p>
 
         <motion.div
@@ -501,7 +498,6 @@ function StickyProgressBar({
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function StepCard({
   step,
-  stepIndex,
   progress,
   isOpen,
   onToggle,
@@ -509,7 +505,6 @@ function StepCard({
   onSkip,
 }: {
   step: RoadmapStep;
-  stepIndex: number;
   progress: StartProgress;
   isOpen: boolean;
   onToggle: () => void;
@@ -525,7 +520,7 @@ function StepCard({
   return (
     <AnimatedSection
       id={`step-${step.number}`}
-      className="max-w-3xl mx-auto px-4 sm:px-6"
+      className="max-w-3xl mx-auto scroll-mt-36 px-4 sm:px-6"
     >
       <motion.div
         variants={fadeInUp}
@@ -610,103 +605,7 @@ function StepCard({
               <div className="px-5 sm:px-6 pb-5 sm:pb-6 space-y-3">
                 <p className="text-sm text-gray-400 mb-4">{step.subtitle}</p>
 
-                {/* 화면 목업 — 글만 있으면 "그 버튼이 어디 있는데"에서 멈춘다.
-                    번호가 아래 체크리스트 번호와 1:1 로 붙는다. */}
-                <StepMockup
-                  screens={getStepMockups(step.id)}
-                  subIds={subIds}
-                  checkedItems={progress.checkedItems}
-                />
-
-                {step.subSteps.map((ss, ssIndex) => {
-                  const checked = !!progress.checkedItems[ss.id];
-                  return (
-                    <div
-                      key={ss.id}
-                      className={`rounded-xl border p-4 transition-colors ${
-                        checked
-                          ? 'border-green-500/20 bg-green-500/5'
-                          : 'border-white/10 bg-white/[0.02]'
-                      }`}
-                    >
-                      <label className="flex items-start gap-3 cursor-pointer">
-                        <div className="pt-0.5">
-                          <div
-                            onClick={(e) => {
-                              e.preventDefault();
-                              onCheck(ss.id);
-                            }}
-                            className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors ${
-                              checked
-                                ? 'bg-green-500 border-green-500'
-                                : 'border-gray-600 hover:border-gray-400'
-                            }`}
-                          >
-                            {checked && (
-                              <Check className="w-3 h-3 text-white" />
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          {/* 목업의 빨간 번호와 같은 번호. 이 둘이 같은 숫자를
-                              가리켜야 "그 화면의 그 칸" 이 전달된다. */}
-                          <span
-                            className={`mr-1.5 inline-flex h-4 w-4 shrink-0 translate-y-[1px] items-center justify-center rounded-full text-[9px] font-bold tabular-nums ${
-                              checked
-                                ? 'bg-green-500/20 text-green-400'
-                                : 'bg-[#E31837] text-white'
-                            }`}
-                          >
-                            {ssIndex + 1}
-                          </span>
-                          <span
-                            className={`font-medium text-sm ${
-                              checked
-                                ? 'text-gray-500 line-through'
-                                : 'text-white'
-                            }`}
-                          >
-                            {ss.label}
-                          </span>
-                          {ss.description && (
-                            <p className="text-xs text-gray-500 mt-1">
-                              {ss.description}
-                            </p>
-                          )}
-                        </div>
-                      </label>
-
-                      {/* Tip */}
-                      {ss.tip && (
-                        <div className="mt-3 ml-8 flex items-start gap-2 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                          <Lightbulb className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
-                          <p className="text-xs text-blue-300">{ss.tip}</p>
-                        </div>
-                      )}
-
-                      {/* Warning */}
-                      {ss.warning && (
-                        <div className="mt-3 ml-8 flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                          <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
-                          <p className="text-xs text-amber-300">{ss.warning}</p>
-                        </div>
-                      )}
-
-                      {/* Link */}
-                      {ss.link && (
-                        <a
-                          href={ss.link.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="mt-3 ml-8 inline-flex items-center gap-1.5 text-xs font-medium text-[#E31837] hover:text-[#ff6b81] transition-colors"
-                        >
-                          {ss.link.label}
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      )}
-                    </div>
-                  );
-                })}
+                <MissionGuide step={step} checkedItems={progress.checkedItems} onCheck={onCheck} />
 
                 {/* 자동 판정으로 가는 문.
                     체크박스는 결국 자기신고다. 쿠팡에 직접 물어봐서 확인해주는 곳이 따로 있다는 걸
@@ -906,29 +805,22 @@ export default function StartClient({
   }));
   const [openStepIndex, setOpenStepIndex] = useState<number>(0);
   const [showCelebration, setShowCelebration] = useState(false);
-  const [mounted, setMounted] = useState(false);
 
   // Load from localStorage on mount
   useEffect(() => {
-    setProgress(getStartProgress());
-    setMounted(true);
-  }, []);
+    const frame = requestAnimationFrame(() => {
+      const saved = getStartProgress();
+      setProgress(saved);
+      const next = allSubIds.findIndex(ids => !isStepCompleted(ids, saved));
+      setOpenStepIndex(next === -1 ? 0 : next);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [allSubIds]);
 
   const completedCount = useMemo(
     () => getCompletedStepCount(allSubIds, progress),
     [progress, allSubIds]
   );
-
-  // 첫 오픈 스텝: 아직 완료되지 않은 첫 번째 스텝
-  useEffect(() => {
-    if (!mounted) return;
-    const firstIncomplete = steps.findIndex(
-      (_, i) => !isStepCompleted(allSubIds[i], progress)
-    );
-    if (firstIncomplete !== -1) {
-      setOpenStepIndex(firstIncomplete);
-    }
-  }, [mounted]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCheck = useCallback(
     (stepIndex: number, subStepId: string) => {
@@ -1010,6 +902,25 @@ export default function StartClient({
 
       <CompletionDateWidget progress={progress} steps={steps} allSubIds={allSubIds} />
 
+      <section aria-label="전체 퀘스트 지도" className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div><p className="text-xs font-bold tracking-widest text-violet-300">YOUR QUEST MAP</p><h2 className="mt-2 text-2xl font-bold">한 칸씩, 첫 판매까지</h2></div>
+          <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-4 py-2 text-sm font-bold text-emerald-300">{steps.reduce((n, s) => n + s.subSteps.filter(ss => progress.checkedItems[ss.id]).length * 10, 0)} XP</span>
+        </div>
+        <p className="mb-4 text-sm leading-6 text-gray-400">처음이라면 1번부터. 이미 입점을 마쳤다면 API 연동부터 이어가세요. 미리보기도 자유롭게 할 수 있습니다.</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {steps.map((step, i) => {
+            const done = isStepCompleted(allSubIds[i], progress);
+            return <button type="button" key={step.id} onClick={() => {
+              setOpenStepIndex(i);
+              document.getElementById(`step-${step.number}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }} className={`flex items-start gap-2 rounded-xl border p-3 text-left text-xs leading-5 transition hover:border-violet-400 ${done ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200' : openStepIndex === i ? 'border-violet-400/50 bg-violet-500/10 text-white' : 'border-white/10 text-gray-400'}`}>
+              <span className="font-bold text-violet-300">{done ? '✓' : String(step.number).padStart(2, '0')}</span><span>{step.title}</span>
+            </button>;
+          })}
+        </div>
+      </section>
+
       {/* Steps */}
       <div className="space-y-6 py-8">
         {/* Step간 연결선 */}
@@ -1024,7 +935,6 @@ export default function StartClient({
             )}
             <StepCard
               step={step}
-              stepIndex={i}
               progress={progress}
               isOpen={openStepIndex === i}
               onToggle={() =>
