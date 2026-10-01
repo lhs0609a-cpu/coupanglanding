@@ -4,7 +4,8 @@ import { useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
-import { ArrowLeft, CheckCircle, Phone, Send, UserCheck } from 'lucide-react';
+import { ArrowLeft, CheckCircle, MessageSquareText, Phone, Send, UserCheck } from 'lucide-react';
+import { KAKAO_SUPPORT_URL, KAKAO_SUPPORT_LABEL } from '@/lib/support-link';
 
 const CATEGORY_OPTIONS = [
   { value: '의류', label: '의류/패션' },
@@ -103,11 +104,20 @@ function ApplyForm() {
             <CheckCircle className="w-10 h-10 text-green-600" />
           </div>
           <h1 className="text-2xl font-bold text-gray-900 mb-3">신청이 완료되었습니다!</h1>
-          <p className="text-gray-500 mb-2">48시간 내에 담당자가 연락드리겠습니다.</p>
-          <p className="text-sm text-gray-400 mb-8">입력하신 연락처로 전화 또는 문자를 드립니다.</p>
+          <p className="text-gray-500 mb-2">상담은 카톡으로 진행됩니다.</p>
+          <p className="text-sm text-gray-400 mb-8">아래 버튼으로 {KAKAO_SUPPORT_LABEL}를 열어 바로 말씀 주세요.<br />연락처를 남기셨으니 담당자가 확인 후 응대합니다.</p>
+          <a
+            href={KAKAO_SUPPORT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-6 py-3.5 bg-[#FEE500] text-[#191600] rounded-xl font-bold hover:brightness-95 transition w-full justify-center"
+          >
+            <MessageSquareText className="w-5 h-5" />
+            {KAKAO_SUPPORT_LABEL}로 상담 시작하기
+          </a>
           <Link
             href="/pt"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-[#E31837] text-white rounded-xl font-semibold hover:bg-[#c81530] transition"
+            className="inline-flex items-center gap-2 mt-4 px-6 py-3 text-gray-500 rounded-xl font-medium hover:text-gray-700 transition"
           >
             <ArrowLeft className="w-4 h-4" />
             메인으로 돌아가기
@@ -127,12 +137,29 @@ function ApplyForm() {
             돌아가기
           </Link>
           <h1 className="text-3xl sm:text-4xl font-extrabold mb-3">무료 상담 신청</h1>
-          <p className="text-white/80 text-lg">쿠팡 판매를 시작하고 싶으시다면, 아래 정보를 남겨주세요.<br />전문가가 1:1로 상담해드립니다.</p>
+          <p className="text-white/80 text-lg">상담은 {KAKAO_SUPPORT_LABEL}로 진행됩니다.<br />{ref ? '추천 코드가 적용되도록 아래 정보를 남기신 뒤 카톡으로 이어집니다.' : '지금 바로 카톡으로 물어보셔도 됩니다.'}</p>
         </div>
       </div>
 
       {/* Form */}
       <div className="max-w-2xl mx-auto px-4 -mt-6">
+        {/* 카톡 먼저 — 운영 응대가 카톡에서 이뤄진다. 추천 링크(ref)로 들어온 경우만
+            폼을 1순위로 둔다: 추천 실적은 applications 기록으로만 추적된다. */}
+        {!ref && (
+          <a
+            href={KAKAO_SUPPORT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 w-full mb-4 px-6 py-4 bg-[#FEE500] text-[#191600] rounded-2xl font-bold shadow-xl hover:brightness-95 transition"
+          >
+            <MessageSquareText className="w-5 h-5" />
+            {KAKAO_SUPPORT_LABEL}로 바로 상담하기
+          </a>
+        )}
+        {!ref && (
+          <p className="text-center text-xs text-gray-400 mb-4">전화 상담을 원하시면 아래 양식을 남겨주세요</p>
+        )}
+
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6 sm:p-8 space-y-6">
           {errors.submit && (
             <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">

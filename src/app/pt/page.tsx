@@ -38,11 +38,15 @@ import {
   XCircle,
   Zap,
 } from 'lucide-react';
+import { KAKAO_SUPPORT_URL } from '@/lib/support-link';
 
 // ============================================================
 // CONSTANTS & CONFIG
 // ============================================================
-const CTA_URL = '/apply';
+// 상담 입구 = 카톡고객센터 한 곳. 신청 폼(/apply)에 쌓이면 운영자가 관리자 화면에
+// 들어가야 보이는데, 실제로는 안 들어가서 응대가 늦었다 (사용자 지시 2026-10-01).
+//   예외: 트레이너 추천 링크(/apply?ref=코드)는 추천 실적 추적 때문에 폼을 유지한다.
+const CTA_URL = KAKAO_SUPPORT_URL;
 
 // ============================================================
 // ANIMATION VARIANTS
@@ -373,8 +377,11 @@ function SectionBadge({ children, className = '' }: { children: React.ReactNode;
 function CTAButton({ children, href = CTA_URL, variant = 'primary', size = 'lg', className = '' }: { children: React.ReactNode; href?: string; variant?: 'primary' | 'secondary' | 'ghost'; size?: 'sm' | 'md' | 'lg'; className?: string }) {
   const sizeClasses = { sm: 'px-5 py-2.5 text-sm', md: 'px-6 py-3 text-sm', lg: 'px-8 py-4 text-base' };
   const variantClasses = { primary: 'bg-gradient-to-r from-[#E31837] to-[#ff4d6a] text-white shadow-xl shadow-rose-200/40 hover:shadow-2xl hover:shadow-rose-300/40', secondary: 'bg-white text-gray-900 border border-gray-200 shadow-lg', ghost: 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200' };
+  // 카톡 오픈채팅 등 외부 링크는 새 탭 — 랜딩을 닫지 않게
+  const external = /^https?:\/\//.test(href);
   return (
     <motion.a href={href} whileHover={{ scale: 1.02, y: -1 }} whileTap={{ scale: 0.98 }}
+      {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
       className={`inline-flex items-center justify-center gap-2 rounded-full font-semibold transition-all duration-300 ${sizeClasses[size]} ${variantClasses[variant]} ${className}`}>{children}</motion.a>
   );
 }
@@ -542,7 +549,7 @@ export default function PTPage() {
               {navLinks.map((link) => (<a key={link.href} href={link.href} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${scrolled ? 'text-gray-600 hover:text-gray-900 hover:bg-gray-50' : 'text-gray-300 hover:text-white'}`}>{link.label}</a>))}
             </nav>
             <div className="hidden md:flex items-center gap-3">
-              <a href={CTA_URL} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${scrolled ? 'text-gray-600 hover:text-gray-900' : 'text-gray-300 hover:text-white'}`}>상담 신청</a>
+              <a href={CTA_URL} target="_blank" rel="noopener noreferrer" className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${scrolled ? 'text-gray-600 hover:text-gray-900' : 'text-gray-300 hover:text-white'}`}>카톡 상담</a>
             </div>
             <button type="button" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className={`md:hidden p-2 rounded-lg transition-colors ${scrolled ? 'hover:bg-gray-100' : 'hover:bg-white/10'}`} aria-label="메뉴">
               {mobileMenuOpen
@@ -557,7 +564,7 @@ export default function PTPage() {
               <div className="px-5 py-4 space-y-1">
                 {navLinks.map((link) => (<a key={link.href} href={link.href} onClick={handleNavClick} className="block px-4 py-3 rounded-xl text-base font-medium text-gray-700 hover:bg-gray-50">{link.label}</a>))}
                 <div className="pt-3 border-t border-gray-100 mt-2">
-                  <a href={CTA_URL} onClick={handleNavClick} className="block px-4 py-3.5 rounded-xl text-base font-semibold text-white bg-gradient-to-r from-[#E31837] to-[#ff4d6a] text-center shadow-lg">무료 상담 신청</a>
+                  <a href={CTA_URL} target="_blank" rel="noopener noreferrer" onClick={handleNavClick} className="block px-4 py-3.5 rounded-xl text-base font-semibold text-white bg-gradient-to-r from-[#E31837] to-[#ff4d6a] text-center shadow-lg">카톡으로 무료 상담</a>
                 </div>
               </div>
             </motion.div>
@@ -1082,7 +1089,7 @@ export default function PTPage() {
             ))}
           </motion.div>
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeUp} custom={4} className="mt-12 text-center">
-            <CTAButton href={CTA_URL} size="lg"><Phone className="w-5 h-5" />무료 상담 신청하기<ArrowRight className="w-5 h-5" /></CTAButton>
+            <CTAButton href={CTA_URL} size="lg"><MessageSquareText className="w-5 h-5" />카톡으로 무료 상담하기<ArrowRight className="w-5 h-5" /></CTAButton>
           </motion.div>
         </div>
       </section>
@@ -1111,7 +1118,7 @@ export default function PTPage() {
             </motion.p>
             <motion.div variants={fadeUp} custom={2}>
               <CTAButton href={CTA_URL} size="lg">
-                상담 신청 <ArrowRight className="w-4 h-4" />
+                카톡으로 상담 신청 <ArrowRight className="w-4 h-4" />
               </CTAButton>
             </motion.div>
           </motion.div>
@@ -1149,7 +1156,7 @@ export default function PTPage() {
       <div className="fixed bottom-0 left-0 right-0 z-50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-white/95 backdrop-blur-xl border-t border-gray-200 shadow-2xl shadow-gray-900/10 md:hidden">
         <div className="flex items-center gap-3">
           <div className="flex-1 min-w-0"><p className="text-xs font-semibold text-[#E31837] truncate">이번 달 잔여 3자리 &middot; 초기비용 0원</p><p className="text-sm font-bold text-gray-900 truncate">전문가와 함께 매출 만들기</p></div>
-          <motion.a href={CTA_URL} whileTap={{ scale: 0.95 }} className="flex-shrink-0 px-5 py-3 rounded-full bg-gradient-to-r from-[#E31837] to-[#ff4d6a] text-white font-bold text-sm shadow-lg shadow-rose-200/50">무료 상담</motion.a>
+          <motion.a href={CTA_URL} target="_blank" rel="noopener noreferrer" whileTap={{ scale: 0.95 }} className="flex-shrink-0 px-5 py-3 rounded-full bg-gradient-to-r from-[#E31837] to-[#ff4d6a] text-white font-bold text-sm shadow-lg shadow-rose-200/50">카톡 상담</motion.a>
         </div>
       </div>
       <div className="h-20 md:hidden" />
