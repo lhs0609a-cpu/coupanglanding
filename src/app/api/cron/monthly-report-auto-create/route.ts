@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { kstDay, kstMonthStr } from '@/lib/payments/billing-constants';
 import { buildCostBreakdown, calculateDeposit, calculateNetProfit, totalCosts } from '@/lib/calculations/deposit';
-import { calculateVatOnTop } from '@/lib/calculations/vat';
+import { calculatePromoVat } from '@/lib/payments/fee-promo';
 import { createNotification } from '@/lib/utils/notifications';
 import { logSystemError } from '@/lib/utils/system-log';
 import { isEligibleForMonth, getPreviousMonth } from '@/lib/utils/settlement';
@@ -167,7 +167,9 @@ export async function GET(request: NextRequest) {
       // PT생별 지정 수수료율 사용(미지정 시 30%). auto-billing 이 이 리포트를 그대로 청구하므로 핵심.
       const sharePct = (ptUser as { share_percentage?: number | null }).share_percentage ?? 30;
       const depositAmount = calculateDeposit(revenue, costs, sharePct);
-      const vatCalc = calculateVatOnTop(depositAmount);
+      // 한시 수수료 할인(매출월 지정) — 공급가액만 할인, VAT 는 할인 후 금액 기준.
+      //   calculated_deposit/admin_deposit_amount 는 할인 전 금액 유지(할인액 추적용).
+      const { vat: vatCalc } = calculatePromoVat(depositAmount, targetMonth);
       // 청구액 0원(수수료율 0% 또는 순이익≤0)이면 청구 사이클에 넣지 않는다.
       //   awaiting_payment 로 두면 auto-billing 은 0원이라 skip 하지만, fee-payment-check 가
       //   마감일 초과 시 overdue→suspended(프로그램 접근 락)로 올려버려 "0원인데 락" 버그가 됨.

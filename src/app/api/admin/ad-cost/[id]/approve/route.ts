@@ -3,7 +3,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 import { createNotification } from '@/lib/utils/notifications';
 import { calculateDeposit, getReportCosts } from '@/lib/calculations/deposit';
-import { calculateVatOnTop } from '@/lib/calculations/vat';
+import { calculatePromoVat } from '@/lib/payments/fee-promo';
 import { capDeductibleAdCost, AD_COST_STANDARD_RATIO } from '@/lib/payments/ad-cost';
 
 export const maxDuration = 30;
@@ -98,7 +98,9 @@ export async function POST(
     };
     const revenue = revenueForCap;
     const newDeposit = calculateDeposit(revenue, updatedCosts, sharePercentage);
-    const newVatCalc = calculateVatOnTop(newDeposit);
+    // 한시 수수료 할인 재적용 — 광고비 승인으로 금액을 다시 쓸 때 할인이 날아가면
+    // 그 PT생만 할인 없이 청구된다. 반드시 calculatePromoVat 를 거친다.
+    const { vat: newVatCalc } = calculatePromoVat(newDeposit, sub.year_month);
 
     await serviceClient
       .from('monthly_reports')

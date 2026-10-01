@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { requireAdminRole } from '@/lib/payments/admin-guard';
 import { getReportCosts, calculateDeposit } from '@/lib/calculations/deposit';
-import { calculateVatOnTop } from '@/lib/calculations/vat';
+import { calculatePromoVat } from '@/lib/payments/fee-promo';
 import { logActivity } from '@/lib/utils/activity-log';
 import { logSystemError } from '@/lib/utils/system-log';
 
@@ -85,7 +85,8 @@ export async function POST(
       const revenue = r.reported_revenue || 0;
       const costs = getReportCosts(r);
       const deposit = calculateDeposit(revenue, costs, val);
-      const vat = calculateVatOnTop(deposit);
+      // 한시 수수료 할인 재적용 — 요율 변경으로 재계산할 때도 할인을 유지한다.
+      const { vat } = calculatePromoVat(deposit, r.year_month);
       const nothingToBill = vat.totalWithVat <= 0;
 
       const { error: rUpdErr } = await serviceClient

@@ -12,7 +12,7 @@
  *  - (pt_user_id, year_month) UNIQUE 라 중복 생성 시 안전하게 skip.
  */
 import { buildCostBreakdown, calculateDeposit } from '@/lib/calculations/deposit';
-import { calculateVatOnTop } from '@/lib/calculations/vat';
+import { calculatePromoVat } from './fee-promo';
 import { getBillableCandidateMonths, getCurrentCycleDeadlineISO } from './billing-cycle';
 import type { createServiceClient } from '@/lib/supabase/server';
 
@@ -28,6 +28,8 @@ export interface EnsureReportsResult {
   created: string[];         // 새로 생성된 청구 리포트 year_month
   skippedExisting: string[]; // 이미 리포트 있던 달
   skippedNoNet: string[];    // net<=0(미확정/무매출) 또는 청구액 0 → 청구 대상 아님
+  /** 한시 수수료 할인이 적용된 달 — 호출부 로그/검증용 */
+  promoDiscounted: Array<{ yearMonth: string; discountAmount: number; rate: number }>;
 }
 
 export async function ensureBillableReports(
@@ -35,7 +37,7 @@ export async function ensureBillableReports(
   ptUser: PtUserForBilling,
   now: Date = new Date(),
 ): Promise<EnsureReportsResult> {
-  const result: EnsureReportsResult = { created: [], skippedExisting: [], skippedNoNet: [] };
+  const result: EnsureReportsResult = { created: [], skippedExisting: [], skippedNoNet: [], promoDiscounted: [] };
   if (!ptUser.created_at) return result;
 
   const candidates = getBillableCandidateMonths(ptUser.created_at, now);
@@ -68,7 +70,10 @@ export async function ensureBillableReports(
 
     const costs = buildCostBreakdown(net, 0); // 광고비 0 가정(PT생이 후속 입력 시 재계산)
     const depositAmount = calculateDeposit(net, costs, sharePct);
-    const vatCalc = calculateVatOnTop(depositAmount);
+    // 한시 할인(매출월 지정) 적용 — 공급가액만 깎고 VAT 는 할인 후 금액의 10%.
+    //   calculated_deposit/admin_deposit_amount 는 할인 전 금액을 유지해
+    //   "할인액 = calculated_deposit − supply_amount" 로 추적 가능하게 둔다.
+    const { promo, vat: vatCalc } = calculatePromoVat(depositAmount, ym);
     const nothingToBill = vatCalc.totalWithVat <= 0; // 수수료율 0%/순이익≤0 → 청구액 0
 
     const { error: insErr } = await serviceClient
@@ -112,7 +117,12 @@ export async function ensureBillableReports(
     }
 
     if (nothingToBill) result.skippedNoNet.push(ym);
-    else result.created.push(ym);
+    else {
+      result.created.push(ym);
+      if (promo.applied) {
+        result.promoDiscounted.push({ yearMonth: ym, discountAmount: promo.discountAmount, rate: promo.rate });
+      }
+    }
   }
 
   return result;

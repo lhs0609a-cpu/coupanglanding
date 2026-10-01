@@ -3,9 +3,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { calculateDeposit, calculateNetProfit, totalCosts, buildCostBreakdown, calculateDepositWithVat } from '@/lib/calculations/deposit';
+import { calculateDeposit, calculateNetProfit, totalCosts, buildCostBreakdown } from '@/lib/calculations/deposit';
 import type { CostBreakdown } from '@/lib/calculations/deposit';
 import type { VatCalculation } from '@/lib/calculations/vat';
+import { calculateVatOnTop } from '@/lib/calculations/vat';
+import { applyFeePromo, FEE_PROMO_LABEL, FEE_PROMO_RATE } from '@/lib/payments/fee-promo';
 import { formatKRW, getCurrentYearMonth, formatYearMonth } from '@/lib/utils/format';
 import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, COST_CATEGORIES, MANUAL_COST_KEY } from '@/lib/utils/constants';
 import { loadCostSettings } from '@/lib/utils/cost-settings';
@@ -182,16 +184,13 @@ export default function MyReportPage() {
   const netProfit = calculateNetProfit(revenue, costs);
   const baseDepositAmount = calculateDeposit(revenue, costs, sharePercentage);
   const listingDiscount: ListingDiscountResult = calculateListingDiscount(totalListings, netProfit);
-  const depositAmount = baseDepositAmount - listingDiscount.discountAmount;
-  const vatCalc: VatCalculation = calculateDepositWithVat(revenue, costs, sharePercentage);
-  // VAT도 할인 포함 금액 기반으로 재계산
-  const finalVatCalc: VatCalculation = listingDiscount.discountAmount > 0
-    ? {
-        supplyAmount: depositAmount,
-        vatAmount: Math.floor(depositAmount * 0.1),
-        totalWithVat: depositAmount + Math.floor(depositAmount * 0.1),
-      }
-    : vatCalc;
+  const afterListingAmount = baseDepositAmount - listingDiscount.discountAmount;
+  // 한시 수수료 할인(매출월 지정) — 서버 생성 경로(billable-reports / monthly-report-auto-create)와
+  // 같은 계산식을 써야 화면 금액이 실제 청구액·세금계산서와 일치한다.
+  const feePromo = applyFeePromo(afterListingAmount, yearMonth);
+  const depositAmount = feePromo.supplyAmount;
+  // VAT 는 모든 할인 적용 후 공급가액의 10%
+  const finalVatCalc: VatCalculation = calculateVatOnTop(depositAmount);
 
   const handleFileSelect = async (file: File) => {
     setScreenshotFile(file);
@@ -1255,7 +1254,17 @@ export default function MyReportPage() {
                   </span>
                 </div>
               )}
-              {listingDiscount.discountAmount > 0 && (
+              {feePromo.applied && feePromo.discountAmount > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-green-600 font-medium">
+                    {FEE_PROMO_LABEL} (-{Math.round(FEE_PROMO_RATE * 100)}%)
+                  </span>
+                  <span className="font-bold text-green-600">
+                    -{formatKRW(feePromo.discountAmount)}
+                  </span>
+                </div>
+              )}
+              {(listingDiscount.discountAmount > 0 || feePromo.discountAmount > 0) && (
                 <div className="flex justify-between">
                   <span className="font-medium text-gray-700">
                     할인 적용 공급가액
