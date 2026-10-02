@@ -107,7 +107,9 @@ export abstract class BaseAdapter implements ChannelAdapter {
       } catch { /* JSON이 아니면 원문 사용 */ }
       // 502 transient → withRetry 가 인식하도록 메시지에 502 포함 + transient 표기
       const tag = isTransient ? '[transient] ' : '';
-      throw new Error(`${tag}API ${response.status}: ${typeof detail === 'string' ? detail.slice(0, 500) : JSON.stringify(detail).slice(0, 500)}`);
+      // 2000자: 쿠팡 브랜드 거절 메시지가 끝에 confirmationToken(250자+)을 붙여 보내는데
+      // 500자에서 자르면 토큰이 날아가 재요청이 불가능해진다(createProduct 의 GENERIC 재요청).
+      throw new Error(`${tag}API ${response.status}: ${typeof detail === 'string' ? detail.slice(0, 2000) : JSON.stringify(detail).slice(0, 2000)}`);
     }
 
     return response.json() as Promise<T>;

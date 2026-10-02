@@ -9,6 +9,29 @@ const COUPANG_API_BASE = 'https://api-gateway.coupang.com';
 const COUPANG_PROXY_URL = process.env.COUPANG_PROXY_URL || '';
 const COUPANG_PROXY_SECRET = process.env.COUPANG_PROXY_SECRET || '';
 
+/**
+ * 쿠팡의 "brandId 없이 등록 불가" 거절인지 판별.
+ *
+ * 2026-10 정책 강화로 brandId 가 없거나 brand 가 라이브러리에 매칭되지 않으면 1차 거절되고,
+ * 메시지에 재요청용 confirmationToken 이 실려 온다. 문구가 바뀌어도 걸리도록 넓게 본다.
+ */
+function isBrandIdRequiredError(msg: string): boolean {
+  if (!msg) return false;
+  return /confirmationToken/i.test(msg)
+    || /brandId.{0,30}(?:필요|입력|required)/i.test(msg)
+    || /브랜드\s*(?:ID|아이디).{0,20}(?:필요|입력)/i.test(msg);
+}
+
+/**
+ * 거절 메시지에서 confirmationToken 을 뽑는다.
+ *  - 토큰은 base64url 계열(영숫자 . _ - ~ + / =)이고 250자 내외다.
+ *  - 메시지 끝에 붙어 오므로 공백/따옴표/닫는 괄호에서 끊는다(로그 포맷이 감싸는 경우 대비).
+ */
+function extractConfirmationToken(msg: string): string | null {
+  const m = /confirmationToken\s*[=:]\s*["']?([A-Za-z0-9._~+/=-]{20,})/.exec(msg || '');
+  return m ? m[1] : null;
+}
+
 export class CoupangAdapter extends BaseAdapter {
   channel: Channel = 'coupang';
   private vendorId = '';
@@ -221,18 +244,85 @@ export class CoupangAdapter extends BaseAdapter {
       : 'NONE';
     console.log(`[createProduct][v9] category=${product.displayCategoryCode}, items=${items?.length || 0}, images=${images.length}, notices=${noticeCount}, attrs=${attrs?.length || 0}=[${attrSummary}], fields=[${noticeSample}]`);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const raw = await this.coupangApi<any>('POST', path, '', product);
+    // 1회 POST — 성공이면 productId, 실패면 쿠팡이 준 code/message 를 그대로 돌려준다.
+    //  throw 하지 않는 이유: 브랜드 거절(아래)은 "거절 + 토큰 발급" 이 정상 흐름의 1단계라서
+    //  메시지를 읽고 같은 바디로 재요청해야 한다.
+    const attempt = async (
+      body: Record<string, unknown>,
+    ): Promise<{ ok: true; productId: string } | { ok: false; code: string; msg: string }> => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const raw = await this.coupangApi<any>('POST', path, '', body);
 
-    // 쿠팡 응답 구조: { code: "200", data: { code: "SUCCESS", data: 427011919 } }
-    // 또는: { code: "ERROR", message: "...", data: null }
-    const outer = raw || {};
-    const code = outer.code || '';
-    const innerData = outer.data;
+      // 쿠팡 응답 구조: { code: "200", data: { code: "SUCCESS", data: 427011919 } }
+      // 또는: { code: "ERROR", message: "...", data: null }
+      const outer = raw || {};
+      const code = String(outer.code || '');
+      const innerData = outer.data;
 
-    // 에러 응답 체크
-    if (code === 'ERROR' || (!innerData && innerData !== 0)) {
-      const msg = outer.message || outer.details || JSON.stringify(outer).slice(0, 500);
+      if (code === 'ERROR' || (!innerData && innerData !== 0)) {
+        // ⚠️ message 는 slice 하지 않는다 — 브랜드 거절의 confirmationToken(250자+)이 끝에 붙는다.
+        const msg = String(outer.message || outer.details || JSON.stringify(outer).slice(0, 2000));
+        return { ok: false, code, msg };
+      }
+
+      // 중첩 응답 처리: data가 객체면 내부 data 추출
+      if (typeof innerData === 'object' && innerData !== null && 'data' in innerData) {
+        if (innerData.code === 'ERROR') {
+          return {
+            ok: false,
+            code: 'ERROR',
+            msg: String(innerData.message || JSON.stringify(innerData).slice(0, 2000)),
+          };
+        }
+        return { ok: true, productId: String(innerData.data) };
+      }
+      return { ok: true, productId: String(innerData) };
+    };
+
+    // 1차 시도. 쿠팡이 HTTP 4xx 로 같은 브랜드 거절을 주는 경우도 있어 throw 도 가로챈다
+    //  (그 경로는 apiCall 이 메시지를 잘라 보내므로 토큰이 살아 있을 때만 재요청이 가능하다).
+    let res: { ok: true; productId: string } | { ok: false; code: string; msg: string };
+    let thrownFirst: unknown;
+    try {
+      res = await attempt(product);
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      if (!isBrandIdRequiredError(m)) throw e;
+      thrownFirst = e;
+      res = { ok: false, code: 'HTTP', msg: m };
+    }
+
+    // ---- 브랜드 거절 → GENERIC + confirmationToken 재요청 (쿠팡이 지정한 2단계 플로우) ----
+    //  2026-10 쿠팡 정책: brandId 없는 등록을 1차로 거절하고 메시지에 confirmationToken 을 준다.
+    //  "브랜드가 없는 상품은 brand 에 GENERIC, confirmationToken 을 body 에 넣어 재요청" — 그대로 따른다.
+    //  토큰은 그 요청 1회에만 유효하므로 저장·재사용하지 않는다(매 거절마다 새로 받는다).
+    //  brandId 는 지운다 — GENERIC(무브랜드) 과 brandId 를 동시에 보내면 모순이다.
+    //  ⚠️ 쿠팡이 "사전 공지 없이 중단될 수 있다" 고 명시한 경로다. 막히면 brandId 확보가 유일한 답.
+    if (!res.ok && isBrandIdRequiredError(res.msg)) {
+      const token = extractConfirmationToken(res.msg);
+      if (!token) {
+        console.error('[createProduct] 브랜드 거절인데 confirmationToken 을 못 찾았다 — 재요청 불가:', res.msg.slice(0, 300));
+      } else {
+        const retryBody: Record<string, unknown> = { ...product, brand: 'GENERIC', confirmationToken: token };
+        delete retryBody.brandId;
+        console.warn(`[createProduct] 브랜드 거절 → brand=GENERIC + confirmationToken(${token.length}자) 재요청 | 1차 brand=${JSON.stringify(product.brand ?? null)}, brandId=${JSON.stringify(product.brandId ?? null)}`);
+        const retried = await attempt(retryBody);
+        if (retried.ok) {
+          console.log(`[createProduct] ✅ GENERIC 재요청 성공 — sellerProductId=${retried.productId}`);
+          return { channelProductId: retried.productId, success: true };
+        }
+        console.error(`[createProduct] GENERIC 재요청도 거절: ${retried.msg.slice(0, 300)}`);
+        res = { ok: false, code: retried.code, msg: `${retried.msg} [GENERIC 재요청 후 — 1차: brandId 요구]` };
+      }
+      // 1차가 HTTP 에러(throw)였고 재요청으로도 못 살렸으면 원래 에러를 그대로 올린다 — 메시지 형태 보존.
+      if (!res.ok && thrownFirst) {
+        throw thrownFirst;
+      }
+    }
+
+    if (!res.ok) {
+      const code = res.code;
+      const msg = res.msg;
       const itms = (product as Record<string, unknown>).items as Record<string, unknown>[] | undefined;
 
       // 구매옵션 에러일 때 attributes 상태를 포함 (디버깅 핵심)
@@ -259,18 +349,7 @@ export class CoupangAdapter extends BaseAdapter {
       throw new Error(`쿠팡 API 오류 (${code}): ${msg}${buyOptionInfo}${noticesInfo}`);
     }
 
-    // 중첩 응답 처리: data가 객체면 내부 data 추출
-    let productId: string;
-    if (typeof innerData === 'object' && innerData !== null && 'data' in innerData) {
-      if (innerData.code === 'ERROR') {
-        throw new Error(`쿠팡 API 오류: ${innerData.message || JSON.stringify(innerData).slice(0, 300)}`);
-      }
-      productId = String(innerData.data);
-    } else {
-      productId = String(innerData);
-    }
-
-    return { channelProductId: productId, success: true };
+    return { channelProductId: res.productId, success: true };
   }
 
   /** 상품 승인 요청 (임시저장 → 승인요청) */
