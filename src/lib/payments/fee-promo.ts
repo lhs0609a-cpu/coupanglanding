@@ -7,7 +7,7 @@
  *   - 매출월 기준이면 리포트가 언제 생성·결제되든 금액이 동일하고, 지정 안 한 달은
  *     자동으로 원래 요율로 돌아간다(= 프로모션 해제 작업이 필요 없음).
  *
- * 현재 지정: 2026-09 매출분(2026-10-03 청구 사이클) 공급가액 10% 할인.
+ * 현재 지정: 2026-09 매출분(2026-10-03 청구 사이클) 공급가액 20% 할인.
  *   → 2026-10 매출분(11/3 청구)부터는 FEE_PROMO_YEAR_MONTHS 에 없으므로 자동으로 정상 요율.
  *
  * 할인은 **공급가액(수수료)에만** 적용하고 VAT 는 할인 후 공급가액의 10% 로 다시 계산한다.
@@ -24,11 +24,11 @@ import type { VatCalculation } from '@/lib/calculations/vat';
 /** 할인 대상 매출월. 비우면 프로모션 없음. */
 export const FEE_PROMO_YEAR_MONTHS: readonly string[] = ['2026-09'];
 
-/** 공급가액 할인율 (0.10 = 10%) */
-export const FEE_PROMO_RATE = 0.1;
+/** 공급가액 할인율 (0.20 = 20%) */
+export const FEE_PROMO_RATE = 0.2;
 
 /** 알림·UI 표기용 라벨 */
-export const FEE_PROMO_LABEL = '한시 수수료 10% 할인';
+export const FEE_PROMO_LABEL = '한시 수수료 20% 할인';
 
 /** 해당 매출월에 적용되는 할인율 (없으면 0) */
 export function getFeePromoRate(yearMonth: string | null | undefined): number {
