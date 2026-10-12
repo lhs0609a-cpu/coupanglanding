@@ -18,6 +18,7 @@ import {
   isFreeTextBuyOption,
   isPlaceholderOptionValue,
   resolveBuyOptionFromNotice,
+  resolveBuyOptionFromText,
   type NoticeField,
 } from './buy-option-value';
 
@@ -114,7 +115,9 @@ function computeAttrValue(
   //   못 찾으면 비워 둔다 → 검증 단계에서 "필수 미입력"으로 보여 사용자가 직접 채운다.
   //   (서버 빌더도 같은 규칙으로 차단하므로 화면과 등록 결과가 어긋나지 않는다)
   if (isFreeTextBuyOption(attr)) {
-    const fromNotice = resolveBuyOptionFromNotice(typeName, noticeFields);
+    // 고시 → 상품명 키워드 순. 서버 빌더와 같은 순서라 화면과 등록 결과가 어긋나지 않는다.
+    const fromNotice = resolveBuyOptionFromNotice(typeName, noticeFields)
+      || resolveBuyOptionFromText(typeName, [text]);
     return { value: fromNotice, extracted: !!fromNotice, isEnum: false };
   }
 

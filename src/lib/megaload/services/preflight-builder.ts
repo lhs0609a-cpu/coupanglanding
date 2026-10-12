@@ -340,6 +340,9 @@ export async function buildProductPayload(params: BuildPayloadParams): Promise<B
     stock: effectiveStock,
     brand: product.brand,
     filledNotices,
+    // 쿠팡 고시 형식으로 깎이기 전의 원본 고시 — 쿠팡 고시에 칸이 없는 항목
+    // (사료 "주원료" 등)을 필수 구매옵션 값으로 쓰려면 원문이 필요하다.
+    sourceNoticeValues: sourceNotice,
     attributeMeta: product.attributeMeta || [],
     attributeValues: product.attributeValuesOverride,
     reviewImageUrls,

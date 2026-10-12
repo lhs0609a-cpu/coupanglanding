@@ -24,6 +24,7 @@ import {
   isFreeTextBuyOption,
   isPlaceholderOptionValue,
   resolveBuyOptionFromNotice,
+  resolveBuyOptionFromText,
   type NoticeField,
 } from './buy-option-value';
 import type { ContentBlock } from './fragment-composer';
@@ -109,6 +110,11 @@ export interface BuildCoupangPayloadParams {
   originalPrice?: number;          // 정가 (할인 태그용, 미설정 시 sellingPrice 사용)
   // 동적 notices / attributes / 리치 상세페이지
   filledNotices?: FilledNoticeCategory[];
+  /**
+   * 원본(공급처) 상품정보제공고시 원문 — 쿠팡 고시 형식으로 깎이기 전의 값.
+   * 쿠팡 고시에 칸이 없는 항목(사료 "주원료" 등)을 구매옵션 값으로 쓰기 위해 필요하다.
+   */
+  sourceNoticeValues?: Record<string, string>;
   attributeMeta?: AttributeMeta[];
   attributeValues?: Record<string, string>;
   reviewImageUrls?: string[];
@@ -263,6 +269,7 @@ export function buildCoupangProductPayload(
     outboundShippingTimeDay = 3,
     originalPrice,
     filledNotices,
+    sourceNoticeValues,
     attributeMeta,
     attributeValues,
     reviewImageUrls,
@@ -655,7 +662,11 @@ export function buildCoupangProductPayload(
   // ⚠️ 자유 텍스트 필수 구매옵션에 "상세페이지 참조" 가 남아 있으면 쿠팡이 전량 거부한다.
   //   구매옵션 값은 구매자에게 보이는 **옵션명**이라 참조형 문구를 받지 않는다(실측):
   //     "유효하지 않은 구매 옵션 값이 존재합니다. [attrs=사료/간식 주원료="상세페이지 참조", ...]"
-  //   여기서 원본 고시(원재료명/재질/원산지 등 같은 뜻의 필드)로 실제 값을 채운다.
+  //   실제 값을 3단계로 찾는다:
+  //     1) 쿠팡 고시(filledNotices) 의 같은 뜻 필드
+  //     2) 원본 공급처 고시 원문(sourceNoticeValues) — 쿠팡 고시에 칸이 없는 항목이 여기 있다.
+  //        사료(110824) 고시는 "기타 재화" 라 원재료 칸이 아예 없다(실측).
+  //     3) 상품명/상세 텍스트의 키워드 (상품명에 실제로 적힌 단어만)
   //   그래도 못 찾으면 값을 지어내지 않고 차단 — 어차피 쿠팡이 거부하므로, 검증 단계로
   //   돌려 사용자가 직접 입력하게 하는 편이 "원인 모를 API 오류" 보다 낫다.
   if (attributeMeta && attributeMeta.length > 0) {
@@ -665,14 +676,20 @@ export function buildCoupangProductPayload(
         value: d.content,
       })),
     );
+    const sourceFields: NoticeField[] = Object.entries(sourceNoticeValues || {})
+      .map(([name, value]) => ({ name, value: String(value ?? '') }));
+    const searchTexts = [effectiveDisplayName, rawName, product.productJson.description];
     const unresolved: string[] = [];
     for (const a of metaAttributes) {
       const meta = attributeMeta.find((m) => m.attributeTypeName === a.attributeTypeName);
       if (!meta || !isFreeTextBuyOption(meta)) continue;
       if (!isPlaceholderOptionValue(a.attributeValueName)) continue;
-      const resolved = resolveBuyOptionFromNotice(a.attributeTypeName, noticeFields);
+      const fromNotice = resolveBuyOptionFromNotice(a.attributeTypeName, noticeFields);
+      const fromSource = fromNotice || resolveBuyOptionFromNotice(a.attributeTypeName, sourceFields);
+      const resolved = fromSource || resolveBuyOptionFromText(a.attributeTypeName, searchTexts);
       if (resolved) {
-        console.log(`[payload-builder] 구매옵션 "${a.attributeTypeName}": 폴백 "${a.attributeValueName}" → 고시값 "${resolved}" 대체`);
+        const via = fromNotice ? '쿠팡고시' : fromSource ? '원본고시' : '상품명';
+        console.log(`[payload-builder] 구매옵션 "${a.attributeTypeName}": 폴백 "${a.attributeValueName}" → ${via} "${resolved}" 대체`);
         a.attributeValueName = resolved;
       } else {
         unresolved.push(a.attributeTypeName);
