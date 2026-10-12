@@ -20,6 +20,12 @@ import { generateEAN13 } from './barcode-generator';
 import { checkCompliance, containsForbiddenTerm } from './compliance-filter';
 import { isProtectedCoupangBrand } from './brand-checker';
 import { buildSearchTags } from './search-tags';
+import {
+  isFreeTextBuyOption,
+  isPlaceholderOptionValue,
+  resolveBuyOptionFromNotice,
+  type NoticeField,
+} from './buy-option-value';
 import type { ContentBlock } from './fragment-composer';
 
 // ---- 입력 타입 ----
@@ -643,6 +649,41 @@ export function buildCoupangProductPayload(
           }
         }
       }
+    }
+  }
+
+  // ⚠️ 자유 텍스트 필수 구매옵션에 "상세페이지 참조" 가 남아 있으면 쿠팡이 전량 거부한다.
+  //   구매옵션 값은 구매자에게 보이는 **옵션명**이라 참조형 문구를 받지 않는다(실측):
+  //     "유효하지 않은 구매 옵션 값이 존재합니다. [attrs=사료/간식 주원료="상세페이지 참조", ...]"
+  //   여기서 원본 고시(원재료명/재질/원산지 등 같은 뜻의 필드)로 실제 값을 채운다.
+  //   그래도 못 찾으면 값을 지어내지 않고 차단 — 어차피 쿠팡이 거부하므로, 검증 단계로
+  //   돌려 사용자가 직접 입력하게 하는 편이 "원인 모를 API 오류" 보다 낫다.
+  if (attributeMeta && attributeMeta.length > 0) {
+    const noticeFields: NoticeField[] = (filledNotices || []).flatMap((nc) =>
+      (nc.noticeCategoryDetailName || []).map((d) => ({
+        name: d.noticeCategoryDetailName,
+        value: d.content,
+      })),
+    );
+    const unresolved: string[] = [];
+    for (const a of metaAttributes) {
+      const meta = attributeMeta.find((m) => m.attributeTypeName === a.attributeTypeName);
+      if (!meta || !isFreeTextBuyOption(meta)) continue;
+      if (!isPlaceholderOptionValue(a.attributeValueName)) continue;
+      const resolved = resolveBuyOptionFromNotice(a.attributeTypeName, noticeFields);
+      if (resolved) {
+        console.log(`[payload-builder] 구매옵션 "${a.attributeTypeName}": 폴백 "${a.attributeValueName}" → 고시값 "${resolved}" 대체`);
+        a.attributeValueName = resolved;
+      } else {
+        unresolved.push(a.attributeTypeName);
+      }
+    }
+    if (unresolved.length > 0) {
+      throw new Error(
+        `필수 구매옵션 값을 상품정보에서 찾지 못했습니다: ${unresolved.join(', ')} `
+        + `(카테고리 ${categoryCode}) — 검증 단계에서 직접 입력해주세요. `
+        + `쿠팡은 구매옵션 값으로 "상세페이지 참조" 같은 문구를 허용하지 않습니다.`,
+      );
     }
   }
 

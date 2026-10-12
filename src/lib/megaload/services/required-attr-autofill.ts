@@ -14,6 +14,13 @@
 //   (잘못된 중량/용량 자동값 = 쿠팡 "옵션 용량 오류" + 고객 클레임 → 비워서 경고 유지)
 // ============================================================
 
+import {
+  isFreeTextBuyOption,
+  isPlaceholderOptionValue,
+  resolveBuyOptionFromNotice,
+  type NoticeField,
+} from './buy-option-value';
+
 export interface AutofillAttrMeta {
   attributeTypeName: string;
   required: boolean;
@@ -77,7 +84,11 @@ function extractWeightForAttr(text: string, m: AutofillAttrMeta): string | null 
  * - extracted=true : 상품명에서 실제로 뽑은 값(확실)
  * - isEnum=true    : 선택형(허용값 목록 존재). extracted=false 인 ENUM = "첫값으로 찍은 추정"(불확실)
  */
-function computeAttrValue(attr: AutofillAttrMeta, text: string): { value: string | null; extracted: boolean; isEnum: boolean } {
+function computeAttrValue(
+  attr: AutofillAttrMeta,
+  text: string,
+  noticeFields: NoticeField[],
+): { value: string | null; extracted: boolean; isEnum: boolean } {
   // 방어적: attributeValues 가 배열이 아니거나 항목이 null 이어도 안전(부분/손상 캐시 대비)
   const rawVals = Array.isArray(attr.attributeValues) ? attr.attributeValues : [];
   const allowed = rawVals
@@ -98,7 +109,16 @@ function computeAttrValue(attr: AutofillAttrMeta, text: string): { value: string
     const unit = pickUnit(attr);
     return { value: unit ? `1${unit}` : '1', extracted: false, isEnum: false };
   }
-  // TEXT/STRING/기타
+  // 자유 텍스트 필수 구매옵션: 폴백 문구("상세페이지 참조")를 넣으면 쿠팡이 등록을 거부한다
+  //   (구매옵션 값 = 구매자에게 보이는 옵션명). 원본 고시에서 실제 값을 찾고,
+  //   못 찾으면 비워 둔다 → 검증 단계에서 "필수 미입력"으로 보여 사용자가 직접 채운다.
+  //   (서버 빌더도 같은 규칙으로 차단하므로 화면과 등록 결과가 어긋나지 않는다)
+  if (isFreeTextBuyOption(attr)) {
+    const fromNotice = resolveBuyOptionFromNotice(typeName, noticeFields);
+    return { value: fromNotice, extracted: !!fromNotice, isEnum: false };
+  }
+
+  // TEXT/STRING/기타 (검색속성·exposed 미상 레거시 캐시)
   return { value: textFallback(typeName), extracted: false, isEnum: false };
 }
 
@@ -114,13 +134,17 @@ export interface AutofillResult {
 
 /** 자동기입 + 불확실 추정 목록까지 반환 (전자동 + 클릭확인 UI 용) */
 export function computeRequiredAttrAutofillDetailed(
-  product: { editedDisplayProductName?: string; name?: string },
+  product: { editedDisplayProductName?: string; name?: string; editedNoticeValues?: Record<string, string> },
   attributeMeta: AutofillAttrMeta[] | undefined,
 ): AutofillResult {
   const out: Record<string, string> = {};
   const uncertainEnum: string[] = [];
   if (!Array.isArray(attributeMeta) || attributeMeta.length === 0) return { values: out, uncertainEnum };
   const text = `${product?.editedDisplayProductName || ''} ${product?.name || ''}`;
+  // 자유 텍스트 구매옵션(주원료·재질 등)은 고시값에서 실제 값을 끌어온다.
+  const noticeFields: NoticeField[] = Object.entries(product?.editedNoticeValues || {})
+    .map(([name, value]) => ({ name, value: String(value ?? '') }))
+    .filter((f) => f.value && !isPlaceholderOptionValue(f.value));
 
   // 필수 EXPOSED 만(농산물 중량 제외) → 단독 / 택1그룹 분리
   const singles: AutofillAttrMeta[] = [];
@@ -138,7 +162,7 @@ export function computeRequiredAttrAutofillDetailed(
 
   // 단독: 각각 채움(값 있으면). ENUM 을 첫값으로 찍었으면(불확실) 표시.
   for (const attr of singles) {
-    const { value, extracted, isEnum } = computeAttrValue(attr, text);
+    const { value, extracted, isEnum } = computeAttrValue(attr, text, noticeFields);
     if (value) {
       out[attr.attributeTypeName] = value;
       if (isEnum && !extracted) uncertainEnum.push(attr.attributeTypeName);
@@ -152,12 +176,12 @@ export function computeRequiredAttrAutofillDetailed(
     let chosen: { name: string; value: string; isEnum: boolean; extracted: boolean } | null = null;
     // pass1: 상품명에서 실제 추출된 멤버
     for (const m of members) {
-      const { value, extracted, isEnum } = computeAttrValue(m, text);
+      const { value, extracted, isEnum } = computeAttrValue(m, text, noticeFields);
       if (value && extracted) { chosen = { name: m.attributeTypeName, value, isEnum, extracted }; break; }
     }
     // pass2: 추출 없으면 기본값이라도 채울 수 있는 첫 멤버
     if (!chosen) for (const m of members) {
-      const { value, extracted, isEnum } = computeAttrValue(m, text);
+      const { value, extracted, isEnum } = computeAttrValue(m, text, noticeFields);
       if (value) { chosen = { name: m.attributeTypeName, value, isEnum, extracted }; break; }
     }
     if (chosen) {

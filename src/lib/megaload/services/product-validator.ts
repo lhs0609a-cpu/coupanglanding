@@ -5,6 +5,7 @@
  */
 
 import type { PreflightIssue } from '@/lib/megaload/types';
+import { isFreeTextBuyOption, isPlaceholderOptionValue } from './buy-option-value';
 
 // ---- 타입 ----
 
@@ -244,8 +245,20 @@ export function validateProductDeep(
           fixSuggestion: '카테고리 메타를 확인해주세요.',
         });
       }
+    } else if (isFreeTextBuyOption(attr)) {
+      // 자유 텍스트 필수 구매옵션 — 폴백 문구를 넣으면 쿠팡이 등록 자체를 거부한다.
+      //   "유효하지 않은 구매 옵션 값이 존재합니다. [attrs=사료/간식 주원료="상세페이지 참조", ...]"
+      //   자동기입이 고시에서도 값을 못 찾은 경우라 여기서 막고 사용자가 직접 채우게 한다.
+      if (!userVal || isPlaceholderOptionValue(userVal)) {
+        errors.push({
+          field: 'attributes',
+          severity: 'error',
+          message: `필수 구매옵션 "${attr.attributeTypeName}" 값을 입력해주세요.`,
+          fixSuggestion: '쿠팡은 구매옵션 값으로 "상세페이지 참조" 같은 문구를 받지 않습니다. 실제 값(예: 닭고기)을 입력해주세요.',
+        });
+      }
     } else {
-      // TEXT/STRING/NUMBER 타입
+      // TEXT/STRING/NUMBER 타입 (검색속성 등)
       if (!userVal) {
         warnings.push({
           field: 'attributes',

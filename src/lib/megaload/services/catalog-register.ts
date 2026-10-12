@@ -750,7 +750,13 @@ export async function registerCatalogProductForUser(
     });
     payload = built.payload;
   } catch (err) {
-    return { ok: false, error: `페이로드 빌드 실패: ${err instanceof Error ? err.message : String(err)}` };
+    const msg = err instanceof Error ? err.message : String(err);
+    // 빌더가 "필수 구매옵션 값을 못 찾음" 으로 막은 건 상품 결함이 아니라 공급 데이터 부족 —
+    // 아래 사전 가드와 같은 skip 분류를 유지한다(실패율 통계·재시도 대상에서 제외).
+    if (/필수 구매옵션 값을/.test(msg)) {
+      return { ok: false, skipped: true, skipReason: 'no_option_value', error: msg };
+    }
+    return { ok: false, error: `페이로드 빌드 실패: ${msg}` };
   }
 
   // 필수 구매옵션에 폴백("상세페이지 참조")이 남아 있으면 쿠팡이 "허용되지 않는 구매옵션 값"

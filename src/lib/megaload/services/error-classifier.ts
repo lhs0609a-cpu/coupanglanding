@@ -1,10 +1,31 @@
 import type { DetailedError, ErrorCategory } from '@/components/megaload/bulk/types';
+import { isPlaceholderOptionValue } from './buy-option-value';
 
 interface ErrorPattern {
   patterns: RegExp[];
   category: ErrorCategory;
   field?: string;
-  suggestion: string;
+  /** 함수면 원문 에러에서 구체적인 항목명을 뽑아 안내한다 */
+  suggestion: string | ((message: string) => string);
+}
+
+/**
+ * 쿠팡 구매옵션 에러 원문에서 "문제가 된 옵션명"만 뽑는다.
+ *   유효하지 않은 구매 옵션 값이 존재합니다.
+ *   [attrs=사료/간식 주원료="상세페이지 참조", 개당 중량="500g", 수량="1개"|category=110824]
+ * → ["사료/간식 주원료"] (참조형 문구가 들어간 것만)
+ */
+function pickBadBuyOptionNames(message: string): string[] {
+  const block = message.match(/attrs=([^|\]]+)/)?.[1];
+  if (!block) return [];
+  const bad: string[] = [];
+  const pairRe = /([^,=]+)="([^"]*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = pairRe.exec(block)) !== null) {
+    const name = m[1].trim();
+    if (name && isPlaceholderOptionValue(m[2])) bad.push(name);
+  }
+  return bad;
 }
 
 const ERROR_PATTERNS: ErrorPattern[] = [
@@ -64,6 +85,19 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     suggestion: '고시정보 설정을 확인해주세요.',
   },
   {
+    // 쿠팡은 구매옵션 값을 구매자에게 보이는 "옵션명"으로 쓰므로 참조형 문구·빈값을 거부한다.
+    //   예: 유효하지 않은 구매 옵션 값이 존재합니다. [attrs=사료/간식 주원료="상세페이지 참조", ...]
+    patterns: [/구매\s*옵션\s*값/, /구매\s*옵션.*유효하지\s*않/, /필수\s*구매옵션\s*값을/],
+    category: 'attribute',
+    field: 'attributes',
+    suggestion: (message) => {
+      const bad = pickBadBuyOptionNames(message);
+      const target = bad.length > 0 ? `구매옵션 "${bad.join('", "')}"` : '해당 구매옵션';
+      return `검증 단계로 돌아가 ${target} 에 실제 값을 입력해주세요. `
+        + '쿠팡은 구매옵션 값을 구매자에게 보이는 옵션명으로 쓰기 때문에 "상세페이지 참조" 같은 참조 문구를 받지 않습니다.';
+    },
+  },
+  {
     patterns: [/속성/, /attribute/i],
     category: 'attribute',
     suggestion: '카테고리 속성을 확인해주세요.',
@@ -88,7 +122,7 @@ export function classifyError(
         category: pattern.category,
         field: pattern.field,
         step,
-        suggestion: pattern.suggestion,
+        suggestion: typeof pattern.suggestion === 'function' ? pattern.suggestion(message) : pattern.suggestion,
         rawResponse,
       };
     }
