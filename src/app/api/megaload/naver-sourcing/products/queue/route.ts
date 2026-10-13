@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createSbClient } from '@supabase/supabase-js';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { isDetailExtractable } from '@/lib/megaload/naver-store-type';
+import { adoptUnownedWork } from '@/lib/megaload/detail-queue-assign';
 
 export const maxDuration = 30;
 export const dynamic = 'force-dynamic';
@@ -134,6 +135,27 @@ export async function GET(request: NextRequest) {
     .lt('detail_at', stale);
 
   const statuses = includeIdle ? ['requested', 'none'] : ['requested'];
+
+  // ★ 셀러 도우미는 **네이버 로그인이 있을 때만** 큐를 돈다. 그러니 여기까지 왔다는 건
+  //   "지금 일할 수 있는 PC"라는 뜻이다. 자기 몫이 비어 있으면 주인 없는/방치된 일감을
+  //   그 자리에서 가져간다 → 셀러가 로그인하는 순간 자동으로 수집에 합류한다.
+  //   (선배정만 쓰던 때: 도우미 11대가 떠 있는데도 9/30 이후 수집 0건 — 배정받은 16명 중
+  //    로그인된 사람이 1명뿐이라 6,032건이 통째로 멈춰 있었다. 실측 2026-10-13)
+  if (!isAdmin && myUserId) {
+    const { count: mine } = await service
+      .from('sh_naver_sourcing_products')
+      .select('*', { count: 'exact', head: true })
+      .eq('detail_status', 'requested')
+      .eq('detail_requested_by', myUserId);
+    if (!mine) {
+      try {
+        await adoptUnownedWork(service, myUserId, limit * 4);
+      } catch {
+        /* 가져오기 실패가 폴링을 깨면 안 된다 — 이번 턴은 빈 손으로 돌아가고 다음 폴링에 다시 시도한다. */
+      }
+    }
+  }
+
   let q = service
     .from('sh_naver_sourcing_products')
     .select('id, product_no, url, title')

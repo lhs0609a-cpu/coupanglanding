@@ -153,9 +153,15 @@ export default function NaverSourcingPage() {
   //   보기   격자(기본) = 한 화면에 수십 개. 표 = 숫자 비교가 필요할 때.
   //   정렬   리뷰 많은 순이 소싱의 기본 판단축이라 기본값으로 둔다.
   //   표시량 전량을 한 번에 그리면 썸네일 수백 장이 동시에 떠서 화면이 멎는다 → 점진 표시.
-  // 수집 → 상세 → 올인원을 버튼 한 번으로. 전량은 58개면 30~90분이라 개수를 고를 수 있게 둔다.
-  const [autoDetail, setAutoDetail] = useState(false);
-  const [autoDetailLimit, setAutoDetailLimit] = useState(10);
+  // 수집 → 상세 → 올인원을 버튼 한 번으로.
+  //   ★ 기본 켬. 상세가 없는 상품은 **등록을 못 한다**(필수 구매옵션·고시가 상세에서 온다).
+  //     목록만 받아 두면 셀러는 카드를 눌러 상세를 따로 요청하고 큐를 기다려야 하는데,
+  //     그 큐가 한 번 막히면 전부 멈춘다(실측 2026-10-13: 7,357건 중 상세 보유 1,284건,
+  //     나머지 6,032건이 9/30 이후 한 건도 진행되지 않았다). 받을 때 같이 받아야 한다.
+  //   건당 30~90초라 오래 걸리지만, 쓸 수 없는 목록을 빨리 받는 것보다 낫다.
+  //   개수 제한을 걸고 싶으면 아래 선택상자에서 줄이면 된다.
+  const [autoDetail, setAutoDetail] = useState(true);
+  const [autoDetailLimit, setAutoDetailLimit] = useState(0);
   /** 미리보기 모달 — 카드를 누르면 이 상품의 상세를 띄운다. */
   const [previewNo, setPreviewNo] = useState<string | null>(null);
   const [view, setView] = useState<'grid' | 'table'>('grid');
