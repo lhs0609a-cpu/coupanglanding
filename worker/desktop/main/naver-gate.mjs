@@ -137,9 +137,23 @@ class NaverGate {
    * ★ 실제로 페이지를 여는 모든 경로가 이 함수를 통과해야 한다.
    *   (중복 스킵으로 페이지를 안 여는 경우는 통과 불필요 — 예산을 안 쓰므로)
    */
+  /**
+   * 백로그를 비울 동안만 수집을 앞세운다(사용자 결정 2026-10-13).
+   *
+   * 왜: 네이버 예산(분당 12회)은 하나인데 품절감시가 기본 우선이라 실측 배분이
+   *   감시 94.5% / 수집 5.5% 였다. 수집은 분당 0.6건 → 미수집 6,069건에 약 7일이 걸린다.
+   *   예산을 수집이 다 쓰면 8.4시간이면 끝난다. 그래서 **밀린 동안만** 순서를 뒤집는다.
+   * 되돌리기: 큐가 비면 수집 쪽이 스스로 끈다(setIngestFirst(false)) — 영구 변경이 아니다.
+   *   감시가 영구히 밀리면 품절을 늦게 잡아 실제 매출이 샌다.
+   */
+  setIngestFirst(on) { this._ingestFirst = !!on; }
+  isIngestFirst() { return !!this._ingestFirst; }
+
   acquire(priority = 'ingest', opts = {}) {
     this._load();
-    const p = PRIORITY[priority] ?? PRIORITY.ingest;
+    const p = this._ingestFirst
+      ? (priority === 'ingest' ? PRIORITY.monitor : PRIORITY.ingest)   // 백로그 소진 동안만 뒤집는다
+      : (PRIORITY[priority] ?? PRIORITY.ingest);
     return new Promise((resolve, reject) => {
       const w = { priority: p, seq: this._seq++, resolve, reject, signal: opts.signal, kind: priority };
       if (w.signal?.aborted) return reject(new Error('aborted'));

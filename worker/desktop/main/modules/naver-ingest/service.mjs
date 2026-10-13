@@ -1277,7 +1277,13 @@ async function queueTick() {
     const want = Math.max(1, p.effectiveCount);
     // 빈손인지 먼저 본다 — 큐가 비었는데 로그인·창을 깨우면 매분 헛되이 네이버를 두드린다.
     const seed = await claimJobs(want);
-    if (!seed.length) return;
+    if (!seed.length) {
+      // 큐가 비었다 → 예산 우선권을 품절감시에 돌려준다(백로그 소진 완료).
+      naverGate.setIngestFirst(false);
+      return;
+    }
+    // 밀린 일감이 있는 동안만 수집이 예산을 먼저 쓴다. 비면 위에서 스스로 되돌린다.
+    naverGate.setIngestFirst(true);
 
     // 로그인이 끊겨 있으면 되살린다(창을 잡기 전에 — 안 그러면 창 1개 설정에서 교착).
     //   ⚠️ 관리자에서만 한다. 셀러 경로는 위 게이트를 이미 통과했으므로 로그인이 살아 있고,
@@ -1291,6 +1297,8 @@ async function queueTick() {
     pushLog(`요청 큐 정리 — 처리 ${run.done}건 · 성공 ${run.ok}건.`
       + (run.cut ? ' 남은 것은 다음 주기에 이어서 처리합니다.' : ''));
   } catch (e) {
+    // 오류로 빠져나갈 때 우선권을 쥔 채 두면 품절감시가 영영 밀린다 — 반드시 되돌린다.
+    naverGate.setIngestFirst(false);
     pushLog(`요청 큐 처리 오류 — ${e?.message || e}`);
   } finally {
     queueBusy = false;
@@ -1316,7 +1324,8 @@ export function setQueueWorker({ on = true, idle = false } = {}) {
   queueOpts = { idle: !!idle };
   deps.store?.set('naverIngestQueueWorker', { on: !!on, idle: !!idle });
   if (queueTimer) { clearInterval(queueTimer); queueTimer = null; }
-  if (!on) { pushLog('상세 요청 자동 처리를 껐습니다.'); pushStatus(); return { on: false }; }
+  // 끌 때 예산 우선권을 쥔 채 두면 품절감시가 계속 밀린다 — 같이 되돌린다.
+  if (!on) { naverGate.setIngestFirst(false); pushLog('상세 요청 자동 처리를 껐습니다.'); pushStatus(); return { on: false }; }
   queueTimer = setInterval(() => { queueTick().catch(() => {}); }, QUEUE_POLL_MS);
   if (queueTimer.unref) queueTimer.unref();
   setTimeout(() => { queueTick().catch(() => {}); }, 5000).unref?.();
