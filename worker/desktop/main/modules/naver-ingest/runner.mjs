@@ -72,6 +72,13 @@ async function waitForCaptchaCleared(sw, { waitMs, onLog, onCaptcha, signal }) {
 export async function openProduct(sw, url, opts = {}) {
   const controller = new AbortController();
   const timeoutMs = opts.timeoutMs ?? 240_000;
+  /**
+   * ★ 바깥 타임아웃이 터지면 루프가 쥔 "마지막 실패 이유"가 통째로 사라진다.
+   *   실측 2026-10-13: 12건 연속 실패가 전부 `시간 초과(240초)` 한 줄로만 남아,
+   *   419 차단인지 로그인 만료인지 셀렉터 변경인지 구분할 방법이 없었다.
+   *   루프와 이 객체를 공유해 이유·시도횟수를 함께 보고한다.
+   */
+  const progress = { lastError: '', attempt: 0 };
   const signal = opts.signal ? AbortSignal.any([opts.signal, controller.signal]) : controller.signal;
   let onAbort;
   const timer = setTimeout(() => controller.abort(new Error(`시간 초과(${Math.round(timeoutMs / 1000)}초)`)), timeoutMs);
@@ -85,9 +92,15 @@ export async function openProduct(sw, url, opts = {}) {
       };
       signal.addEventListener('abort', onAbort, { once: true });
     });
-    return await Promise.race([openProductLoop(sw, url, { ...opts, signal }), cancelled]);
+    return await Promise.race([openProductLoop(sw, url, { ...opts, signal, progress }), cancelled]);
   } catch (e) {
-    return { ok: false, error: opts.signal?.aborted ? 'aborted' : String(e?.message || e), retryable: !opts.signal?.aborted };
+    if (opts.signal?.aborted) return { ok: false, error: 'aborted', retryable: false };
+    // 타임아웃이면 루프가 마지막으로 본 이유를 함께 올린다 — 이게 없으면 진단이 불가능하다.
+    const base = String(e?.message || e);
+    const why = progress.lastError && progress.lastError !== 'unknown'
+      ? `${base} — ${progress.attempt}회 시도, 마지막 실패: ${progress.lastError}`
+      : `${base} — ${progress.attempt}회 시도, 실패 기록 없음(첫 시도 중 멈춤)`;
+    return { ok: false, error: why, retryable: true };
   } finally {
     clearTimeout(timer);
     if (onAbort) signal.removeEventListener('abort', onAbort);
@@ -114,8 +127,13 @@ async function openProductLoop(sw, url, opts) {
   const deadline = Date.now() + timeoutMs;
   let lastError = 'unknown';
   let sawBlock = false;
+  // 바깥 타임아웃이 터져도 "마지막 실패 이유"가 남도록 호출자와 공유한다.
+  //   없으면 전부 "시간 초과(240초)" 한 줄로만 기록돼 419 인지 로그인 만료인지 구분이 안 된다.
+  const progress = opts.progress || {};
+  const note = (v) => { lastError = v; progress.lastError = v; };
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    progress.attempt = attempt;
     if (signal?.aborted) return { ok: false, error: 'aborted', retryable: false };
     if (Date.now() >= deadline) {
       sw.status = 'idle';
@@ -135,7 +153,7 @@ async function openProductLoop(sw, url, opts) {
     const nav = await sw.gotoViaClick(url, { timeoutMs: url.includes('/main/products/') ? 20000 : 15000 });
     signal.throwIfAborted();
     if (!nav.ok || parseProductUrl(sw.url).productCode !== parsed.productCode) {
-      lastError = nav.error || 'navigation failed';
+      note(nav.error || 'navigation failed');
       naverGate.recordFailure();
       await sleep(2000 + Math.random() * 1500, undefined, { signal });
       continue;
@@ -151,7 +169,7 @@ async function openProductLoop(sw, url, opts) {
         ? await waitForCaptchaCleared(sw, { waitMs, onLog, onCaptcha, signal })
         : false;
       if (!cleared) {
-        lastError = 'CAPTCHA';
+        note('CAPTCHA');
         // 캡차는 차단이 아니다 — 쿨다운을 걸지 않는다. 다만 속도는 한 단계 낮춘다.
         naverGate.recordFailure();
         return { ok: false, error: lastError, retryable: false, captcha: true };
@@ -162,7 +180,7 @@ async function openProductLoop(sw, url, opts) {
       sawBlock = true;
       const ms = naverGate.triggerCooldown(det.is429);
       onLog(`🔴 차단 감지${det.is429 ? '(429)' : ''} — ${Math.round(ms / 1000)}초 동안 전체 정지`);
-      lastError = 'BLOCKED_PAGE';
+      note('BLOCKED_PAGE');
       return { ok: false, error: lastError, retryable: true, blocked: true };
     }
 
@@ -174,7 +192,7 @@ async function openProductLoop(sw, url, opts) {
       data = await sw.evaluate(extract);
       signal.throwIfAborted();
     } catch (e) {
-      lastError = `추출 실패: ${e.message}`;
+      note(`추출 실패: ${e.message}`);
       naverGate.recordFailure();
       await sleep(2000 + Math.random() * 1500, undefined, { signal });
       continue;
@@ -186,7 +204,7 @@ async function openProductLoop(sw, url, opts) {
     //   전부 "페이지가 덜 로드됨"으로 보고했다 — 원인이 다른 실패들이 같은 얼굴로 나와
     //   진단이 불가능했다(실측: 상세 추출 1건 실패의 진짜 이유를 로그로 알 수 없었다).
     if (data && data.error) {
-      lastError = String(data.error).slice(0, 200);
+      note(String(data.error).slice(0, 200));
 
       /**
        * ★ "요청이 틀렸다"와 "지금 오지 마라"는 완전히 다른 실패인데 같은 재시도를 돌고 있었다.
@@ -222,7 +240,7 @@ async function openProductLoop(sw, url, opts) {
 
     // 상품명이 비었으면 SPA 가 덜 그려진 것이다 — 이 게이트가 껍데기 저장을 막는다.
     if (!data?.name || data.name === 'NAVER' || data.name === 'Unknown') {
-      lastError = `유효하지 않은 상품명(${data?.name || '없음'}) — 페이지가 덜 로드됨`;
+      note(`유효하지 않은 상품명(${data?.name || '없음'}) — 페이지가 덜 로드됨`);
       naverGate.recordFailure();
       await sleep(2000, undefined, { signal });
       continue;
