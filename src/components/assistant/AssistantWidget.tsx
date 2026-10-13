@@ -347,12 +347,16 @@ export default function AssistantWidget() {
     <>
       {/* ── 플로팅 버튼 ── */}
       {!open && (
-        <div className="fixed bottom-5 right-4 z-[90] flex flex-col items-end gap-2 sm:bottom-6 sm:right-6">
+        /* ★ pointer-events-none 필수: 이 래퍼는 넛지 말풍선 너비(최대 240px)만큼 커져서
+           화면 우하단 ~240×170px 를 투명하게 덮는다. 없으면 그 밑에 깔린 페이지 버튼
+           (대량등록 "N개 등록 시작" 등)이 클릭을 못 받는다. 실제 클릭 대상인 자식들에만
+           pointer-events-auto 를 준다. */
+        <div className="pointer-events-none fixed bottom-5 right-4 z-[90] flex flex-col items-end gap-2 sm:bottom-6 sm:right-6">
           {nudge && (
             <button
               type="button"
               onClick={openPanel}
-              className="max-w-[240px] rounded-2xl rounded-br-sm bg-white px-3.5 py-2.5 text-left text-[13px] leading-snug text-gray-700 shadow-lg ring-1 ring-black/5"
+              className="pointer-events-auto max-w-[240px] rounded-2xl rounded-br-sm bg-white px-3.5 py-2.5 text-left text-[13px] leading-snug text-gray-700 shadow-lg ring-1 ring-black/5"
             >
               막히는 게 있으면 바로 물어보세요.
               <br />
@@ -364,7 +368,7 @@ export default function AssistantWidget() {
             type="button"
             onClick={openPanel}
             aria-label="AI 상담 열기"
-            className="group flex items-center gap-2 rounded-full bg-[#E31837] px-4 py-3 text-sm font-bold text-white shadow-lg shadow-black/20 ring-1 ring-black/5 transition hover:scale-105 hover:bg-[#c8142f] active:scale-95 sm:px-5 sm:py-3.5"
+            className="group pointer-events-auto flex items-center gap-2 rounded-full bg-[#E31837] px-4 py-3 text-sm font-bold text-white shadow-lg shadow-black/20 ring-1 ring-black/5 transition hover:scale-105 hover:bg-[#c8142f] active:scale-95 sm:px-5 sm:py-3.5"
           >
             <Sparkles className="h-5 w-5" />
             <span className="hidden sm:inline">AI 상담</span>
@@ -600,7 +604,7 @@ function KakaoFloatingLink() {
       target="_blank"
       rel="noopener noreferrer"
       aria-label={KAKAO_SUPPORT_LABEL + ' 열기'}
-      className="flex items-center gap-2 rounded-full bg-[#FEE500] px-4 py-3 text-sm font-bold text-[#181600] shadow-lg shadow-black/20 ring-1 ring-black/5 transition hover:scale-105 hover:bg-[#f5dc00] active:scale-95 sm:px-5 sm:py-3.5"
+      className="pointer-events-auto flex items-center gap-2 rounded-full bg-[#FEE500] px-4 py-3 text-sm font-bold text-[#181600] shadow-lg shadow-black/20 ring-1 ring-black/5 transition hover:scale-105 hover:bg-[#f5dc00] active:scale-95 sm:px-5 sm:py-3.5"
     >
       <MessageCircle className="h-5 w-5" />
       <span className="hidden sm:inline">{KAKAO_SUPPORT_LABEL}</span>
@@ -612,7 +616,7 @@ function KakaoFloatingLink() {
 /** AI 상담을 띄우지 않는 경로(/sign/, /screening/)에서 카톡만 남길 때 쓰는 래퍼. */
 function KakaoFloatingButton() {
   return (
-    <div className="fixed bottom-5 right-4 z-[90] flex flex-col items-end gap-2 sm:bottom-6 sm:right-6">
+    <div className="pointer-events-none fixed bottom-5 right-4 z-[90] flex flex-col items-end gap-2 sm:bottom-6 sm:right-6">
       <KakaoFloatingLink />
     </div>
   );

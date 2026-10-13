@@ -1186,8 +1186,9 @@ export default memo(function BulkStep2Review({
         />
       )}
 
-      {/* Bottom navigation */}
-      <div className="flex items-center justify-between">
+      {/* Bottom navigation
+          pr-[132px]: 우하단 AI 상담/카톡 플로팅 버튼(약 119px + 여백)이 등록 버튼을 가리지 않도록 자리 확보 */}
+      <div className="flex items-center justify-between sm:pr-[132px]">
         <button onClick={onBack} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition">
           <ArrowLeft className="w-4 h-4" /> 이전
         </button>
