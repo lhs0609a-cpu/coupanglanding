@@ -29,6 +29,32 @@ import {
 } from './buy-option-value';
 import type { ContentBlock } from './fragment-composer';
 
+/**
+ * 필수 구매옵션 값을 끝내 못 찾았을 때 던지는 에러.
+ *
+ * 등록 경로에서는 그대로 차단이 맞다 — 값을 지어내면 쿠팡이 전량 거부한다.
+ * 다만 **미리보기(검수) 경로는 사용자가 그 값을 입력하는 화면**이므로, 호출측이
+ * 이 타입을 보고 "미리보기는 살리고 막힌 항목만 알려주는" 처리를 할 수 있어야 한다.
+ * (평범한 Error 로 던지면 미리보기 500 → 고시정보·속성 섹션이 통째로 사라져
+ *  "경고는 뜨는데 고칠 칸이 없는" 막다른 길이 된다. 2026-10-13 실측)
+ */
+export class UnresolvedBuyOptionError extends Error {
+  readonly attributeTypeNames: string[];
+  readonly categoryCode: string;
+
+  constructor(attributeTypeNames: string[], categoryCode: string) {
+    super(
+      `필수 구매옵션 값을 상품정보에서 찾지 못했습니다: ${attributeTypeNames.join(', ')} `
+      + `(카테고리 ${categoryCode}) — 검증 단계에서 직접 입력해주세요. `
+      + `쿠팡은 구매옵션 값으로 "상세페이지 참조" 같은 문구를 허용하지 않습니다.`,
+    );
+    this.name = 'UnresolvedBuyOptionError';
+    this.attributeTypeNames = attributeTypeNames;
+    this.categoryCode = categoryCode;
+  }
+}
+
+
 // ---- 입력 타입 ----
 
 export interface DeliveryInfo {
@@ -705,11 +731,7 @@ export function buildCoupangProductPayload(
       }
     }
     if (unresolved.length > 0) {
-      throw new Error(
-        `필수 구매옵션 값을 상품정보에서 찾지 못했습니다: ${unresolved.join(', ')} `
-        + `(카테고리 ${categoryCode}) — 검증 단계에서 직접 입력해주세요. `
-        + `쿠팡은 구매옵션 값으로 "상세페이지 참조" 같은 문구를 허용하지 않습니다.`,
-      );
+      throw new UnresolvedBuyOptionError(unresolved, categoryCode);
     }
   }
 

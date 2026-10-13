@@ -3,7 +3,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
 import { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
-import { buildCoupangProductPayload, type DeliveryInfo, type ReturnInfo, type AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
+import { buildCoupangProductPayload, UnresolvedBuyOptionError, type DeliveryInfo, type ReturnInfo, type AttributeMeta } from '@/lib/megaload/services/coupang-product-builder';
 import { fillNoticeFields, type NoticeCategoryMeta, type ExtractedNoticeHints } from '@/lib/megaload/services/notice-field-filler';
 import { extractOptionsEnhanced } from '@/lib/megaload/services/option-extractor';
 import { syncDisplayNameWithOptions } from '@/lib/megaload/services/display-name-generator';
@@ -170,7 +170,13 @@ export async function POST(req: NextRequest) {
     const selectedThirdPartyUrls: string[] = [];
 
     // 7. 페이로드 빌드 — 클라이언트에서 카테고리 변경 후 재생성된 본문/제목/리뷰를 그대로 사용
-    const payload = buildCoupangProductPayload({
+    //   ★ 필수 구매옵션 미해결(UnresolvedBuyOptionError)은 여기서 500 으로 터뜨리지 않는다.
+    //     이 화면이 바로 그 값을 입력하는 곳이라, 500 이 나면 고시정보·속성 섹션까지 통째로
+    //     사라져 "경고는 뜨는데 고칠 칸이 없는" 상태가 된다. payload 만 null 로 두고
+    //     meta(=입력 UI 의 재료) 와 blockers(=막힌 항목) 를 200 으로 돌려준다.
+    let payload: ReturnType<typeof buildCoupangProductPayload> | null = null;
+    let blockers: { attributeTypeName: string; reason: string }[] = [];
+    const buildArgs = {
       vendorId,
       product: {
         folderPath: product.folderPath,
@@ -208,9 +214,19 @@ export async function POST(req: NextRequest) {
       aiReviewTexts: product.reviewTextsOverride,
       contentBlocks: product.contentBlocksOverride,
       categoryPath: categoryPath || undefined,
-    });
+    };
 
-    const payloadJson = JSON.stringify(payload);
+    try {
+      payload = buildCoupangProductPayload(buildArgs);
+    } catch (e) {
+      if (!(e instanceof UnresolvedBuyOptionError)) throw e;
+      blockers = e.attributeTypeNames.map((name) => ({
+        attributeTypeName: name,
+        reason: '상품정보에서 값을 찾지 못했습니다. "옵션/아이템 > 필수 구매옵션"에 직접 입력해주세요.',
+      }));
+    }
+
+    const payloadJson = payload ? JSON.stringify(payload) : '';
 
     // 8. 메타 정보 구성
     const meta = {
@@ -228,13 +244,17 @@ export async function POST(req: NextRequest) {
         name: a.attributeTypeName,
         required: a.required,
         dataType: a.dataType,
+        // exposed/basicUnit 도 내려준다 — 클라가 categoryMetaCache 없이도 "필수 구매옵션"
+        // 입력칸을 그릴 수 있어야 한다(캐시 미적재 카테고리 대비 폴백).
+        exposed: a.exposed,
+        basicUnit: a.basicUnit,
         attributeValues: a.attributeValues,
       })),
       imageCount: mainImageUrls.length + detailImageUrls.length + reviewImageUrls.length + infoImageUrls.length,
       estimatedPayloadSize: new TextEncoder().encode(payloadJson).length,
     };
 
-    return NextResponse.json({ payload, meta });
+    return NextResponse.json({ payload, meta, blockers });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '페이로드 미리보기 실패' },

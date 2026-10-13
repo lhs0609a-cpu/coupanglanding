@@ -709,6 +709,24 @@ export default function CoupangFieldsSection({
 }: CoupangFieldsSectionProps) {
   const meta = previewData?.meta;
   const payload = previewData?.payload as Record<string, unknown> | undefined;
+  /** 등록을 막고 있는 필수 구매옵션 — 미리보기가 알려준다. */
+  const buyOptionBlockers = previewData?.blockers || [];
+  /**
+   * 필수 구매옵션 입력칸의 재료.
+   * 1순위: categoryMetaCache (validate-batch/init-job 이 채움)
+   * 2순위: 미리보기 응답의 attributes — 캐시가 아직 비어 있어도 입력칸은 떠야 한다.
+   *        (캐시만 믿으면 "경고는 뜨는데 고칠 칸이 없는" 막다른 길이 된다. 2026-10-13)
+   */
+  const effectiveAttributeMeta: AttributeMeta[] = (attributeMeta && attributeMeta.length > 0)
+    ? attributeMeta
+    : (meta?.attributes || []).map((a) => ({
+        attributeTypeName: a.name,
+        required: a.required,
+        dataType: a.dataType,
+        exposed: a.exposed,
+        basicUnit: a.basicUnit,
+        attributeValues: a.attributeValues,
+      }));
   const items = (payload?.sellerProductItemList as Record<string, unknown>[] | undefined) || [];
   const firstItem = items[0] as Record<string, unknown> | undefined;
 
@@ -1397,7 +1415,7 @@ export default function CoupangFieldsSection({
             attributeMeta.exposed='EXPOSED' && required → 필수 buyOption.
             농산물 중량은 별도 영역(editedAgriWeight)에서 이미 다루므로 여기선 제외하여 중복 방지. */}
         {(() => {
-          const requiredBuyOptions = (attributeMeta || []).filter(
+          const requiredBuyOptions = effectiveAttributeMeta.filter(
             (a) => a.required && a.exposed === 'EXPOSED' && a.attributeTypeName !== '농산물 중량',
           );
           if (requiredBuyOptions.length === 0) return null;
@@ -1410,6 +1428,15 @@ export default function CoupangFieldsSection({
                 </span>
                 <span className="text-[10px] text-amber-700">미입력 시 등록 차단</span>
               </div>
+              {buyOptionBlockers.length > 0 && (
+                <div className="rounded-md border border-red-300 bg-red-50 px-2.5 py-2 text-[11px] text-red-700">
+                  <span className="font-bold">지금 이 상품은 등록이 막혀 있습니다.</span>{' '}
+                  {buyOptionBlockers.map((b) => b.attributeTypeName).join(', ')} 값을 아래에 직접 입력해주세요.
+                  <div className="text-[10px] text-red-500 mt-0.5">
+                    쿠팡은 구매옵션 값으로 &quot;상세페이지 참조&quot; 같은 문구를 받지 않습니다.
+                  </div>
+                </div>
+              )}
               {requiredBuyOptions.map((attr) => {
                 const name = attr.attributeTypeName;
                 const ext = extracted.find((o) => o.name === name);

@@ -27,6 +27,8 @@ interface AttributeInfo {
   name: string;
   required: boolean;
   dataType: string;
+  exposed?: string;
+  basicUnit?: string;
   attributeValues?: { attributeValueName: string }[];
 }
 
@@ -43,8 +45,11 @@ interface PreviewMeta {
 }
 
 export interface PayloadPreviewData {
-  payload: Record<string, unknown>;
+  /** 필수 구매옵션 미입력 등으로 빌드가 막히면 null — meta/blockers 는 그대로 온다. */
+  payload: Record<string, unknown> | null;
   meta: PreviewMeta;
+  /** 등록을 막고 있는 항목 (사용자가 직접 입력해야 풀린다). */
+  blockers?: { attributeTypeName: string; reason: string }[];
 }
 
 interface PayloadPreviewPanelProps {
@@ -105,7 +110,8 @@ export default function PayloadPreviewPanel({ loading, data, error }: PayloadPre
   }
 
   const { payload, meta } = data;
-  const p = payload as Record<string, unknown>;
+  const blockers = data.blockers || [];
+  const p = (payload || {}) as Record<string, unknown>;
   const items = (p.sellerProductItemList as Record<string, unknown>[] | undefined) || [];
 
   function formatBytes(bytes: number): string {
@@ -115,7 +121,7 @@ export default function PayloadPreviewPanel({ loading, data, error }: PayloadPre
 
   // displayName ↔ 옵션 일치도 dry-run 검증
   // 사용자 신고 케이스 ("displayName=...1개" + "옵션 수량=2") 자동 감지
-  const displayName = String((data.payload as Record<string, unknown>)?.displayProductName || '');
+  const displayName = String(p.displayProductName || '');
   const dnTailMatch = displayName.match(/(\d+)\s*(개|입|팩|병|박스|봉|통|세트|캔)\s*$/);
   const dnTailQty = dnTailMatch ? parseInt(dnTailMatch[1]) : null;
   const optCountEntry = meta.extractedOptions.find(o => o.name === '수량' || o.name === '총 수량');
@@ -124,6 +130,28 @@ export default function PayloadPreviewPanel({ loading, data, error }: PayloadPre
 
   return (
     <div className="space-y-5">
+      {/* 등록 차단 항목 — payload 빌드가 여기서 멈췄다. 사용자가 값을 넣어야 풀린다. */}
+      {blockers.length > 0 && (
+        <div className="bg-red-50 border border-red-300 rounded-lg p-3">
+          <div className="flex items-start gap-2 text-xs text-red-800">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-semibold">필수 구매옵션 미입력 — 이 상태로는 등록되지 않습니다</div>
+              <ul className="mt-1 space-y-0.5 text-red-700">
+                {blockers.map((b) => (
+                  <li key={b.attributeTypeName}>
+                    · <strong>{b.attributeTypeName}</strong> — {b.reason}
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-1 text-[11px] text-red-600">
+                &quot;상품 정보&quot; 탭 &gt; 옵션/아이템 &gt; 필수 구매옵션 에서 값을 넣으면 사라집니다.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* displayName ↔ 옵션 일치도 경고 (dry-run) */}
       {qtyMismatch && (
         <div className="bg-red-50 border border-red-300 rounded-lg p-3">

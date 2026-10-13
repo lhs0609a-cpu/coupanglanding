@@ -86,25 +86,44 @@ export async function POST(req: NextRequest) {
     // (이전: Coupang 어댑터로 라이브 fetch — 첫 호출 시 5~15s 소요 + init-job 과 중복.
     //  이제: 캐시 hit 분만 즉시 사용, miss 분은 init-job 단계(Step 3 등록 시)에서 채워짐.
     //  Dry-Run 검증은 캐시된 메타만으로 진행 — 미캐시 카테고리는 빈 메타로 통과시키고 등록 단계에서 강제 검증.)
+    //
+    // ★ attribute 캐시도 함께 읽는다 (2026-10-13).
+    //   이전엔 attributeMeta 를 빈 배열로 두고 "init-job 에서 채워짐" 이라 했는데, init-job 은
+    //   등록 버튼을 누른 뒤에야 돈다. 그 사이 검수 화면에서는:
+    //     · 상세패널의 "필수 구매옵션" 입력칸이 안 뜨고(렌더 조건이 attributeMeta)
+    //     · preflight 도 이 캐시를 그대로 쓰므로 필수 구매옵션 검사를 통째로 건너뛰어 초록불이 되고
+    //     · 정작 미리보기/등록은 쿠팡 실메타로 빌드하다 throw
+    //   → "경고는 뜨는데 고칠 칸이 없는" 막다른 길이 됐다(사료 110824 "사료/간식 주원료" 실측).
+    //   attribute 캐시는 이미 같은 Supabase 테이블에 있으므로 SELECT 한 번만 더 하면 된다.
+    //   라이브 API 호출은 여전히 0회 — 지연 증가 없음.
     const categoryMeta: CategoryMetaMap = {};
 
     if (uniqueCodes.length > 0) {
-      try {
-        const { data: noticeRows } = await serviceClient
+      const ensure = (code: string) => {
+        if (!categoryMeta[code]) categoryMeta[code] = { noticeMeta: [], attributeMeta: [] };
+        return categoryMeta[code];
+      };
+      const [noticeRes, attrRes] = await Promise.allSettled([
+        serviceClient
           .from('coupang_notice_category_cache')
           .select('category_code, notice_categories, is_empty')
-          .in('category_code', uniqueCodes);
+          .in('category_code', uniqueCodes),
+        serviceClient
+          .from('coupang_attribute_cache')
+          .select('category_code, attributes, is_empty')
+          .in('category_code', uniqueCodes),
+      ]);
 
-        if (Array.isArray(noticeRows)) {
-          for (const row of noticeRows as Array<{ category_code: string; notice_categories: NoticeCategoryMeta[]; is_empty: boolean }>) {
-            categoryMeta[row.category_code] = {
-              noticeMeta: row.is_empty ? [] : (row.notice_categories ?? []),
-              attributeMeta: [], // attributes 캐시는 별도 — init-job 에서 채워짐
-            };
-          }
+      // 캐시 조회 실패해도 빈 메타로 진행 (validation 통과, 등록 단계에서 강제 검증)
+      if (noticeRes.status === 'fulfilled' && Array.isArray(noticeRes.value.data)) {
+        for (const row of noticeRes.value.data as Array<{ category_code: string; notice_categories: NoticeCategoryMeta[]; is_empty: boolean }>) {
+          ensure(row.category_code).noticeMeta = row.is_empty ? [] : (row.notice_categories ?? []);
         }
-      } catch {
-        // 캐시 조회 실패 — 빈 메타로 진행 (validation 통과, 등록 단계 검증)
+      }
+      if (attrRes.status === 'fulfilled' && Array.isArray(attrRes.value.data)) {
+        for (const row of attrRes.value.data as Array<{ category_code: string; attributes: AttributeMeta[]; is_empty: boolean }>) {
+          ensure(row.category_code).attributeMeta = row.is_empty ? [] : (row.attributes ?? []);
+        }
       }
     }
 
