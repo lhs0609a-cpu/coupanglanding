@@ -126,7 +126,11 @@ export interface StepHowto {
   description?: string;
   tip?: string;
   warning?: string;
-  link?: { url: string; label: string };
+    link?: { url: string; label: string };
+    /** 참고 링크와 실제 작업 위치가 다를 때 명시한다. */
+    workspace?: { url: string; path: string };
+    /** 조건부 업무의 해당 없음도 사실대로 기록할 수 있는 완료 문구. */
+    completionLabel?: string;
 }
 
 export interface StepAction {
