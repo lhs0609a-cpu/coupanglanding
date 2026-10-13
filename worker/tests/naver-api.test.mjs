@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 
 async function loadRoute(name, { admin = false, owner = 'seller-1', status = 'running', claimed = ['a'], error = null } = {}) {
+  const adopted = [];
   const updates = [];
   const rows = [{ id: 'a', product_no: '1234', url: 'https://smartstore.naver.com/shop/products/1234' },
     { id: 'b', product_no: '5678', url: 'https://smartstore.naver.com/shop/products/5678' }];
@@ -33,6 +34,8 @@ async function loadRoute(name, { admin = false, owner = 'seller-1', status = 'ru
     '@supabase/supabase-js': { createClient: () => auth },
     '@/lib/supabase/server': { createClient: async () => auth, createServiceClient: async () => service },
     '@/lib/megaload/naver-store-type': { isDetailExtractable: () => true },
+    // 로그인한 셀러 도우미가 자기 몫이 없을 때 스스로 일감을 가져가는 경로.
+    '@/lib/megaload/detail-queue-assign': { adoptUnownedWork: async (_svc, uid, want) => { adopted.push({ uid, want }); return 0; } },
   };
   const source = await readFile(new URL(`../../src/app/api/megaload/naver-sourcing/products/${name}/route.ts`, import.meta.url), 'utf8');
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -43,7 +46,7 @@ async function loadRoute(name, { admin = false, owner = 'seller-1', status = 'ru
     return new vm.SyntheticModule(Object.keys(exports), function () { for (const [k, v] of Object.entries(exports)) this.setExport(k, v); }, { context });
   });
   await mod.evaluate();
-  return { route: mod.namespace, updates };
+  return { route: mod.namespace, updates, adopted };
 }
 
 const request = (body = {}) => ({ headers: new Headers({ authorization: 'Bearer test-session' }), url: 'https://test.invalid/?limit=3', json: async () => body });
@@ -89,4 +92,20 @@ test('여러 에이전트가 경쟁해도 실제로 선점한 작업만 반환�
 test('선점 저장이 실패하면 작업을 반환하지 않는다', async () => {
   const { route } = await loadRoute('queue', { error: { message: 'DB unavailable' } });
   const result = await route.GET(request()); assert.equal(result.status, 500); assert.equal(result.body.jobs, undefined);
+});
+
+test('자기 몫이 없는 셀러 도우미는 주인 없는 일감을 스스로 가져간다', async () => {
+  // 도우미는 네이버 로그인이 있을 때만 큐를 돈다 → 폴링했다는 것 자체가 "지금 일할 수 있다".
+  // 선배정만 쓰던 때 로그인한 셀러가 빈 손으로 돌아가 수집이 통째로 멈췄다(2026-10-13).
+  const { route, adopted } = await loadRoute('queue');
+  await route.GET(request());
+  assert.equal(adopted.length, 1, '셀러는 자기 몫이 비면 가져오기를 시도해야 한다');
+  assert.equal(adopted[0].uid, 'seller-1');
+  assert.ok(adopted[0].want > 0);
+});
+
+test('관리자 도우미는 가져오기를 하지 않는다 — 어차피 전량을 집는다', async () => {
+  const { route, adopted } = await loadRoute('queue', { admin: true });
+  await route.GET(request());
+  assert.equal(adopted.length, 0);
 });
