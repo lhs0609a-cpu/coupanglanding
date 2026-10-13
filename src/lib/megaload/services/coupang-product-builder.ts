@@ -613,6 +613,15 @@ export function buildCoupangProductPayload(
 
       if (existingIdx >= 0) {
         const oldVal = metaAttributes[existingIdx].attributeValueName;
+        // ★ 추출기가 "상세페이지 참조" 를 돌려준 건 값을 못 찾았다는 뜻이지 답이 아니다.
+        //   이미 들어있는 **실제 값**(사용자가 검수 화면에서 직접 입력한 값, ENUM 선택값)을
+        //   그 폴백으로 덮으면 안 된다 — 실측: 사용자가 주원료에 "소고기" 를 넣어도
+        //   추출기 폴백이 덮어써서 등록이 계속 막혔다(검증 단계 수동입력이 무용지물).
+        if (isPlaceholderOptionValue(attrValue) && !isPlaceholderOptionValue(oldVal)) {
+          console.log(`[payload-builder] buyOption "${metaAttributes[existingIdx].attributeTypeName}": 추출값이 폴백("${attrValue}") → 기존 실제값 "${oldVal}" 유지`);
+          extractedAttrNames.add(metaAttributes[existingIdx].attributeTypeName);
+          continue;
+        }
         if (oldVal !== attrValue) {
           console.log(`[payload-builder] buyOption "${metaAttributes[existingIdx].attributeTypeName}": 폴백 "${oldVal}" → 추출값 "${attrValue}" 교체`);
         }
