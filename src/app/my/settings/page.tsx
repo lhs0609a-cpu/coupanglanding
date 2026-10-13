@@ -173,6 +173,9 @@ export default function MySettingsPage() {
         .update({
           coupang_seller_id: sellerId || null,
           coupang_seller_pw: encodedPw,
+          // 두 칸은 같은 값(WING 로그인 ID)이다. 한쪽만 채워져 등록이 실패하던 문제를 막기 위해
+          // 값이 있을 때만 반대쪽도 맞춘다(빈 값으로 덮어써서 멀쩡한 값을 지우지 않도록).
+          ...(sellerId ? { coupang_wing_user_id: sellerId } : {}),
         })
         .eq('profile_id', user.id);
 
@@ -428,16 +431,20 @@ export default function MySettingsPage() {
           <div className="space-y-4">
             <div>
               <label htmlFor="seller-id" className="block text-sm font-medium text-gray-700 mb-1">
-                쿠팡 셀러 ID
+                쿠팡 셀러 ID <span className="text-[#E31837]">(= WING 로그인 ID · 상품등록 필수)</span>
               </label>
               <input
                 id="seller-id"
                 type="text"
                 value={sellerId}
                 onChange={(e) => setSellerId(e.target.value)}
-                placeholder="쿠팡 메가로드 아이디 입력"
+                placeholder="wing.coupang.com 로그인할 때 쓰는 ID"
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                아래 API 설정의 &quot;WING 로그인 ID&quot;와 <b>같은 값</b>입니다. 비워 두면 상품등록이 전부
+                실패합니다 (쿠팡이 &quot;&#39;vendorUserId&#39; 값을 확인해 주세요&quot;로 거부). 업체코드(A로 시작)와는 다른 값입니다.
+              </p>
             </div>
 
             <div>
@@ -761,7 +768,7 @@ export default function MySettingsPage() {
                 placeholder="쿠팡 Wing 로그인 ID 입력 (다운로드 쿠폰 등록에 필요)"
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#E31837] focus:border-transparent"
               />
-              <p className="text-xs text-gray-400 mt-1">wing.coupang.com 로그인 시 입력하는 ID. 업체코드와 다를 수 있음. 다운로드 쿠폰 일괄 등록 시 사용됩니다.</p>
+              <p className="text-xs text-gray-400 mt-1">wing.coupang.com 로그인 시 입력하는 ID. 업체코드와 다를 수 있음. 위 &quot;쿠팡 셀러 ID&quot;와 같은 값이며, <b>상품등록·다운로드 쿠폰 등록 모두</b>에 사용됩니다.</p>
             </div>
 
             <div>

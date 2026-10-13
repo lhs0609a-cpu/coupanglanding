@@ -88,7 +88,12 @@ export async function POST(request: NextRequest) {
       coupang_api_key_expires_at: expiresAt.toISOString(),
     };
     if (wingUserId !== undefined) {
-      updatePayload.coupang_wing_user_id = wingUserId.trim() || null;
+      const wing = wingUserId.trim();
+      updatePayload.coupang_wing_user_id = wing || null;
+      // ★ 상품등록(batch)·대리등록(catalog-register)은 coupang_seller_id 를 읽어 vendorUserId 로
+      //   보낸다. 여기만 채우고 저쪽을 비워두면 "'vendorUserId' 값을 확인해 주세요" 로 전량 실패한다.
+      //   (2026-10-13 실측 — WING 칸만 채운 계정이 그대로 막혔다.) 값이 있을 때만 동기화.
+      if (wing) updatePayload.coupang_seller_id = wing;
     }
     const { error: updateError } = await serviceClient
       .from('pt_users')

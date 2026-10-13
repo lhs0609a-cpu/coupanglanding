@@ -132,6 +132,30 @@ export async function POST(req: NextRequest) {
       // 쿠팡 채널 미연결 시에도 프리플라이트 구조 검증은 가능
     }
 
+    // ★ WING 로그인 ID(vendorUserId) 사전 검사 — 없으면 등록이 100% 실패한다.
+    //   쿠팡 상품등록 API 가 필수로 요구하고, 비어 있으면 payload 에서 통째로 빠져
+    //   "'vendorUserId' 값을 확인해 주세요" 로 전량 거부된다(2026-10-13 실측).
+    //   여기서 안 막으면 100개를 다 돌리고 100개가 다 실패한 뒤에야 알게 된다.
+    //   (대리등록 경로는 catalog-register 의 no_wing_id 가드로 이미 거르고 있었다.)
+    let wingUserIdMissing = false;
+    try {
+      const { data: ptRow } = await serviceClient
+        .from('pt_users')
+        .select('coupang_seller_id')
+        .eq('profile_id', user.id)
+        .maybeSingle();
+      wingUserIdMissing = !String((ptRow as { coupang_seller_id?: string } | null)?.coupang_seller_id || '').trim();
+    } catch {
+      // 조회 실패 시엔 막지 않는다 — 등록 단계에서 어차피 걸러진다.
+    }
+    if (wingUserIdMissing) {
+      deliveryWarnings.push({
+        code: 'NO_WING_ID',
+        field: 'wingUserId',
+        message: 'WING 로그인 ID가 설정되지 않았습니다. 이대로 등록하면 쿠팡이 전량 거부합니다 — 채널관리 또는 설정에서 "WING 로그인 ID"(= 쿠팡 셀러 ID)를 입력해주세요.',
+      });
+    }
+
     // 유니크 카테고리 코드별 메타 — 클라이언트가 init-job 호출 시 받아둔 캐시 사용.
     // (이전 코드는 init-job 을 totalCount:0 으로 호출해 항상 400 으로 실패했음 — 200ms 낭비.
     //  메타 fetch 가 필요하면 실제 등록 단계의 init-job 에서 채워주거나 client cache 로 진입)
@@ -258,13 +282,23 @@ export async function POST(req: NextRequest) {
             payloadSizeKB: Math.round(payloadJson.length / 1024 * 10) / 10,
           };
 
-          const pass = validation.errors.length === 0;
+          // WING ID 누락은 계정 단위 차단 사유 — 모든 상품에 동일한 에러를 붙여
+          // stats.fail 로 올린다(클라이언트는 stats.fail 만 보고 등록 버튼을 막는다).
+          const accountErrors = wingUserIdMissing
+            ? [{
+                code: 'NO_WING_ID',
+                field: 'vendorUserId',
+                message: 'WING 로그인 ID 미설정 — 설정에서 "쿠팡 셀러 ID"(= WING 로그인 ID)를 입력해야 등록됩니다.',
+              }]
+            : [];
+          const allErrors = [...accountErrors, ...validation.errors];
+          const pass = allErrors.length === 0;
 
           return {
             uid: product.uid,
             result: {
               pass,
-              errors: validation.errors,
+              errors: allErrors,
               warnings: validation.warnings,
               payloadSnapshot,
               imageStatus,

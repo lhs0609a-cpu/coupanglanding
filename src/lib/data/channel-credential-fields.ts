@@ -20,6 +20,10 @@ export const CHANNEL_CREDENTIAL_FIELDS: Partial<Record<Channel, CredentialField[
     { key: 'vendorId', label: '판매자 ID (Vendor ID)', placeholder: '예: A00012345' },
     { key: 'accessKey', label: 'Access Key', placeholder: '쿠팡 윙 API Key 관리에서 발급' },
     { key: 'secretKey', label: 'Secret Key', placeholder: '발급 시 1회만 표시', secret: true },
+    // ★ 상품등록 필수값. 쿠팡 상품등록 API 가 vendorUserId 로 요구하며, 없으면
+    //   "'vendorUserId' 값을 확인해 주세요" 로 전량 거부된다(2026-10-13 실측).
+    //   업체코드(vendorId)와 다른 값이라 따로 받아야 한다.
+    { key: 'wingUserId', label: 'WING 로그인 ID', placeholder: 'wing.coupang.com 로그인 ID — 상품등록 필수' },
   ],
   naver: [
     { key: 'clientId', label: 'Client ID (애플리케이션 ID)', placeholder: '네이버 커머스 앱 ID' },

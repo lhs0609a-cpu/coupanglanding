@@ -75,6 +75,16 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     suggestion: '네트워크 오류입니다. 잠시 후 재시도해주세요.',
   },
   {
+    // WING 로그인 ID(vendorUserId) 누락·오입력 — 가장 흔한 "원인 모를 등록 실패".
+    //   쿠팡 원문: 'vendorUserId' 값을 확인해 주세요
+    //   업체코드(vendorId)와 다른 값이라 사용자가 안 넣고 지나가기 쉽다. 이 규칙이 없으면
+    //   아래 auth 규칙에도 안 걸려 "기타" 로 뭉개진다(2026-10-13 실측).
+    patterns: [/vendorUserId/i, /WING\s*로그인\s*ID/],
+    category: 'auth',
+    field: 'vendorUserId',
+    suggestion: 'WING 로그인 ID가 비어 있거나 잘못됐습니다. 설정 → "쿠팡 셀러 ID"(= WING 로그인 ID) 칸에 wing.coupang.com 로그인할 때 쓰는 ID를 입력하고 저장한 뒤 다시 등록해주세요. 업체코드(A로 시작)와는 다른 값입니다.',
+  },
+  {
     patterns: [/Unauthorized/i, /인증/, /accessKey/i, /401/, /API.*키.*등록/],
     category: 'auth',
     suggestion: '채널관리 페이지에서 쿠팡 API 키(Vendor ID, Access Key, Secret Key)를 입력해주세요. wing.coupang.com → 판매자정보 → API Key 관리에서 발급할 수 있습니다.',
