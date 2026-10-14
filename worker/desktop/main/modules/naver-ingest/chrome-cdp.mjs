@@ -675,6 +675,60 @@ export class ChromePage {
       await this.evaluate('(() => { const a = document.getElementById("__mgl_nav"); if (a) a.remove(); return true; })()')
         .catch(() => { /* 이동했으면 컨텍스트가 사라져 실패한다 — 정상 */ });
     }
+
+    /**
+     * ── 폴백: 좌표 클릭이 끝내 이동을 못 만들었을 때 ──────────────────────
+     * 좌표 클릭(Input.dispatchMouseEvent)은 입력이 진짜(isTrusted)라는 게 장점이지만,
+     * **좌표가 한 번 빗나가면 아무 일도 일어나지 않는다**(= no-navigation). hover 대기 중
+     * 화면이 밀리거나 고정 레이어가 덮으면 세 자리가 모두 같은 이유로 조용히 실패한다.
+     *   실측 2026-10-14: 상세 수집이 전건 `시간 초과(240초) — 5회 시도, 마지막 실패:
+     *   no-navigation` 으로 죽어 9/30 이후 수집 0건이었다.
+     * 그때는 naveritem 원본(네이버_상품추출_이식_가이드 [4])과 같은 방식으로 한 번 더 —
+     * **심은 요소에 이벤트 체인을 직접 디스패치**한다. isTrusted 는 false 라 상시 경로로
+     * 쓰기엔 부적절하지만, 좌표가 빗나간 상황에서 아무것도 못 하는 것보다 낫다.
+     */
+    if (last === 'no-navigation') {
+      const before = String(await this.url().catch(() => ''));
+      await this.evaluate(`(() => {
+        const old = document.getElementById('__mgl_nav2'); if (old) old.remove();
+        const a = document.createElement('a');
+        a.id = '__mgl_nav2';
+        a.href = ${JSON.stringify(url)};
+        a.textContent = '\\u00a0';
+        // 가이드 [4]-D: display:none 이 아니라 opacity 로 숨긴다(안 보이는 링크 클릭은 봇 시그널).
+        a.style.cssText = 'opacity:0.01;position:fixed;top:100px;left:100px;width:1px;height:1px;'
+          + 'overflow:hidden;pointer-events:auto;z-index:-1;';
+        document.body.appendChild(a);
+        const r = a.getBoundingClientRect();
+        const o = { bubbles: true, cancelable: true, view: window,
+          clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
+          screenX: window.screenX + r.left, screenY: window.screenY + r.top,
+          button: 0, buttons: 1 };
+        a.dispatchEvent(new PointerEvent('pointerover', { ...o, pointerId: 1 }));
+        a.dispatchEvent(new MouseEvent('mouseover', o));
+        a.dispatchEvent(new PointerEvent('pointerdown', { ...o, pointerId: 1 }));
+        a.dispatchEvent(new MouseEvent('mousedown', o));
+        a.dispatchEvent(new PointerEvent('pointerup', { ...o, pointerId: 1, buttons: 0 }));
+        a.dispatchEvent(new MouseEvent('mouseup', { ...o, buttons: 0 }));
+        a.dispatchEvent(new MouseEvent('click', { ...o, buttons: 0 }));
+        setTimeout(() => a.remove(), 200);
+        return true;
+      })()`).catch(() => null);
+
+      const until = Date.now() + timeoutMs;
+      while (Date.now() < until) {
+        await sleep(250);
+        const now = String(await this.url().catch(() => before));
+        if (now && now !== before) {
+          if (url.includes('/main/products/')) await this._awaitMainRedirect();
+          if (!skipReady) await this.waitSpaReady(url.includes('/main/products/'));
+          await this.keepRendering().catch(() => {});
+          return { ok: true, status: 200, url: String(await this.url().catch(() => url)), viaDispatch: true };
+        }
+      }
+      last = 'no-navigation(좌표·직접디스패치 모두 실패)';
+    }
+
     return { ok: false, status: 0, error: last };
   }
 
