@@ -1117,6 +1117,13 @@ export function getImportState({ web = false, handoff = false } = {}) {
  */
 let queueTimer = null;
 let queueBusy = false;
+/**
+ * 큐 워커 중단 신호.
+ * 끄기(setQueueWorker({on:false}))는 타이머만 지웠다 — 진행 중이던 드레인은 그대로 돌아
+ * 창을 계속 쥐었다(실측 2026-10-14: on=false 인데 busy=true 가 유지되어 다른 작업이 전부 막힘).
+ * 끌 때 이 신호를 올려 드레인 루프와 진행 중 추출까지 같이 끊는다.
+ */
+let queueAbort = new AbortController();
 let queueOpts = { idle: false };
 
 const QUEUE_POLL_MS = 60_000;
@@ -1151,7 +1158,9 @@ async function claimJobs(limit = 3) {
 
 /** 상세 1건 — 뽑아서 서버에 올리고 결과를 로그로 남긴다. 예외를 밖으로 던지지 않는다. */
 async function runQueueJob(p, job, root) {
-  const r = await extractOne(p, job.url, root, { onLog: pushLog })
+  // ★ 중단 신호를 함께 넘긴다 — 없으면 워커를 꺼도 진행 중인 1건이 240초를 다 쓰며
+  //   창을 쥐고 있어, 끈 뒤에도 다른 작업이 전부 막힌다(실측 2026-10-14).
+  const r = await extractOne(p, job.url, root, { onLog: pushLog, signal: queueAbort.signal })
     .catch((e) => ({ ok: false, url: job.url, error: String(e?.message || e) }));
   // productNo 는 서버가 준 값을 쓴다 — 실패하면 data 가 없어 어디에 기록할지 모른다.
   const up = await uploadDetail(r, { ...(r.data || {}), channelProductNo: job.product_no });
@@ -1188,6 +1197,7 @@ async function drainQueue(p, root, want, seed = []) {
     for (;;) {
       if (buf.length) return buf.shift();
       if (dry) return null;
+      if (queueAbort.signal.aborted) { dry = true; return null; }   // 워커를 껐다 → 더 집지 않는다
       if (naverGate.state().cooling) { dry = true; return null; }
       if (detail.running || collection.running) { dry = true; return null; }
       if (Date.now() > until) { dry = true; cut = true; return null; }
@@ -1206,6 +1216,7 @@ async function drainQueue(p, root, want, seed = []) {
   let ok = 0;
   const worker = async () => {
     for (;;) {
+      if (queueAbort.signal.aborted) return;
       const job = await take();
       if (!job) return;
       if (await runQueueJob(p, job, root)) ok += 1;
@@ -1325,7 +1336,13 @@ export function setQueueWorker({ on = true, idle = false } = {}) {
   deps.store?.set('naverIngestQueueWorker', { on: !!on, idle: !!idle });
   if (queueTimer) { clearInterval(queueTimer); queueTimer = null; }
   // 끌 때 예산 우선권을 쥔 채 두면 품절감시가 계속 밀린다 — 같이 되돌린다.
-  if (!on) { naverGate.setIngestFirst(false); pushLog('상세 요청 자동 처리를 껐습니다.'); pushStatus(); return { on: false }; }
+  if (!on) {
+    queueAbort.abort();                      // 진행 중 드레인·추출까지 끊는다(창 점유 해제)
+    naverGate.setIngestFirst(false);
+    pushLog('상세 요청 자동 처리를 껐습니다.');
+    pushStatus(); return { on: false };
+  }
+  queueAbort = new AbortController();        // 다시 켤 때 새 신호로 교체
   queueTimer = setInterval(() => { queueTick().catch(() => {}); }, QUEUE_POLL_MS);
   if (queueTimer.unref) queueTimer.unref();
   setTimeout(() => { queueTick().catch(() => {}); }, 5000).unref?.();
