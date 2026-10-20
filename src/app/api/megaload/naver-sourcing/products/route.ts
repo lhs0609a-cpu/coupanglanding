@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { isInSeason, fruitKindFromCategoryPath } from '@/lib/megaload/services/fruit-season';
+import { assignToQueue } from '@/lib/megaload/detail-queue-assign';
 import { isDetailExtractable } from '@/lib/megaload/naver-store-type';
 import { UNCLASSIFIED, PATH_SEP, flattenTree, pathMatches } from '@/lib/megaload/naver-category-tree';
 
@@ -62,11 +64,21 @@ export async function GET(request: NextRequest) {
   const category = (searchParams.get('category') || '').trim();
   const path = (searchParams.get('path') || '').trim();     // 카테고리 트리에서 고른 이름 경로
   const onlyDetail = searchParams.get('detail') === '1';
-  // 관리자 진단용 — 걸러진 줄까지 전부 본다(정리·집계에 필요하다).
-  const showAll = searchParams.get('all') === '1';
   const sort = searchParams.get('sort') || 'recent';   // recent | price | review
 
   const service = await createServiceClient();
+
+  // 관리자 여부를 **목록을 짜기 전에** 안다 — all=1 을 관리자에게만 허용해야 하기 때문이다.
+  // (아래 응답에도 그대로 실어 보낸다. 화면이 삭제 버튼을 보일지 판단하는 데 쓴다)
+  const { data: prof } = await service.from('profiles').select('role').eq('id', user.id).maybeSingle();
+  const isAdmin = prof?.role === 'admin';
+  /**
+   * 관리자 진단용 — 걸러진 줄까지 전부 본다(정리·집계에 필요하다).
+   * ★ 관리자만이다. 예전엔 로그인한 누구나 ?all=1 로 숨긴 줄을 다 볼 수 있었다 —
+   *   아래 필터가 "셀러에게 안 보이게 한다"는 약속을 하는데, 주소창 한 글자로 풀리면
+   *   약속이 아니다.
+   */
+  const showAll = searchParams.get('all') === '1' && isAdmin;
   const from = (page - 1) * PAGE_SIZE;
 
   let query = service
@@ -112,19 +124,27 @@ export async function GET(request: NextRequest) {
   if (onlyDetail) query = query.eq('detail_status', 'done');
 
   /**
-   * ★ 끝내 등록까지 갈 수 없는 줄은 **셀러에게 보이지 않게** 한다(사용자 확정 2026-09-02).
+   * ★ **등록까지 가는 것만** 보여 준다(사용자 확정 2026-10-20).
    * ---------------------------------------------------------------------------
-   * 담는 쪽(POST)은 이미 마켓·쇼핑윈도·배너를 걸러 낸다(KEEP_UNSUPPORTED_STORES=false).
-   * 그런데 그 필터가 생기기 **전에 쌓인 줄**이 그대로 남아 있다 — 셀러 화면에는 여전히 보이고,
-   * 고르면 "상세 미지원"으로 막힌다. 보여 주고 막는 것보다 안 보여 주는 게 맞다.
-   *   · 스토어: 상세를 뽑을 수 있는 두 호스트만(smartstore·brand) — 화이트리스트가 안전하다.
-   *   · 상태: failed 는 이미 뽑아 보고 실패한 줄이다. 다시 될 일이 없으므로 뺀다.
+   * 전에는 failed 만 뺐다. 그래서 화면에는 4,029건이 보이는데 실제로 등록까지 가는 건
+   * 1,319건(33%)뿐이었다 — 나머지 2,710건은 상세가 아직 없는 requested/none 이다.
+   * 그것들도 **고를 수는 있다**(isPickable 은 주소만 멀쩡하면 통과시킨다). 고르면 상세
+   * 큐에 들어가 기다리는데, 그 큐는 네이버 게이트 때문에 분당 12건이 상한이고 실패율이
+   * 83%다. 즉 셀러가 보는 3건 중 2건은 눌러 봐야 기다리다 실패하는 줄이었다.
+   * "보여 주고 막는 것보다 안 보여 주는 게 맞다"는 2026-09-02 의 결정을 failed 에만
+   * 적용했던 셈이라, 여기서 끝까지 적용한다 — done 만 남긴다.
+   *
+   * ⚠️ 카탈로그에서 **지우지는 않는다.** 숨길 뿐이다. 상세 수집은 수집 시점의
+   *    assignToQueue 와 도우미의 adoptUnownedWork 로 돌아가므로(셀러가 눌러 주는 데
+   *    의존하지 않는다) 숨겨도 파이프라인은 그대로 돌고, done 이 되는 순간 다시 나타난다.
+   * ⚠️ 주소 화이트리스트(smartstore·brand)는 남겨 둔다. 지금은 done 중 어긋나는 줄이
+   *    0건이라 효과가 없지만, 지원 범위가 넓어질 때 조용히 새는 것을 막는 그물이다.
    * 관리자는 all=1 로 전부 본다(무엇이 왜 빠졌는지 봐야 정리할 수 있다).
    */
   if (!showAll) {
     query = query
       .or('url.ilike.%smartstore.naver.com/%,url.ilike.%brand.naver.com/%')
-      .neq('detail_status', 'failed');
+      .eq('detail_status', 'done');
   }
 
   if (sort === 'price') query = query.order('price', { ascending: true });
@@ -134,17 +154,15 @@ export async function GET(request: NextRequest) {
   const { data, count, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // 관리자 여부를 함께 준다 — 화면이 삭제 버튼을 보일지 판단하는 데 쓴다.
-  // (표시용일 뿐이고 실제 차단은 아래 DELETE 가 서버에서 한다)
-  const { data: prof } = await service.from('profiles').select('role').eq('id', user.id).maybeSingle();
-
+  // 관리자 여부(위에서 이미 읽었다)를 함께 준다 — 화면이 삭제 버튼과 '전부 보기'를 보일지
+  // 판단하는 데 쓴다. 표시용일 뿐이고 실제 차단은 showAll 과 아래 DELETE 가 서버에서 한다.
   return NextResponse.json({
     products: data ?? [],
     total: count ?? 0,
     page,
     pageSize: PAGE_SIZE,
     hasMore: (count ?? 0) > from + (data?.length ?? 0),
-    isAdmin: prof?.role === 'admin',
+    isAdmin,
   });
 }
 
@@ -257,10 +275,34 @@ export async function POST(request: NextRequest) {
     .select('id');
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // ── 담자마자 상세 수집을 예약한다 ──
+  // 목록만 담아 두면 셀러 화면에는 "고를 수 없는 줄"로 보인다(상세가 없으면 등록이 안 된다).
+  // 그래서 담는 즉시 큐에 올리고 도우미들에게 나눠 배정한다.
+  //
+  // ⚠️ **제철 품목만** 올린다. 전량을 미리 뽑던 시절에 419(SDW-E90419)가 누적되며 상세
+  //    성공률이 88% → 0% 까지 떨어졌다(실측 2026-08-28~31). 지금 팔 수 없는 품목까지
+  //    뽑느라 정작 필요한 상품이 뒤로 밀리는 걸 막는다. 비시즌은 'none' 으로 남겨 두고,
+  //    셀러가 직접 고르면 그때 그 셀러 몫으로 요청된다.
+  const fruitKind = fruitKindFromCategoryPath(body.categoryPath);
+  const savedIds = ((data || []) as { id: string }[]).map((r) => r.id);
+  let queued = 0;
+  if (isInSeason(fruitKind) && savedIds.length > 0) {
+    try {
+      queued = await assignToQueue(service, savedIds);
+    } catch {
+      /* 큐 예약 실패가 수집 저장을 되돌리면 안 된다 — 나중에 일괄 큐잉으로 복구된다. */
+    }
+  }
+
   // 제외 건수를 함께 돌려준다 — 조종석이 "50개 긁었는데 42개만 저장" 을 설명할 수 있어야 한다.
   return NextResponse.json({
     ok: true,
     saved: data?.length ?? rows.length,
     skipped: { banner: banner.length, unsupported: unsupported.length },
+    // 상세 수집 예약 결과 — 0 이면 비시즌이거나 이미 상세가 있는 상품들이다.
+    detailQueued: queued,
+    seasonQueued: isInSeason(fruitKind),
+    fruitKind: fruitKind || null,
   });
 }

@@ -99,16 +99,15 @@ export default function NaverSourcingCatalogPage() {
   const [queryInput, setQueryInput] = useState('');
   const [sort, setSort] = useState<Sort>('recent');
   /**
-   * 목록을 **바로 가져올 수 있는 것**(상세 확보분)으로만 좁힐지. 기본 켜짐.
+   * 걸러진 줄까지 **전부** 볼지 — 관리자 전용 진단 스위치. 기본 꺼짐.
    * ---------------------------------------------------------------------------
-   * 왜 기본값을 바꿨나: 카탈로그에는 목록만 수집된 상품이 훨씬 많다(상세는 요청된 것만 뽑는다).
-   * 그런데 화면은 둘을 같은 카드로 보여 줬고, 사람은 당연히 "여기 있는 건 가져갈 수 있는 것"으로
-   * 읽는다. 10개를 고르면 5개만 오는 일이 그래서 생겼다 — 나머지는 그 자리에서 상세를 요청하고
-   * 기다려야 하는 것들이었다.
-   * ⚠️ 그렇다고 상세 없는 줄을 **카탈로그에서 빼지는 않는다.** 그러면 목록이 텅 비어 고를 것이
-   *    사라진다(발견이 이 화면의 존재 이유다). 기본 화면만 좁히고, 끄면 전부 보인다.
+   * 셀러 화면은 이제 서버가 done 만 내려준다(products/route.ts). 전에는 "바로 가져올 수
+   * 있는 것만" 체크박스로 셀러가 직접 끌 수 있었는데, 끄면 상세 없는 2,710건이 다시
+   * 나타나고 그것들은 골라 봐야 큐에서 기다리다 대부분 실패했다. 그래서 스위치를 셀러에게서
+   * 거두고, 무엇이 왜 빠졌는지 봐야 하는 관리자에게만 남긴다.
+   * ★ 끄고 켜는 건 서버 필터다(all=1). 화면에서 거르는 게 아니라 목록 자체가 달라진다.
    */
-  const [onlyDetail, setOnlyDetail] = useState(true);
+  const [showAll, setShowAll] = useState(false);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   // 올인원으로 가져오기 — 고른 것만 내 PC 로 내려받아 폴더를 만든다.
@@ -226,7 +225,8 @@ export default function NaverSourcingCatalogPage() {
     try {
       const p = new URLSearchParams({ page: String(page), sort });
       if (q) p.set('q', q);
-      if (onlyDetail) p.set('detail', '1');
+      // all=1 은 관리자일 때만 서버가 받아 준다 — 셀러가 보내도 조용히 무시된다.
+      if (showAll) p.set('all', '1');
       if (catPath) p.set('path', catPath);
       const res = await fetch(`/api/megaload/naver-sourcing/products?${p}`);
       const j = await res.json();
@@ -240,7 +240,7 @@ export default function NaverSourcingCatalogPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, q, sort, onlyDetail, catPath]);
+  }, [page, q, sort, showAll, catPath]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -302,7 +302,9 @@ export default function NaverSourcingCatalogPage() {
   const loadCategories = useCallback(async () => {
     setCatLoading(true);
     try {
-      const res = await fetch('/api/megaload/naver-sourcing/categories');
+      // 목록과 **같은 기준**으로 세야 한다 — 트리가 341 이라 해 놓고 들어가면 278 인 일이
+      // 없도록, all=1 도 함께 넘긴다.
+      const res = await fetch(`/api/megaload/naver-sourcing/categories${showAll ? '?all=1' : ''}`);
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
       setTree(j.tree ?? []);
@@ -314,7 +316,7 @@ export default function NaverSourcingCatalogPage() {
     } finally {
       setCatLoading(false);
     }
-  }, []);
+  }, [showAll]);
 
   useEffect(() => { loadCategories(); }, [loadCategories]);
 
@@ -799,8 +801,18 @@ export default function NaverSourcingCatalogPage() {
               const c = catPath ? counts[catPath] : allCount;
               return (
                 <span className="ml-auto text-xs text-gray-500">
-                  상품 <b className="text-gray-900 tabular-nums">{(c?.total ?? 0).toLocaleString()}</b>개
-                  {' · '}상세 확보 <b className="text-emerald-700 tabular-nums">{(c?.ready ?? 0).toLocaleString()}</b>개
+                  {/* 전부 보기가 아니면 total 과 ready 가 같다(done 만 세므로) — 같은 수를
+                      두 번 쓰면 사람은 둘이 다른 뜻인 줄 알고 읽는다. 한 번만 말한다. */}
+                  {showAll ? (
+                    <>
+                      상품 <b className="text-gray-900 tabular-nums">{(c?.total ?? 0).toLocaleString()}</b>개
+                      {' · '}상세 확보 <b className="text-emerald-700 tabular-nums">{(c?.ready ?? 0).toLocaleString()}</b>개
+                    </>
+                  ) : (
+                    <>
+                      가져올 수 있는 상품 <b className="text-emerald-700 tabular-nums">{(c?.ready ?? 0).toLocaleString()}</b>개
+                    </>
+                  )}
                 </span>
               );
             })()}
@@ -840,15 +852,21 @@ export default function NaverSourcingCatalogPage() {
           </select>
         </label>
 
-        <label className="text-xs text-gray-600 inline-flex items-center gap-2 pb-2">
-          <input
-            type="checkbox"
-            checked={onlyDetail}
-            onChange={(e) => { setPage(1); setOnlyDetail(e.target.checked); }}
-          />
-          바로 가져올 수 있는 것만
-          <span className="text-gray-400">(상세 확보)</span>
-        </label>
+        {/* 관리자 진단용. 셀러에게는 아예 없다 — 셀러가 볼 목록은 서버가 이미 정했다. */}
+        {isAdmin && (
+          <label
+            className="text-xs text-gray-600 inline-flex items-center gap-2 pb-2"
+            title="상세를 못 뽑았거나(failed) 아직 안 뽑은(requested) 줄까지 전부 봅니다. 셀러 화면에는 안 보이는 것들입니다."
+          >
+            <input
+              type="checkbox"
+              checked={showAll}
+              onChange={(e) => { setPage(1); setShowAll(e.target.checked); }}
+            />
+            전부 보기
+            <span className="text-gray-400">(관리자 · 숨긴 줄 포함)</span>
+          </label>
+        )}
 
         <label
           className="text-xs text-gray-600 inline-flex items-center gap-2 pb-2"
@@ -1023,8 +1041,10 @@ export default function NaverSourcingCatalogPage() {
                 상세 확보된 {readyHere}개만 남기기
               </button>
             )}
+            {/* 이 경고는 이제 '전부 보기'(관리자)에서만 뜬다 — 셀러 목록에는 상세 없는 줄이
+                아예 안 올라오기 때문이다. 그래서 되돌리는 길도 그 스위치를 끄는 것이다. */}
             <button
-              onClick={() => { setPage(1); setOnlyDetail(true); }}
+              onClick={() => { setPage(1); setShowAll(false); }}
               className="px-2.5 py-1 rounded-md border border-amber-300 bg-white text-amber-900 font-medium hover:bg-amber-100"
             >
               확보된 것만 보기
@@ -1286,26 +1306,23 @@ export default function NaverSourcingCatalogPage() {
       ) : products.length === 0 ? (
         <div className="rounded-xl border border-gray-200 bg-white p-10 text-center">
           {/* ⚠️ 필터 때문에 빈 것을 "수집된 상품이 없다"고 하면 거짓말이 된다 —
-              목록은 쌓여 있는데 상세만 아직 없는 상태다. 갈라서 말한다. */}
-          {onlyDetail ? (
-            <>
-              <p className="text-gray-700 font-medium">바로 가져올 수 있는 상품이 아직 없습니다.</p>
-              <p className="text-sm text-gray-500 mt-1 leading-relaxed">
-                목록은 수집돼 있지만 <b>상세(옵션·상세글·고시정보)</b>가 아직 안 뽑힌 상태입니다.
-                상세는 <b>고른 뒤 요청</b>하면 뽑히고, 준비되는 대로 이어서 가져옵니다.
-              </p>
-              <button
-                onClick={() => { setPage(1); setOnlyDetail(false); }}
-                className="mt-3 px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-gray-50"
-              >
-                전체 보기 (상세 없는 것 포함)
-              </button>
-            </>
-          ) : (
+              목록은 쌓여 있는데 상세만 아직 없는 상태다. 갈라서 말한다.
+              ★ 셀러에게 "전체 보기" 버튼은 주지 않는다. 눌러도 고를 수 없는 줄만 나오고,
+                그게 바로 없앤 막다른 길이다. */}
+          {showAll ? (
             <>
               <p className="text-gray-700 font-medium">아직 수집된 상품이 없습니다.</p>
               <p className="text-sm text-gray-500 mt-1">
                 관리자가 <b>네이버 소싱</b> 화면에서 카테고리를 수집하면 여기에 쌓입니다.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-gray-700 font-medium">가져올 수 있는 상품이 아직 없습니다.</p>
+              <p className="text-sm text-gray-500 mt-1 leading-relaxed">
+                목록은 수집돼 있어도 <b>상세(옵션·상세글·고시정보)</b>가 뽑히기 전에는 등록까지
+                가지 못합니다. 이 목록에는 <b>상세까지 확보된 것만</b> 올라옵니다 — 상세가
+                준비되는 대로 자동으로 나타나니 조금 뒤에 다시 보세요.
               </p>
             </>
           )}

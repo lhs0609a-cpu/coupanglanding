@@ -32,12 +32,23 @@ const SCAN_LIMIT = 20000;
  */
 const PAGE = 1000;
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
 
   const service = await createServiceClient();
+
+  /**
+   * ★ 트리의 숫자는 **목록에 실제로 뜨는 것**과 같아야 한다.
+   * 목록(products/route.ts)은 done 만 보여 준다. 트리가 전체를 세면 '키위 341' 을 보고
+   * 들어갔는데 278개만 있는 일이 생긴다 — 트리는 "여기 뭐가 있나"를 알려 주는 지도라서
+   * 지도와 땅이 다르면 지도가 틀린 것이다. 그래서 같은 기준으로 센다.
+   * 관리자가 all=1 로 전부 보는 중이면 트리도 전부 센다.
+   */
+  const { data: prof } = await service.from('profiles').select('role').eq('id', user.id).maybeSingle();
+  const showAll = new URL(request.url).searchParams.get('all') === '1' && prof?.role === 'admin';
+
   const rows: { category_path: string | null; detail_status: string | null }[] = [];
   for (let from = 0; from < SCAN_LIMIT; from += PAGE) {
     const { data, error } = await service
@@ -49,9 +60,12 @@ export async function GET() {
     rows.push(...chunk);
     if (chunk.length < PAGE) break;      // 마지막 페이지 — 더 없다
   }
+  // ★ 자르는 건 **다 읽은 뒤**다. 쿼리에 eq 를 걸어 줄이면 안 된다 — 끝까지 읽었는지
+  //   판단하는 truncated 경고가 "done 만 세어 1,319" 를 보고 안심해 버린다.
+  const visible = showAll ? rows : rows.filter((r) => r.detail_status === 'done');
   // 같은 경로가 수백 번 나오므로 먼저 경로별로 접는다(비교 횟수를 노드×경로로 줄인다).
   const byPath = new Map<string, { total: number; ready: number }>();
-  for (const r of rows) {
+  for (const r of visible) {
     const key = (r.category_path || '').trim() || UNCLASSIFIED;
     const cur = byPath.get(key) || { total: 0, ready: 0 };
     cur.total += 1;
@@ -89,7 +103,7 @@ export async function GET() {
   }
   if (orphanTotal) add(UNCLASSIFIED, { total: orphanTotal, ready: orphanReady });
 
-  const all = { total: rows.length, ready: rows.filter((r) => r.detail_status === 'done').length };
+  const all = { total: visible.length, ready: visible.filter((r) => r.detail_status === 'done').length };
 
   return NextResponse.json({
     tree: CATEGORY_TREE,
