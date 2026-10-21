@@ -195,3 +195,69 @@ test('reviveFailed — 일시 실패만 되살리고 영구 실패·횟수 초�
   const pushBack = updates.find((u) => u.patch.detail_at && !u.patch.detail_status);
   assert.deepEqual(pushBack.filters.find(([k]) => k === 'id')[1], ['gone', 'tired', 'market']);
 });
+
+/** 목록 저장(products POST) — 수집은 상세까지가 한 묶음이다. */
+async function loadSaveRoute({ categoryPath = '과일>딸기', statuses = { a: 'requested', b: 'done' } } = {}) {
+  const assigned = [];
+  const service = { from(table) {
+    const q = { table, filters: [], patch: null, upserted: null,
+      select() { return this; }, update(p) { this.patch = p; return this; },
+      upsert(rows) { this.upserted = rows; return this; },
+      eq(k, v) { this.filters.push([k, v]); return this; }, in(k, v) { this.filters.push([k, v]); return this; },
+      single() { return this; }, maybeSingle() { return this; },
+      then(resolve, reject) {
+        let data;
+        if (table === 'profiles') data = { role: 'admin' };
+        else if (table === 'megaload_users') data = { id: 'admin-mu' };
+        else if (this.upserted) data = [{ id: 'a' }, { id: 'b' }];
+        else {
+          // 저장 뒤 "아직 상세 없는 것" 조회 — 상태 필터를 실제로 적용한다.
+          const want = (this.filters.find(([k]) => k === 'detail_status') || [])[1] || [];
+          data = [{ id: 'a', product_no: '1234' }, { id: 'b', product_no: '5678' }]
+            .filter((r) => want.includes(statuses[r.id]));
+        }
+        return Promise.resolve({ data, error: null }).then(resolve, reject);
+      },
+    };
+    return q;
+  } };
+  const auth = { auth: { getUser: async () => ({ data: { user: { id: 'profile-admin' } } }) } };
+  const mocks = {
+    'next/server': { NextResponse: { json: (body, options) => ({ body, status: options?.status || 200 }) } },
+    '@supabase/supabase-js': { createClient: () => auth },
+    '@/lib/supabase/server': { createClient: async () => ({ auth: { getUser: async () => ({ data: { user: null } }) } }), createServiceClient: async () => service },
+    // 비시즌으로 판정되는 품목이어도 큐에 올라가야 한다 — 그래서 일부러 "딸기"(가을 비시즌)를 쓴다.
+    '@/lib/megaload/services/fruit-season': { fruitKindFromCategoryPath: () => 'strawberry' },
+    '@/lib/megaload/detail-queue-assign': { assignToQueue: async (_s, ids, opts) => { assigned.push({ ids, opts }); return ids.length; } },
+    '@/lib/megaload/naver-store-type': { isDetailExtractable: () => true },
+    '@/lib/megaload/naver-category-tree': { UNCLASSIFIED: '__', PATH_SEP: '>', flattenTree: () => [], pathMatches: () => false },
+  };
+  const source = await readFile(new URL('../../src/app/api/megaload/naver-sourcing/products/route.ts', import.meta.url), 'utf8');
+  const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const context = vm.createContext({ URL, Date, Set, Map, Number, Math, console, process: { env: { NEXT_PUBLIC_SUPABASE_URL: 'https://test.invalid', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'test-public-key' } } });
+  const mod = new vm.SourceTextModule(code, { context });
+  await mod.link((id) => {
+    const exports = mocks[id]; assert.ok(exports, id);
+    return new vm.SyntheticModule(Object.keys(exports), function () { for (const [k, v] of Object.entries(exports)) this.setExport(k, v); }, { context });
+  });
+  await mod.evaluate();
+  const req = { headers: new Headers({ authorization: 'Bearer helper-session' }), json: async () => ({ categoryPath,
+    items: [
+      { productNo: '1234', url: 'https://smartstore.naver.com/shop/products/1234', title: '설향 딸기 1kg' },
+      { productNo: '5678', url: 'https://smartstore.naver.com/shop/products/5678', title: '킹스베리 500g' },
+    ] }) };
+  return { res: await mod.namespace.POST(req), assigned };
+}
+
+test('수집 저장은 도우미 Bearer 로 받고, 비시즌이어도 전부 상세 큐에 올린다 — 담당은 수집한 사람', async () => {
+  const { res, assigned } = await loadSaveRoute();
+  assert.equal(res.status, 200);
+  assert.equal(assigned.length, 1);
+  assert.deepEqual([...assigned[0].ids], ['a', 'b']);
+  assert.deepEqual([...assigned[0].opts.sellers], ['admin-mu']);
+});
+
+test('수집 저장은 아직 상세가 없는 상품만 pending 으로 돌려준다 — 이미 받은 상세는 다시 안 뽑는다', async () => {
+  const { res } = await loadSaveRoute({ statuses: { a: 'requested', b: 'done' } });
+  assert.deepEqual([...res.body.pendingProductNos], ['1234']);
+});

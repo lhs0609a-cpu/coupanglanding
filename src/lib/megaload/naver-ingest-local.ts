@@ -348,10 +348,15 @@ export async function startCollect(
   ep: LocalEndpoint,
   args: {
     catId: string; catName?: string; target?: number;
-    /** 수집이 끝나면 상세 추출까지 이어서 실행(그다음은 올인원이 받는다). */
+    /**
+     * 옛 도우미(≤0.6.10)용 — 이 값이 true 여야 상세를 이어서 뽑는다. 새 도우미는 상세를 항상
+     * 뽑으므로 무시하고, 올인원 여부는 autoGenerate 로 본다. 그래서 웹은 항상 true 를 보낸다.
+     */
     autoDetail?: boolean;
-    /** 상세까지 가져올 개수(리뷰 많은 순). 0 이면 수집된 전부. */
+    /** 지금 바로 상세를 가져올 개수(리뷰 많은 순). 0 이면 전부. 나머지도 서버 큐로 간다. */
     autoDetailLimit?: number;
+    /** 상세가 끝나면 올인원(상세페이지 생성)까지 이어서 돌린다. */
+    autoGenerate?: boolean;
   },
 ): Promise<void> {
   await post(ep, 'collect', args);

@@ -160,7 +160,8 @@ export default function NaverSourcingPage() {
   //     나머지 6,032건이 9/30 이후 한 건도 진행되지 않았다). 받을 때 같이 받아야 한다.
   //   건당 30~90초라 오래 걸리지만, 쓸 수 없는 목록을 빨리 받는 것보다 낫다.
   //   개수 제한을 걸고 싶으면 아래 선택상자에서 줄이면 된다.
-  const [autoDetail, setAutoDetail] = useState(true);
+  // 상세는 끄지 못한다(수집 = 상세까지 한 묶음). 이 체크는 그다음 올인원까지 갈지다.
+  const [autoGenerate, setAutoGenerate] = useState(true);
   const [autoDetailLimit, setAutoDetailLimit] = useState(0);
   /** 미리보기 모달 — 카드를 누르면 이 상품의 상세를 띄운다. */
   const [previewNo, setPreviewNo] = useState<string | null>(null);
@@ -876,30 +877,29 @@ export default function NaverSourcingPage() {
                 >
                   {[100, 300, 500, 1000].map((n) => <option key={n} value={n}>{n}개</option>)}
                 </select>
-                {/* 한 번에 — 수집만 하면 사람이 다시 골라 버튼을 또 눌러야 한다.
-                    켜 두면 수집 → 상세 → 올인원(상세페이지 생성)까지 버튼 한 번으로 이어진다. */}
+                {/* 상세는 항상 함께 가져온다 — 목록만 담긴 상품은 카탈로그에 안 나온다.
+                    고르는 건 "지금 바로 몇 개"뿐이고, 나머지도 서버 큐에서 이어서 가져온다. */}
+                <select
+                  value={autoDetailLimit}
+                  onChange={(e) => setAutoDetailLimit(Number(e.target.value))}
+                  className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm"
+                  title="상세는 항상 함께 가져옵니다. 여기서 고른 만큼 먼저 가져오고, 나머지는 큐에서 이어서 가져옵니다."
+                >
+                  {[5, 10, 20, 50].map((n) => <option key={n} value={n}>상세 먼저: 리뷰 상위 {n}개</option>)}
+                  <option value={0}>상세: 수집된 전부</option>
+                </select>
                 <label className="flex items-center gap-1.5 text-sm text-gray-700">
-                  <input type="checkbox" checked={autoDetail} onChange={(e) => setAutoDetail(e.target.checked)} />
-                  상세까지 한 번에
+                  <input type="checkbox" checked={autoGenerate} onChange={(e) => setAutoGenerate(e.target.checked)} />
+                  상세페이지 생성(올인원)까지
                 </label>
-                {autoDetail && (
-                  <select
-                    value={autoDetailLimit}
-                    onChange={(e) => setAutoDetailLimit(Number(e.target.value))}
-                    className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm"
-                    title="상품 1건에 페이지를 한 장 열어야 해서 건당 30~90초가 걸립니다"
-                  >
-                    {[5, 10, 20, 50].map((n) => <option key={n} value={n}>리뷰 상위 {n}개</option>)}
-                    <option value={0}>수집된 전부</option>
-                  </select>
-                )}
                 <button
                   onClick={() => ep && run('collect', () => startCollect(ep, {
                     catId: here.id,
                     catName: picked.map((c) => c.name).join(' > '),
                     target,
-                    autoDetail,
-                    autoDetailLimit: autoDetail ? autoDetailLimit : 0,
+                    autoDetail: true,
+                    autoDetailLimit,
+                    autoGenerate,
                   }))}
                   disabled={!!busy || collect?.running || !loggedIntoNaver}
                   title={loggedIntoNaver ? undefined : '네이버 로그인이 먼저 필요합니다'}

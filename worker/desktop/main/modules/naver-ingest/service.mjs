@@ -597,12 +597,18 @@ function scheduleResume() {
  * (웹은 status 폴링으로 진행을 본다).
  */
 /**
- * @param autoDetail      수집이 끝나면 상세 추출까지 이어서 실행한다(그다음은 올인원이 받는다).
- * @param autoDetailLimit 상세까지 가져올 개수. 0 이면 수집된 전부.
- *                        전량은 상품 1건에 페이지 1장이라 58개면 30~90분이고 네이버 차단
- *                        위험도 그만큼 커진다 — 그래서 개수를 고를 수 있게 둔다.
+ * ★ 수집은 **상세까지가 한 묶음**이다(사용자 확정 2026-10-21). 목록만 담긴 상품은 카탈로그에
+ *   나오지 않으므로(상세가 끝난 것만 보인다) 목록만 모으는 수집은 반쪽짜리다.
+ *   → 끝나면 이 도우미가 목록을 직접 서버에 올리고(서버가 전부 상세 큐에 넣는다), 아직 상세가
+ *     없는 상품을 곧바로 이어서 뽑는다. 여기서 못 다 한 것은 큐에 남아 다른 도우미가 이어 뽑는다.
+ *
+ * @param autoDetailLimit 지금 바로 뽑을 개수(리뷰 많은 순). 0 이면 전부. 나머지도 큐로 간다.
+ * @param autoGenerate    상세가 끝나면 올인원(상세페이지 생성)까지 이어서 돌린다.
+ *                        생략하면 예전 의미 그대로 autoDetail 을 따른다(옛 웹 화면 호환).
+ * @param autoDetail      옛 웹 화면이 보내는 값 — 이제 상세는 끄지 못한다. autoGenerate 기본값으로만 쓴다.
  */
-export async function startCollect({ catId, catName = '', target = 300, autoDetail = false, autoDetailLimit = 0 }) {
+export async function startCollect({ catId, catName = '', target = 300, autoDetail = false, autoDetailLimit = 0, autoGenerate }) {
+  const generateAfter = typeof autoGenerate === 'boolean' ? autoGenerate : !!autoDetail;
   requireAdmin();
   if (!catId) throw new Error('카테고리를 선택하세요.');
   if (collection.running) throw new Error('이미 수집이 진행 중입니다.');
@@ -630,7 +636,7 @@ export async function startCollect({ catId, catName = '', target = 300, autoDeta
    * → 목록 수집에 풀은 필요 없다. 이어지는 **상세 추출** 때만 띄운다.
    */
   const p = ensurePool();
-  if (autoDetail && !p.running) { pushLog('창을 준비합니다…'); await p.start(); }
+  if (!p.running) { pushLog('창을 준비합니다…'); await p.start(); }
 
   // ★ 여기서 로그인을 기다리지 않는다. 캡차가 뜨면 사람이 풀 때까지 최대 10분인데, 그동안
   //   이 요청이 응답을 안 돌려줘서 웹 화면은 "눌렀는데 아무 일도 안 일어난다"가 된다(실측).
@@ -710,20 +716,38 @@ export async function startCollect({ catId, catName = '', target = 300, autoDeta
     }
     pushStatus();
 
-    // ── 상세까지 한 번에 ──────────────────────────────────────────────
-    // 목록만 모아 두면 사람이 다시 골라 버튼을 또 눌러야 한다. 켜 두면 여기서 바로 이어지고,
-    // 상세가 끝나면 올인원(대표컷·상세페이지 생성)까지 자동으로 간다 — 버튼 한 번에 검수까지.
-    // 리뷰 많은 순으로 자른다: 개수를 제한할 때 아무거나 남기면 고를 이유가 없어진다.
-    if (!autoDetail || collectAbort.signal.aborted || !items.length) return;
-    const ordered = [...items].sort((a, b) => (b.reviewCount || 0) - (a.reviewCount || 0));
+    // ── 상세까지 한 번에(무조건) ─────────────────────────────────────
+    if (collectAbort.signal.aborted || !items.length) return;
+
+    // ① 목록을 **도우미가 직접** 서버에 올린다. 웹 탭에 맡기면 탭이 닫혀 있을 때 저장이 안 되고,
+    //    행이 없으니 아래 상세 업로드도 버려진다. 서버는 받는 즉시 전부 상세 큐에 넣고,
+    //    아직 상세가 없는 상품 번호를 돌려준다(재수집이면 이미 받아 둔 상세는 다시 안 뽑는다).
+    const saved = await saveCollectionToServer(items, catName || '');
+    let todo = items;
+    if (saved.ok) {
+      const pending = new Set(saved.pending);
+      todo = items.filter((x) => pending.has(String(x.productNo)));
+      pushLog(`서버에 저장 — ${saved.saved}개 · 상세 필요 ${todo.length}개`
+        + (items.length - todo.length ? ` (이미 상세 있음 ${items.length - todo.length}개)` : ''));
+    } else {
+      // 저장이 안 돼도 상세는 뽑는다 — 웹 화면이 목록을 올리면 그 뒤 업로드부터 반영된다.
+      pushLog(`⚠️ 목록을 서버에 저장하지 못했습니다(${saved.reason}) — 상세는 이어서 가져옵니다.`);
+    }
+    if (!todo.length) { pushLog('새로 가져올 상세가 없습니다 — 모두 이미 준비돼 있습니다.'); return; }
+
+    // ② 리뷰 많은 순 — 개수를 제한할 때 아무거나 남기면 고를 이유가 없어진다.
+    const ordered = [...todo].sort((a, b) => (b.reviewCount || 0) - (a.reviewCount || 0));
     const picked = autoDetailLimit > 0 ? ordered.slice(0, autoDetailLimit) : ordered;
     const urls = picked.map((x) => x.url).filter(Boolean);
     if (!urls.length) return;
-    pushLog(`이어서 상세 ${urls.length}개를 가져옵니다${autoDetailLimit > 0 ? ` (리뷰 많은 순 상위 ${autoDetailLimit}개)` : ''}.`);
+    pushLog(`이어서 상세 ${urls.length}개를 가져옵니다`
+      + (autoDetailLimit > 0 && todo.length > urls.length
+        ? ` (리뷰 많은 순 상위 ${autoDetailLimit}개 — 나머지 ${todo.length - urls.length}개는 큐에서 이어서 가져옵니다)` : '')
+      + '.');
     try {
-      await startDetailExtract({ urls });
+      await startDetailExtract({ urls, autoGenerate: generateAfter });
     } catch (e) {
-      pushLog(`❌ 상세 추출을 시작하지 못했습니다 — ${e?.message || e}. 목록에서 골라 직접 실행할 수 있습니다.`);
+      pushLog(`❌ 상세 추출을 시작하지 못했습니다 — ${e?.message || e}. 서버 큐에 남아 있어 자동으로 다시 가져옵니다.`);
     }
   }).catch((e) => {
     collection = { ...collection, running: false, stopped: `실패: ${e?.message || e}` };
@@ -732,6 +756,38 @@ export async function startCollect({ catId, catName = '', target = 300, autoDeta
   });
 
   return { ok: true, started: true };
+}
+
+/**
+ * 수집 목록을 서버에 저장한다 — 도우미가 직접(Bearer). 서버가 전부 상세 큐에 넣는다.
+ * @returns {Promise<{ok:true, saved:number, pending:string[]} | {ok:false, reason:string}>}
+ */
+async function saveCollectionToServer(items, categoryPath) {
+  const token = await deps.getToken?.();
+  const origin = deps.webOrigin;
+  if (!token || !origin) return { ok: false, reason: '메가로드 로그인 없음' };
+  let saved = 0;
+  const pending = [];
+  // 서버 한도(1000)보다 작게 나눈다.
+  for (let i = 0; i < items.length; i += 500) {
+    try {
+      const res = await fetch(`${origin}/api/megaload/naver-sourcing/products`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ items: items.slice(i, i + 500), categoryPath }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, reason: j.error || `HTTP ${res.status}` };
+      // 옛 서버는 pendingProductNos 를 안 준다 — 그러면 "전부 필요"로 본다.
+      if (!Array.isArray(j.pendingProductNos)) return { ok: false, reason: '서버가 구버전' };
+      saved += Number(j.saved) || 0;
+      pending.push(...j.pendingProductNos.map(String));
+    } catch (e) {
+      return { ok: false, reason: String(e?.message || e) };
+    }
+  }
+  return { ok: true, saved, pending };
 }
 
 export function stopCollect() {

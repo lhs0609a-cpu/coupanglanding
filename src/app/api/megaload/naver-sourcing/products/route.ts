@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createClient as createSbClient } from '@supabase/supabase-js';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
-import { isInSeason, fruitKindFromCategoryPath } from '@/lib/megaload/services/fruit-season';
+import { fruitKindFromCategoryPath } from '@/lib/megaload/services/fruit-season';
 import { assignToQueue } from '@/lib/megaload/detail-queue-assign';
 import { isDetailExtractable } from '@/lib/megaload/naver-store-type';
 import { UNCLASSIFIED, PATH_SEP, flattenTree, pathMatches } from '@/lib/megaload/naver-category-tree';
@@ -204,6 +205,26 @@ export async function DELETE(request: NextRequest) {
 }
 
 /**
+ * 저장 요청자 — 웹(쿠키)과 **도우미(Bearer)** 둘 다 받는다.
+ * 예전엔 수집 결과를 웹 탭이 받아 올렸다. 그 탭이 닫혀 있으면 목록이 저장되지 않았고,
+ * 상세를 먼저 뽑은 도우미의 업로드는 행이 없어 버려졌다. 이제 도우미가 수집 직후 직접 올린다.
+ */
+async function postUser(request: NextRequest): Promise<{ id: string } | null> {
+  const token = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();
+  if (!token) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    return user;
+  }
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anon) return null;
+  const client = createSbClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { data: { user } } = await client.auth.getUser(token);
+  return user;
+}
+
+/**
  * POST — 수집 결과 저장(관리자 전용).
  * ★ product_no 로 **upsert** 한다. 같은 카테고리를 다시 수집하면 대부분 같은 상품이 나오는데,
  *   그때마다 줄이 늘면 목록이 금방 쓰레기가 된다. 재수집은 갱신이지 추가가 아니다.
@@ -211,8 +232,7 @@ export async function DELETE(request: NextRequest) {
  *   비싸게 받아 둔 상세를 지워 버리면 안 된다.
  */
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await postUser(request);
   if (!user) return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
 
   const service = await createServiceClient();
@@ -276,23 +296,36 @@ export async function POST(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // ── 담자마자 상세 수집을 예약한다 ──
-  // 목록만 담아 두면 셀러 화면에는 "고를 수 없는 줄"로 보인다(상세가 없으면 등록이 안 된다).
-  // 그래서 담는 즉시 큐에 올리고 도우미들에게 나눠 배정한다.
+  // ── 담자마자 상세 수집을 예약한다 — **전부, 무조건** ──
+  // 목록만 담아 두면 셀러 화면에는 안 보인다(카탈로그는 상세가 끝난 것만 보여 준다).
+  // 그래서 담는 즉시 전부 큐에 올린다(사용자 확정 2026-10-21: 수집은 상세까지가 한 묶음).
   //
-  // ⚠️ **제철 품목만** 올린다. 전량을 미리 뽑던 시절에 419(SDW-E90419)가 누적되며 상세
-  //    성공률이 88% → 0% 까지 떨어졌다(실측 2026-08-28~31). 지금 팔 수 없는 품목까지
-  //    뽑느라 정작 필요한 상품이 뒤로 밀리는 걸 막는다. 비시즌은 'none' 으로 남겨 두고,
-  //    셀러가 직접 고르면 그때 그 셀러 몫으로 요청된다.
+  // ⚠️ 예전엔 **제철 품목만** 올렸다 — 상품 API 를 직접 두드리던 시절 419 가 누적돼 성공률이
+  //    88% → 0% 로 떨어졌기 때문이다(2026-08-28~31). 지금은 페이지가 이미 받은 응답을 쓰므로
+  //    (도우미 v0.6.10) 상품 1건에 추가 API 요청이 없고, 속도는 도우미의 네이버 게이트가 정한다.
+  //    비시즌을 'none' 으로 남기면 아무도 고르지 않는 한 영영 카탈로그에 안 나온다.
+  //
+  // 담당은 **수집한 사람**이다 — 그 도우미가 수집 직후 바로 이어서 뽑는다(아래 pending).
+  //   다른 도우미가 같은 상품을 동시에 뽑는 중복을 막는다. 수집한 PC 가 사라지면
+  //   adoptUnownedWork 의 방치 규칙으로 다른 도우미가 이어받는다.
   const fruitKind = fruitKindFromCategoryPath(body.categoryPath);
   const savedIds = ((data || []) as { id: string }[]).map((r) => r.id);
   let queued = 0;
-  if (isInSeason(fruitKind) && savedIds.length > 0) {
+  if (savedIds.length > 0) {
     try {
-      queued = await assignToQueue(service, savedIds);
+      queued = await assignToQueue(service, savedIds, { sellers: mu?.id ? [mu.id] : [] });
     } catch {
-      /* 큐 예약 실패가 수집 저장을 되돌리면 안 된다 — 나중에 일괄 큐잉으로 복구된다. */
+      /* 큐 예약 실패가 수집 저장을 되돌리면 안 된다 — 큐의 미요청분 채우기로 복구된다. */
     }
+  }
+
+  // 아직 상세가 없는 상품 — 수집한 도우미가 곧바로 이어서 뽑을 목록이다.
+  //   이미 done 인 상품(재수집)은 빠진다 — 비싸게 받아 둔 상세를 다시 뽑지 않는다.
+  let pending: string[] = [];
+  if (savedIds.length > 0) {
+    const { data: pend } = await service.from('sh_naver_sourcing_products')
+      .select('product_no').in('id', savedIds).in('detail_status', ['requested', 'none']);
+    pending = ((pend || []) as { product_no: string }[]).map((r) => r.product_no);
   }
 
   // 제외 건수를 함께 돌려준다 — 조종석이 "50개 긁었는데 42개만 저장" 을 설명할 수 있어야 한다.
@@ -302,7 +335,7 @@ export async function POST(request: NextRequest) {
     skipped: { banner: banner.length, unsupported: unsupported.length },
     // 상세 수집 예약 결과 — 0 이면 비시즌이거나 이미 상세가 있는 상품들이다.
     detailQueued: queued,
-    seasonQueued: isInSeason(fruitKind),
+    pendingProductNos: pending,
     fruitKind: fruitKind || null,
   });
 }
