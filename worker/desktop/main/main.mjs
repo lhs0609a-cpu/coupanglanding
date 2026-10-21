@@ -490,7 +490,13 @@ app.whenReady().then(async () => {
     } catch { /* 알림 미지원 무시 */ }
   }
 
-  setupAutoUpdate({ getWindow: () => win });
+  // 업데이트는 묻지 않고 받아 두고, 아래가 전부 비어 있을 때만 설치(=앱 재시작)한다.
+  //   engineHold 는 썸네일·텍스트 작업을 실제로 쥔 동안만 차 있다(대기 루프는 해당 없음).
+  setupAutoUpdate({
+    getWindow: () => win,
+    isBusy: () => installing || isGenerating() || engineHold.size > 0
+      || !!runner?.llmRunning || !!ads?.busy || naverIngest.isBusy(),
+  });
 
   // 로그인(세션) 상태면 30초마다 하트비트 → 웹 연결 표시등이 "연결됨"으로 표시(썸네일 워커 미가동이어도).
   const SHELL_WORKER_ID = `${hostname()}-app`;

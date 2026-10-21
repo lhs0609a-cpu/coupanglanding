@@ -1353,6 +1353,14 @@ export function setQueueWorker({ on = true, idle = false } = {}) {
   return { on: true, idle: !!idle };
 }
 
+/**
+ * 지금 손대면 안 되는 일이 도는 중인가 — 자동 업데이트가 설치(=앱 종료) 시점을 고를 때 본다.
+ * 수집·상세·가져오기·생성·큐 처리 중 하나라도 돌면 true.
+ */
+export function isBusy() {
+  return !!(collection.running || detail.running || importTask.running || genTask.running || queueBusy);
+}
+
 export function getQueueState() {
   // 기본값은 initService 와 같아야 한다 — 다르면 화면이 "꺼짐"이라 말하는데 실제로는 돌고 있다.
   const saved = deps.store?.get('naverIngestQueueWorker', null) || { on: true, idle: true };
