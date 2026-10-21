@@ -268,8 +268,22 @@ export async function ensureOllama({ installDir, url, onProgress = () => {} } = 
   // 맥은 유니버설 tgz, 윈도는 zip — 호출부가 url 을 안 주면 플랫폼 기본값을 쓴다.
   const src = url || (IS_WIN ? DEFAULTS.ollamaZipUrl : DEFAULTS.ollamaDarwinUrl);
   const exe = ollamaExePath(installDir);
-  if (await exists(exe)) { onProgress({ phase: 'ollama', pct: 100, detail: 'ollama 이미 설치됨' }); return exe; }
   const dir = ollamaDir(installDir);
+  // ★ 예전엔 exe 파일이 **있기만 하면** 설치됨으로 쳤다. 다운로드·압축 해제가 중간에 끊겼거나
+  //   백신이 lib 일부를 격리하면 exe 만 남은 반쪽 설치가 되는데, 그 상태로 serve 를 띄우면
+  //   곧바로 꺼져 "프로세스가 비정상 종료" 만 반복됐다 — 재설치할 길이 없었다.
+  //   → 실제로 실행해 보고(--version) 안 되면 바이너리만 지우고 다시 받는다.
+  if (await exists(exe)) {
+    const probe = await probeOllamaExe(exe);
+    if (probe.ok) { onProgress({ phase: 'ollama', pct: 100, detail: 'ollama 이미 설치됨' }); return exe; }
+    onProgress({ phase: 'ollama', pct: 0, detail: `ollama 설치가 손상돼 다시 설치합니다 (${probe.reason})` });
+    // ⚠️ models/ 는 남긴다 — OLLAMA_MODELS 가 이 폴더 아래라 지우면 수 GB 를 다시 받아야 한다.
+    const entries = await readdir(dir).catch(() => []);
+    for (const name of entries) {
+      if (name === 'models') continue;
+      await rm(join(dir, name), { recursive: true, force: true }).catch(() => {});
+    }
+  }
   await mkdir(dir, { recursive: true });
   const archive = join(installDir, IS_WIN ? 'ollama_portable.zip' : 'ollama_portable.tgz');
   onProgress({ phase: 'ollama-download', pct: 0, detail: 'ollama 다운로드(~수백MB)' });
@@ -280,8 +294,42 @@ export async function ensureOllama({ installDir, url, onProgress = () => {} } = 
   await rm(archive, { force: true });
   // tar 는 권한을 보존하지만, 압축본에 실행비트가 빠져 있으면 spawn 이 EACCES 로 죽는다.
   if (!IS_WIN) await chmod(exe, 0o755).catch(() => {});
+  // 새로 받았는데도 실행이 안 되면 다시 받아도 같다 — 거의 항상 백신이 막는 경우다.
+  const probe = await probeOllamaExe(exe);
+  if (!probe.ok) {
+    throw new Error(`ollama 를 설치했지만 실행되지 않습니다 (${probe.reason}) — `
+      + '백신(Windows 보안 포함)이 도우미 설치 폴더를 막고 있는지 확인하고 예외로 추가해 주세요.');
+  }
   onProgress({ phase: 'ollama', pct: 100, detail: 'ollama 준비 완료' });
   return exe;
+}
+
+/**
+ * ollama 바이너리가 실제로 실행되는가 — `ollama --version` 으로 본다.
+ *   서버가 안 떠 있어도 경고만 찍고 코드 0 으로 끝난다. DLL 누락·손상이면 0 이 아닌 코드
+ *   (윈도: 0xC0000135 등), 백신 차단이면 spawn 오류로 갈린다.
+ * @returns {Promise<{ok:boolean, reason?:string}>}
+ */
+export function probeOllamaExe(exe, { timeoutMs = 15_000 } = {}) {
+  return new Promise((resolve) => {
+    let out = '';
+    let done = false;
+    const finish = (r) => { if (!done) { done = true; clearTimeout(timer); resolve(r); } };
+    let p;
+    try {
+      p = spawn(exe, ['--version'], { windowsHide: true });
+    } catch (e) {
+      return finish({ ok: false, reason: String(e?.message || e).slice(0, 120) });
+    }
+    // 응답이 없다고 손상으로 단정하지는 않는다(느린 디스크·백신 첫 검사) — 시간 초과는 통과로 본다.
+    const timer = setTimeout(() => { try { p.kill(); } catch { /* ignore */ } finish({ ok: true }); }, timeoutMs);
+    p.stdout?.on('data', (d) => (out += d));
+    p.stderr?.on('data', (d) => (out += d));
+    p.on('error', (e) => finish({ ok: false, reason: `${e.code || ''} ${e.message || e}`.trim().slice(0, 120) }));
+    p.on('close', (c) => finish(c === 0
+      ? { ok: true }
+      : { ok: false, reason: `종료 코드 ${c}${out.trim() ? ' · ' + out.trim().split(/\r?\n/).pop().slice(0, 100) : ''}` }));
+  });
 }
 /**
  * 설치된 VC++ 2015-2022 재배포 패키지(x64) 버전 조회.

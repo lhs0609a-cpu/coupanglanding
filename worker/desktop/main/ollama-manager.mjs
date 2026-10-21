@@ -95,6 +95,42 @@ export function serverParallelHint(manager) {
   return Number.isFinite(env) && env >= 1 ? env : 1;
 }
 
+/**
+ * `ollama serve` 가 뜨기 전에 꺼졌을 때 — 화면에 그대로 띄울 사유를 만든다.
+ *   이 단계는 모델을 올리기 전이라 메모리 부족은 거의 아니다. 실제로 갈리는 건
+ *   포트 충돌 · 포트 예약(Hyper-V/WinNAT) · 설치 손상 · 백신 차단 넷이다.
+ * ⚠️ 이 문장은 화면에 나간다 — 엔진 이름·포트 번호를 쓰지 않는다(mask-internal.mjs 참조).
+ *    "ollama 를 종료하세요" 같은 안내는 못 하므로, 사람이 할 수 있는 일(재시작·백신 예외)로 말한다.
+ * @param {{exitCode:number|null, spawnError:Error|null, tail:string[]}} info
+ * @returns {string}
+ */
+export function explainServeExit({ exitCode = null, spawnError = null, tail = [] } = {}) {
+  const text = tail.join('\n');
+  const last = tail.slice(-3).join(' / ').slice(0, 300);
+  const raw = last ? ` 원문: ${last}` : '';
+  if (spawnError) {
+    return `텍스트 엔진 실행 파일을 실행하지 못했습니다(${spawnError.code || spawnError.message}) — `
+      + '백신(Windows 보안 포함)이 막고 있을 가능성이 큽니다. 도우미 설치 폴더를 예외로 추가하거나 도우미를 다시 설치해 주세요.';
+  }
+  // 윈도가 포트를 예약해 둔 경우(Hyper-V·WSL·Docker 가 켜 둔 WinNAT 가 흔하다) — 아무도 안 쓰는데 못 연다.
+  if (/forbidden by its access permissions|액세스 권한에 의해 숨겨진/i.test(text)) {
+    return '텍스트 엔진이 쓸 통신 자리를 윈도가 예약해 두어 열 수 없습니다 — '
+      + `관리자 명령 프롬프트에서 "net stop winnat" 후 "net start winnat" 을 실행하고 다시 시도해 주세요.${raw}`;
+  }
+  if (/bind:|address already in use|Only one usage of each socket address|소켓 주소.*하나만/i.test(text)) {
+    return '텍스트 엔진이 쓸 통신 자리를 다른 프로그램이 이미 쓰고 있습니다 — 따로 설치한 AI 프로그램이 있으면 '
+      + `트레이에서 종료하고, 모르겠으면 PC 를 재시작한 뒤 다시 시도해 주세요.${raw}`;
+  }
+  const code = Number.isFinite(exitCode) && exitCode > 0xFFFF
+    ? `0x${(exitCode >>> 0).toString(16).toUpperCase()}` : String(exitCode);
+  // 0xC0000135 = DLL 없음 · 0xC000007B = 잘못된 이미지 — 둘 다 설치가 깨졌다는 뜻이다.
+  if (/^0xC0000135$|^0xC000007B$/i.test(code)) {
+    return `텍스트 엔진 설치가 손상됐습니다(code=${code}) — 다시 시도하면 자동으로 다시 설치합니다.`
+      + ` 그래도 같으면 백신이 도우미 설치 폴더의 파일을 격리했는지 확인해 주세요.${raw}`;
+  }
+  return `텍스트 엔진 프로세스가 비정상 종료되었습니다 (code=${code}).${raw || ' 출력 없음 — 백신 차단이나 설치 손상을 의심해 주세요.'}`;
+}
+
 export class OllamaManager {
   constructor(installDir, { model = 'exaone3.5:7.8b', embedModel = 'bge-m3', onLog = () => {} } = {}) {
     this.installDir = installDir;
@@ -170,8 +206,28 @@ export class OllamaManager {
       this.onLog(`[ollama] serve 시작 (동시 처리 ${np}개${np > 1 ? '' : ' — VRAM 여유가 없어 순차'})`);
       const proc = spawn(exe, ['serve'], { env, windowsHide: true });
       this.proc = proc;
-      proc.stdout?.on('data', (d) => this.onLog('[ollama] ' + String(d).trimEnd()));
-      proc.stderr?.on('data', (d) => this.onLog('[ollama] ' + String(d).trimEnd()));
+      // ★ 기동 중에 꺼지면 그 사유는 ollama 출력에만 있다. 예전엔 로그 패널에만 찍고
+      //   던지는 오류는 "비정상 종료" 한 줄이라, 웹 화면에서는 포트 충돌·설치 손상·백신 차단이
+      //   전부 같은 문장으로 보였다(실측 2026-10-20). 마지막 몇 줄을 들고 있다가 오류에 싣는다.
+      const tail = [];
+      const keep = (d) => {
+        for (const line of String(d).split(/\r?\n/)) {
+          if (line.trim()) tail.push(line.trim());
+        }
+        if (tail.length > 20) tail.splice(0, tail.length - 20);
+      };
+      let exitCode = null;
+      let spawnError = null;
+      let ready = false;
+      proc.stdout?.on('data', (d) => { keep(d); this.onLog('[ollama] ' + String(d).trimEnd()); });
+      proc.stderr?.on('data', (d) => { keep(d); this.onLog('[ollama] ' + String(d).trimEnd()); });
+      // ⚠️ 'error' 리스너가 없으면 실행 자체가 막혔을 때(백신 차단·파일 없음) Electron 메인이
+      //    잡히지 않은 예외로 죽는다. 그리고 이 경우 'exit' 이 오지 않을 수 있다.
+      proc.on('error', (e) => {
+        spawnError = e;
+        if (this.proc === proc) this.proc = null;
+        this.onLog(`[ollama] 실행 실패: ${e.code || ''} ${e.message || e}`);
+      });
       /**
        * ★ 예전엔 여기서 로그만 찍고 끝냈다 — 그래서 엔진이 작업 도중에 죽으면 **아무도
        *   다시 올리지 않았다**. 실측 사고(2026-09-10): 상품 50개 중 3개가 연달아
@@ -185,18 +241,27 @@ export class OllamaManager {
       proc.on('exit', (c) => {
         const ours = this.proc === proc;
         if (ours) this.proc = null;
+        exitCode = c;
         this.onLog(`[ollama] 종료 (code=${c})`);
         if (!ours || this._stopping) return;   // 우리가 일부러 내린 것(유휴 반납·앱 종료)
+        // 한 번도 뜬 적 없는 서버는 다시 올려 봐야 같은 이유로 또 꺼진다 — 기동 실패는
+        // 아래 대기 루프가 사유를 실어 던진다. 재기동은 **돌다가** 꺼진 경우에만 한다.
+        if (!ready) return;
         this._autoRestart(c).catch(() => { /* 아래에서 이미 알린다 */ });
       });
 
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
         if (await this.isUp()) break;
-        if (!this.proc) throw new Error('ollama 프로세스가 비정상 종료되었습니다.');
+        if (!this.proc) {
+          // exit 이벤트가 stdout/stderr 마지막 조각보다 먼저 올 수 있다 — 잠깐 기다려 다 받는다.
+          await sleep(300);
+          throw new Error(explainServeExit({ exitCode, spawnError, tail }));
+        }
         await sleep(1500);
       }
       if (!(await this.isUp())) throw new Error('ollama 헬스 대기 타임아웃');
+      ready = true;
       this.onLog('✅ ollama 준비 완료');
     } else {
       // 우리가 띄운 서버가 아니다(사용자가 직접 설치·실행 중인 ollama 등) → 기동 옵션을 못 준다.
