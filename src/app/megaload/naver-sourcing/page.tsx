@@ -161,7 +161,9 @@ export default function NaverSourcingPage() {
   //   건당 30~90초라 오래 걸리지만, 쓸 수 없는 목록을 빨리 받는 것보다 낫다.
   //   개수 제한을 걸고 싶으면 아래 선택상자에서 줄이면 된다.
   // 상세는 끄지 못한다(수집 = 상세까지 한 묶음). 이 체크는 그다음 올인원까지 갈지다.
-  const [autoGenerate, setAutoGenerate] = useState(true);
+  // 기본은 끔 — 수집의 목적은 카탈로그 채우기다. 켜져 있으면 100개 수집이 그 PC 에서
+  // 상세페이지 100개 생성으로 이어진다(사용자 확정 2026-10-21).
+  const [autoGenerate, setAutoGenerate] = useState(false);
   const [autoDetailLimit, setAutoDetailLimit] = useState(0);
   /** 미리보기 모달 — 카드를 누르면 이 상품의 상세를 띄운다. */
   const [previewNo, setPreviewNo] = useState<string | null>(null);
