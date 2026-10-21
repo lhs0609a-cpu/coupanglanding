@@ -57,6 +57,17 @@ const PUBLIC_API_PREFIXES: string[] = [
 ];
 
 /**
+ * 세션 검사 제외 — **정확히 이 경로만**(하위 경로는 포함하지 않는다).
+ * 접두사 목록에 넣으면 /products/image·/products/export 같은 형제 경로까지 함께 풀린다.
+ */
+const PUBLIC_API_EXACT = new Set<string>([
+  // 수집 목록 저장 — 도우미가 수집 직후 Bearer 로 직접 올린다(쿠키 없음).
+  //   GET/DELETE/POST 모두 라우트 안에서 세션(쿠키 또는 Bearer)과 관리자 여부를 직접 확인한다.
+  //   ⚠️ 빠지면 도우미 저장이 라우트에 닿기 전에 401 '인증 필요' 로 막힌다(실측 2026-10-21).
+  '/api/megaload/naver-sourcing/products',
+]);
+
+/**
  * L1(부분 쓰기 차단) 에서도 차단해야 할 "메이저 쓰기" 경로.
  * 신규 상품 등록/일괄 처리/외부 동기화 등 비용이 큰 작업.
  */
@@ -110,7 +121,7 @@ export async function updateSession(request: NextRequest) {
 
   const isApiRoute = pathname.startsWith('/api/');
   // 공개 API (회원가입/아이디 찾기/비밀번호 재설정/웹훅) 는 세션 검사 자체를 스킵
-  const isPublicApi = PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p));
+  const isPublicApi = PUBLIC_API_EXACT.has(pathname) || PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p));
   if (isPublicApi) {
     return supabaseResponse;
   }
