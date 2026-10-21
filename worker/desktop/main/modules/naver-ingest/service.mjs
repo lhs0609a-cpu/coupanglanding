@@ -876,35 +876,57 @@ export async function startDetailExtract({ urls = [], rootDir = '', autoGenerate
   pushLog('상품 1건에 페이지를 한 장 열어야 해서 건당 30~90초가 걸립니다.');
 
   (async () => {
-    for (const url of list) {
-      if (detailAbort.signal.aborted) { detail.stopped = '중단됨'; break; }
-      // 로그인이 끊겨 있으면 되살린다(창을 잡기 전에 — 안 그러면 창 1개 설정에서 교착).
-      await ensureNaverLogin().catch(() => null);
-      detail.current = url;
-      const r = await extractOne(p, url, root, { onLog: pushLog, signal: detailAbort.signal })
-        .catch((e) => ({ ok: false, url, error: String(e?.message || e) }));
-      detail.done += 1;
-      if (r.ok) {
-        detail.ok += 1;
-        pushLog(`✅ ${detail.done}/${detail.total} ${String(r.name || '').slice(0, 40)} — 옵션 ${r.options}개 · 대표 ${r.mainImages}장 · 상세 ${r.detailImages}장 · 리뷰 ${r.reviewImages}장${r.hasNotice ? ' · 고시정보 있음' : ''}`);
-      } else {
-        detail.failed += 1;
-        pushLog(`❌ ${detail.done}/${detail.total} 실패 — ${r.error}`);
+    /**
+     * ★ 창 수만큼 **동시에** 뽑는다(2026-10-21).
+     * 예전엔 한 건씩 순서대로 돌았다. 네이버 페이지 열기는 어차피 게이트가 간격(3~7초)을
+     * 정하는데, 한 건이 끝날 때까지(이미지 수십 장 다운로드 포함) 다음 페이지를 안 열어서
+     * 실측 분당 1.5건이었다(게이트 상한은 분당 10~12). 창 3개가 각자 돌면 한 창이 이미지를
+     * 받는 동안 다른 창이 페이지를 연다. 네이버로 가는 속도는 여전히 게이트가 정한다 —
+     * 큐 워커(drainQueue)가 이미 이렇게 돈다.
+     */
+    const queue = [...list];
+    let halt = false;
+    const worker = async () => {
+      for (;;) {
+        if (detailAbort.signal.aborted) { detail.stopped = '중단됨'; return; }
+        if (halt) return;
+        const url = queue.shift();
+        if (!url) return;
+        // 로그인이 끊겨 있으면 되살린다(창을 잡기 전에 — 안 그러면 창 1개 설정에서 교착).
+        await ensureNaverLogin().catch(() => null);
+        detail.current = url;
+        const r = await extractOne(p, url, root, { onLog: pushLog, signal: detailAbort.signal })
+          .catch((e) => ({ ok: false, url, error: String(e?.message || e) }));
+        detail.done += 1;
+        if (r.ok) {
+          detail.ok += 1;
+          pushLog(`✅ ${detail.done}/${detail.total} ${String(r.name || '').slice(0, 40)} — 옵션 ${r.options}개 · 대표 ${r.mainImages}장 · 상세 ${r.detailImages}장 · 리뷰 ${r.reviewImages}장${r.hasNotice ? ' · 고시정보 있음' : ''}`);
+        } else {
+          detail.failed += 1;
+          pushLog(`❌ ${detail.done}/${detail.total} 실패 — ${r.error}`);
+        }
+        // 건마다 바로 올린다 — 마지막에 몰아서 올리면 중간에 앱이 꺼질 때 전부 잃는다.
+        const up = await uploadDetail(r, { channelProductNo: parseProductUrl(url).productCode, ...(r.data || {}) });
+        if (!up.ok && up.reason !== 'no-session') {
+          pushLog(`⚠️ 서버 저장 실패(${up.reason}) — 폴더는 남아 있습니다: ${r.folder || ''}`);
+        }
+        // 폴더까지 만들고 나면 원본 data 는 메모리에 들고 있을 이유가 없다(수십 건이면 무겁다).
+        delete r.data;
+        detail.results.push(r);
+        if (r.blocked || r.captcha || r.loginRequired) {
+          // 다른 창들도 새 건을 집지 않게 멈춘다 — 막힌 상태로 계속 두드리면 차단이 길어진다.
+          if (!halt) {
+            halt = true;
+            detail.stopped = r.blocked ? '네이버 접근 제한 — 남은 상품은 재개 필요' : '네이버 인증 확인 필요';
+            pushLog(`수집 일시 중단 — ${r.error}. 미처리 ${queue.length}건(서버 큐에 남아 있어 자동으로 다시 가져옵니다).`);
+          }
+          return;
+        }
       }
-      // 건마다 바로 올린다 — 마지막에 몰아서 올리면 중간에 앱이 꺼질 때 전부 잃는다.
-      const up = await uploadDetail(r, { channelProductNo: parseProductUrl(url).productCode, ...(r.data || {}) });
-      if (!up.ok && up.reason !== 'no-session') {
-        pushLog(`⚠️ 서버 저장 실패(${up.reason}) — 폴더는 남아 있습니다: ${r.folder || ''}`);
-      }
-      // 폴더까지 만들고 나면 원본 data 는 메모리에 들고 있을 이유가 없다(수십 건이면 무겁다).
-      delete r.data;
-      detail.results.push(r);
-      if (r.blocked || r.captcha || r.loginRequired) {
-        detail.stopped = r.blocked ? '네이버 접근 제한 — 남은 상품은 재개 필요' : '네이버 인증 확인 필요';
-        pushLog(`수집 일시 중단 — ${r.error}. 미처리 ${detail.total - detail.done}건.`);
-        break;
-      }
-    }
+    };
+    const width = Math.max(1, Math.min(p.effectiveCount || 1, list.length));
+    if (width > 1) pushLog(`창 ${width}개로 동시에 가져옵니다.`);
+    await Promise.all(Array.from({ length: width }, () => worker()));
     detail.running = false;
     detail.current = '';
     detail.stopped = detail.stopped || '완료';
