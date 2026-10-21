@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createSbClient } from '@supabase/supabase-js';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { isDetailExtractable } from '@/lib/megaload/naver-store-type';
-import { adoptUnownedWork } from '@/lib/megaload/detail-queue-assign';
+import { adoptUnownedWork, adoptUnrequested, reviveFailed } from '@/lib/megaload/detail-queue-assign';
 
 export const maxDuration = 30;
 export const dynamic = 'force-dynamic';
@@ -90,8 +90,8 @@ export async function POST(request: NextRequest) {
  *     예전 그대로 — 관리자 큐를 기다린다. 셀러에게 네이버 계정을 요구하지 않는다.
  *   · 셀러는 **자기가 요청한 것만** 가져간다. 남의 요청을 남의 IP 로 대신 뽑을 이유가 없고,
  *     그렇게 두면 한 사람의 IP 가 전체 트래픽을 뒤집어쓴다.
- *   · 미수집분 미리채움(idle=1)은 계속 관리자만 — 아무도 원하지 않는 상품까지 뽑는 일은
- *     한 곳에서만 판단한다(v0.5.4 에서 끈 그 동작이다).
+ *   · 요청된 일감이 바닥나면 셀러 도우미도 아직 안 고른 상품(none)을 채운다(2026-10-21,
+ *     "카탈로그 전부 상세까지"). 요청분이 남아 있는 동안은 손대지 않으므로 우선순위는 그대로다.
  */
 export async function GET(request: NextRequest) {
   const accessToken = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();
@@ -134,6 +134,10 @@ export async function GET(request: NextRequest) {
     .eq('detail_status', 'running')
     .lt('detail_at', stale);
 
+  // 상품 탓이 아닌 실패(시간 초과·차단·캡차 등)는 쉬었다가 다시 큐로 — failed 가 종착역이면
+  // 한 번 운 나쁜 상품은 영영 카탈로그에 안 나온다(reviveFailed 주석 참조).
+  try { await reviveFailed(service); } catch { /* 되살리기 실패가 폴링을 깨면 안 된다 */ }
+
   const statuses = includeIdle ? ['requested', 'none'] : ['requested'];
 
   // ★ 셀러 도우미는 **네이버 로그인이 있을 때만** 큐를 돈다. 그러니 여기까지 왔다는 건
@@ -149,7 +153,11 @@ export async function GET(request: NextRequest) {
       .eq('detail_requested_by', myUserId);
     if (!mine) {
       try {
-        await adoptUnownedWork(service, myUserId, limit * 4);
+        const adopted = await adoptUnownedWork(service, myUserId, limit * 4);
+        // ★ 요청된 일감이 전부 처리됐으면 아직 아무도 안 고른 상품(비시즌 등)까지 채운다.
+        //   예전엔 이걸 관리자 PC 한 대만 했다(idle=1) — 그 한 대로는 영영 안 끝났다.
+        //   셀러마다 자기 IP 로 나눠 뽑으므로 네이버 쪽 부하는 IP 당 그대로다(도우미 게이트가 속도를 정한다).
+        if (!adopted) await adoptUnrequested(service, myUserId, limit * 2);
       } catch {
         /* 가져오기 실패가 폴링을 깨면 안 된다 — 이번 턴은 빈 손으로 돌아가고 다음 폴링에 다시 시도한다. */
       }

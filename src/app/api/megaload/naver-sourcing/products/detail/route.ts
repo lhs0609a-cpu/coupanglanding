@@ -46,6 +46,8 @@ export async function POST(request: NextRequest) {
     productNo?: string;
     originProductNo?: string;
     ok?: boolean;
+    /** 상품 탓이 아닌 이유(중단·로그인 끊김·캡차)로 못 했다 — 실패로 치지 않고 큐에 돌려놓는다. */
+    release?: boolean;
     error?: string;
     retryable?: boolean;
     blocked?: boolean;
@@ -70,7 +72,7 @@ export async function POST(request: NextRequest) {
   if (typeof body.ok !== 'boolean') return NextResponse.json({ error: 'ok 값이 필요합니다.' }, { status: 400 });
 
   const { data: existing, error: lookupError } = await service.from('sh_naver_sourcing_products')
-    .select('id, detail_requested_by, detail_status').eq('product_no', productNo).maybeSingle();
+    .select('id, detail_requested_by, detail_status, detail').eq('product_no', productNo).maybeSingle();
   if (lookupError) return NextResponse.json({ error: lookupError.message }, { status: 500 });
   if (!isAdmin && (!existing || existing.detail_requested_by !== myUserId || existing.detail_status !== 'running')) {
     return NextResponse.json({ error: '본인이 요청하여 처리 중인 상품만 저장할 수 있습니다.' }, { status: 403 });
@@ -84,11 +86,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, status: patch.detail_status === 'failed' ? 'failed' : 'updated' });
   };
 
+  // ★ 상품 탓이 아니면 실패로 남기지 않는다 — 큐에 돌려놓고 다음 폴링이 다시 집는다.
+  //   예전엔 워커를 끈 순간(aborted)·로그인 끊김·캡차까지 전부 failed 로 굳어 다시는 안 뽑혔다.
+  if (body.ok === false && body.release === true) {
+    return updateProduct({ detail_status: 'requested', detail_requested_at: new Date().toISOString() });
+  }
+
   // 실패도 기록한다 — 안 그러면 실패한 상품을 매번 다시 시도하게 된다.
+  //   몇 번째 실패인지 센다. 큐가 일정 시간 뒤 다시 집되, 이 횟수가 차면 포기한다
+  //   (queue/route.ts reviveFailed 참조).
   if (body.ok === false) {
+    // 횟수를 세기 전의 옛 실패 기록(attempts 없음, error 있음)은 1번 실패한 것으로 본다.
+    const prevDetail = existing?.detail as { attempts?: number; error?: string } | null;
+    const prev = Number.isFinite(prevDetail?.attempts) ? Number(prevDetail!.attempts) : prevDetail?.error ? 1 : 0;
+    const attempts = prev + 1;
     return updateProduct({ detail_status: 'failed', detail_at: new Date().toISOString(), detail: {
       error: String(body.error || '알 수 없음').slice(0, 500),
       retryable: body.retryable === true, blocked: body.blocked === true, apiStatus: Number(body.apiStatus) || 0,
+      attempts,
     } });
   }
 

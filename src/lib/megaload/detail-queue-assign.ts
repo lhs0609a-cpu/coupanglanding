@@ -14,6 +14,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { isDetailExtractable } from '@/lib/megaload/naver-store-type';
 
 /** 이 기간 안에 하트비트를 보낸 도우미만 배정 대상으로 본다. */
 const ASSIGN_WINDOW_DAYS = 7;
@@ -155,4 +156,100 @@ export async function adoptUnownedWork(
     n += await take((q: any) => q.in('detail_requested_by', abandoned), want - n);
   }
   return n;
+}
+
+/** 실패한 상세를 다시 집기까지 쉬는 시간 — 차단·캡차는 시간이 지나면 풀린다. */
+const RETRY_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+/** 이만큼 실패하면 그 상품은 포기한다(사람이 고르면 POST 로 다시 요청할 수는 있다). */
+export const MAX_DETAIL_ATTEMPTS = 5;
+/** 한 번에 되살릴 수 — 폴링마다 불리므로 가볍게 둔다. 수천 건도 몇 시간이면 다 돈다. */
+const REVIVE_BATCH = 100;
+
+/**
+ * 상품 탓이 아닌 실패를 큐로 되돌린다.
+ *
+ * 왜 필요한가: 예전엔 failed 가 **종착역**이었다. 그런데 실패의 대부분은 상품이 아니라
+ *   그때의 사정이었다 — 시간 초과·차단(419)·캡차·로그인 끊김·워커를 끈 순간(aborted).
+ *   특히 2026-09-30~10-14 클릭 이동 버그 동안은 **전건이** no-navigation 으로 실패해,
+ *   v0.6.8 로 고친 뒤에도 그 상품들은 다시는 뽑히지 않았다(과일 7,357 중 상세 1,284).
+ *
+ * 영구 실패로 보는 것: 상품이 없어진 경우(API 400·404·410)와 상세를 뽑을 수 없는 주소.
+ * 나머지는 쉬었다가(6시간) 다시 집되 MAX_DETAIL_ATTEMPTS 번에서 멈춘다.
+ * 주인은 비운다 — 지금 켜져 있는 도우미가 adoptUnownedWork 로 가져간다.
+ *
+ * @returns 되살린 건수
+ */
+export async function reviveFailed(service: SupabaseClient): Promise<number> {
+  const before = new Date(Date.now() - RETRY_COOLDOWN_MS).toISOString();
+  const { data } = await service
+    .from('sh_naver_sourcing_products')
+    .select('id, url, detail')
+    .eq('detail_status', 'failed')
+    .lt('detail_at', before)
+    .order('detail_at', { ascending: true })
+    .limit(REVIVE_BATCH * 3);
+  const rows = (data || []) as { id: string; url: string; detail: { attempts?: number; apiStatus?: number; error?: string } | null }[];
+  const retryable = (r: (typeof rows)[number]) => {
+    if (!isDetailExtractable(r.url)) return false;
+    const d = r.detail || {};
+    if ([400, 404, 410].includes(Number(d.apiStatus))) return false;
+    const attempts = Number.isFinite(d.attempts) ? Number(d.attempts) : 1;
+    return attempts < MAX_DETAIL_ATTEMPTS;
+  };
+  // ⚠️ 포기한 행(영구 실패·횟수 초과)은 그대로 두면 detail_at 이 가장 오래돼 **매번 앞자리를
+  //    차지하고**, 쌓이면 되살릴 행이 배치에 아예 안 들어온다. 확인한 시각으로 detail_at 을
+  //    밀어 뒤로 보낸다 — 상태(failed)와 기록(detail)은 그대로다.
+  const giveUp = rows.filter((r) => !retryable(r)).map((r) => r.id);
+  if (giveUp.length) {
+    await service.from('sh_naver_sourcing_products')
+      .update({ detail_at: new Date().toISOString() })
+      .in('id', giveUp)
+      .eq('detail_status', 'failed');
+  }
+  const ids = rows.filter(retryable).slice(0, REVIVE_BATCH).map((r) => r.id);
+  if (!ids.length) return 0;
+  const { data: got } = await service
+    .from('sh_naver_sourcing_products')
+    .update({ detail_status: 'requested', detail_requested_at: new Date().toISOString(), detail_requested_by: null })
+    .in('id', ids)
+    .eq('detail_status', 'failed')
+    .select('id');
+  return ((got || []) as { id: string }[]).length;
+}
+
+/**
+ * 요청 대기분이 하나도 없을 때, 아직 아무도 안 고른 상품(none)을 이 도우미 몫으로 가져간다.
+ *
+ * 왜: 담을 때 큐에 올리는 건 **제철 품목만**이다(products/route.ts). 비시즌 품목은 none 으로
+ *   남아 관리자 PC 의 미리채움(idle=1)만 기다렸고, 관리자 PC 한 대는 시간당 수십 건이 한계라
+ *   사실상 영영 안 채워졌다. 셀러 화면은 done 만 보여 주므로 그만큼 카탈로그가 비어 보인다.
+ * 우선순위는 지킨다 — 요청된 일감이 남아 있으면 부르지 않는다(호출부가 확인한다).
+ *
+ * @returns 가져온 건수
+ */
+export async function adoptUnrequested(service: SupabaseClient, myUserId: string, want: number): Promise<number> {
+  if (!myUserId || want <= 0) return 0;
+  const { data } = await service
+    .from('sh_naver_sourcing_products')
+    .select('id, url')
+    .eq('detail_status', 'none')
+    .order('review_count', { ascending: false, nullsFirst: false })
+    .limit(want * 4);
+  const rows = (data || []) as { id: string; url: string }[];
+  const dead = rows.filter((r) => !isDetailExtractable(r.url)).map((r) => r.id);
+  if (dead.length) {
+    await service.from('sh_naver_sourcing_products')
+      .update({ detail_status: 'failed', detail_at: new Date().toISOString() })
+      .in('id', dead)
+      .eq('detail_status', 'none');
+  }
+  const ids = rows.filter((r) => isDetailExtractable(r.url)).slice(0, want).map((r) => r.id);
+  if (!ids.length) return 0;
+  const { data: got } = await service
+    .from('sh_naver_sourcing_products')
+    .update({ detail_status: 'requested', detail_requested_at: new Date().toISOString(), detail_requested_by: myUserId })
+    .in('id', ids)
+    .eq('detail_status', 'none')
+    .select('id');
+  return ((got || []) as { id: string }[]).length;
 }

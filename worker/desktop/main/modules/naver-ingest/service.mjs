@@ -786,7 +786,7 @@ async function uploadDetail(result, data) {
       review: data.reviewImages || [],
     },
     folderPath: result.folder,
-  } : { productNo: data.channelProductNo || '', ok: false, error: result.error,
+  } : { productNo: data.channelProductNo || '', ok: false, error: result.error, release: result.release === true,
     retryable: result.retryable === true, blocked: result.blocked === true, apiStatus: result.apiStatus || 0 };
 
   try {
@@ -1162,6 +1162,12 @@ async function runQueueJob(p, job, root) {
   //   창을 쥐고 있어, 끈 뒤에도 다른 작업이 전부 막힌다(실측 2026-10-14).
   const r = await extractOne(p, job.url, root, { onLog: pushLog, signal: queueAbort.signal })
     .catch((e) => ({ ok: false, url: job.url, error: String(e?.message || e) }));
+  // ★ 상품 탓이 아닌 실패는 실패로 남기지 않고 큐에 돌려놓는다(서버가 requested 로 되돌린다).
+  //   예전엔 워커를 끈 순간·로그인 끊김·캡차까지 failed 로 굳어, 그 상품은 다시는 안 뽑혔다.
+  if (!r.ok && (queueAbort.signal.aborted || r.error === 'aborted' || r.loginRequired || r.captcha
+    || /수집 창을 얻지 못했습니다/.test(String(r.error || '')))) {
+    r.release = true;
+  }
   // productNo 는 서버가 준 값을 쓴다 — 실패하면 data 가 없어 어디에 기록할지 모른다.
   const up = await uploadDetail(r, { ...(r.data || {}), channelProductNo: job.product_no });
   if (!up.ok && up.reason !== 'no-session') {
@@ -1170,7 +1176,9 @@ async function runQueueJob(p, job, root) {
   delete r.data;
   pushLog(r.ok && up.ok
     ? `✅ 요청 처리 — ${String(job.title || '').slice(0, 34)}`
-    : `❌ 요청 처리 실패 — ${String(job.title || '').slice(0, 34)}: ${r.error || up.reason}`);
+    : r.release
+      ? `↩️ 다음에 다시 — ${String(job.title || '').slice(0, 34)}: ${r.error || up.reason}`
+      : `❌ 요청 처리 실패 — ${String(job.title || '').slice(0, 34)}: ${r.error || up.reason}`);
   return !!r.ok && !!up.ok;
 }
 
