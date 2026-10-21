@@ -160,6 +160,9 @@ export class ChromeTab {
     return this.page.evaluate(js, { awaitPromise: true, timeoutMs: EVAL_TIMEOUT_MS });
   }
 
+  /** 페이지가 받은 상품 API 응답을 추출기에게 넘긴다 — ChromePage.primeApi 참조. */
+  async primeApi(opts) { return this.page ? this.page.primeApi(opts) : 0; }
+
   /** 이미지/미디어 차단 토글 — 로그인·캡차 화면에서는 반드시 꺼야 보안문자가 보인다. */
   async setMediaBlocked(on) { await this.page?.setMediaBlocked(on).catch(() => {}); }
 }

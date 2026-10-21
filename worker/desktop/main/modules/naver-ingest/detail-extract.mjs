@@ -105,6 +105,10 @@ export const extractDetailJs = `
   let blockedResponse = null;
   const get = async (path) => {
     if (blockedResponse) return blockedResponse;
+    // ★ 페이지가 이미 받은 응답이 있으면 그것을 쓴다(ChromePage.primeApi 가 넣어 준다).
+    //   실측 2026-10-21: 직접 부르면 보안 헤더(x-client-rtk 등)가 없어 204 빈 응답이 온다.
+    const cached = window.__MGL_API__ && window.__MGL_API__[path];
+    if (cached) return { ok: true, status: 200, json: cached };
     try {
       const res = await fetch(location.origin + path, { credentials: 'include', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
       if (!res.ok) {
@@ -117,7 +121,11 @@ export const extractDetailJs = `
         if ([418, 419, 429].indexOf(res.status) >= 0) blockedResponse = failure;
         return failure;
       }
-      return { ok: true, status: res.status, json: await res.json() };
+      // 204/빈 본문은 "성공"이 아니다 — 네이버가 요청을 거절한 것이다(보안 헤더 없음).
+      //   그대로 json() 하면 "Unexpected end of JSON input" 만 남아 원인을 알 수 없었다.
+      const text = await res.text();
+      if (!text) return { ok: false, status: res.status, body: '(빈 응답 — 페이지가 받은 응답 없이 직접 호출됨)' };
+      return { ok: true, status: res.status, json: JSON.parse(text) };
     } catch (e) { return { ok: false, error: String(e && e.message) }; }
   };
 

@@ -39,6 +39,9 @@ const HOME_URL = 'https://shopping.naver.com/ns/home';
 const CLICK_CANDIDATE_MAX = 6;
 const NAVER_HOME = 'https://www.naver.com';
 
+/** 상품 API(스마트스토어 /i/, 브랜드스토어 /n/) — primeApi 가 페이지 응답을 모아 두는 대상. */
+const API_PATH_RE = /\/[in]\/v\d\/channels\//;
+
 /**
  * 이미지/미디어/폰트 차단 패턴 — `setMediaBlocked(true)` 로만 켜진다.
  * ⚠️ 기본값은 **끔**이다. 일렉트론 판은 항상 켜 뒀지만(installBlocker), 크롬 목록 수집이
@@ -239,6 +242,8 @@ export class ChromePage {
     this.sessionId = sessionId;
     this.targetId = targetId;
     this._loaded = false;
+    /** 경로+쿼리 → requestId. 이 페이지가 받은 상품 API 응답(primeApi 참조). */
+    this._api = new Map();
   }
 
   async _init() {
@@ -260,6 +265,43 @@ export class ChromePage {
     await this.send('Page.setWebLifecycleState', { state: 'active' }).catch(() => {});
 
     this.browser.on('Page.loadEventFired', () => { this._loaded = true; }, this.sessionId);
+
+    // 페이지가 스스로 받은 상품 API 응답을 기록한다 — primeApi() 참조.
+    this.browser.on('Network.responseReceived', (p) => {
+      const u = p?.response?.url || '';
+      if (p?.response?.status !== 200 || !API_PATH_RE.test(u)) return;
+      try {
+        const { pathname, search } = new URL(u);
+        this._api.set(pathname + search, p.requestId);
+        if (this._api.size > 200) this._api.delete(this._api.keys().next().value);
+      } catch { /* 주소가 이상하면 무시 */ }
+    }, this.sessionId);
+  }
+
+  /**
+   * 페이지가 받은 상품 API 응답을 추출기에게 넘긴다(window.__MGL_API__ = {경로: JSON}).
+   * ---------------------------------------------------------------------------
+   * ★ 실측 2026-10-21: 상품 API(/i/v2/channels/…/products/…)가 보안 헤더(x-client-rtk·rts·lct)
+   *   없는 요청에 **204 빈 응답**을 준다. 추출기가 직접 fetch 하면 "Unexpected end of JSON
+   *   input" 으로 전건 실패했다(상세 수집 0건). 페이지는 그 헤더를 붙여 상품·상세본문·고시정보를
+   *   **이미 다 받아 둔다** — 우리가 다시 부를 이유가 없다. 헤더를 흉내 내면 네이버가 바꿀 때마다
+   *   또 깨지고, 요청도 두 배가 된다.
+   * 상세본문·고시정보는 본체보다 늦게 오므로 잠깐(최대 waitMs) 기다린다. 못 받은 것은 추출기가
+   * 직접 부르는 폴백으로 넘어간다.
+   * @returns {Promise<number>} 넘긴 응답 수
+   */
+  async primeApi({ waitMs = 6000 } = {}) {
+    const until = Date.now() + waitMs;
+    const has = (re) => [...this._api.keys()].some((k) => re.test(k));
+    while (Date.now() < until && !(has(/\/contents\/\d+\/PC/) && has(/\/provided-notice/))) await sleep(300);
+    const out = {};
+    for (const [path, requestId] of this._api) {
+      const body = await this.responseBody(requestId);
+      if (!body) continue;
+      try { out[path] = JSON.parse(body); } catch { /* JSON 이 아니면 넘기지 않는다 */ }
+    }
+    await this.evaluate(`(() => { window.__MGL_API__ = ${JSON.stringify(out)}; return true; })()`).catch(() => {});
+    return Object.keys(out).length;
   }
 
   /** 렌더링이 늦춰지지 않게 다시 못을 박는다 — 페이지를 옮기면 풀리는 설정이 있다. */
@@ -623,6 +665,24 @@ export class ChromePage {
    */
   async gotoViaClick(url, { timeoutMs = 15000, skipReady = false } = {}) {
     const at = String(await this.url().catch(() => ''));
+    // 새 페이지의 응답만 추출기에 넘긴다 — 앞 상품의 응답이 섞이면 안 된다.
+    this._api.clear();
+
+    /**
+     * ★ 이미 그 상품 페이지에 있으면 누르지 않고 새로고침한다(실측 2026-10-21).
+     *   재시도 때 같은 주소의 앵커를 누르면 주소가 그대로라 clickLink 가 "이동 안 됨"으로 판정하고,
+     *   직접디스패치 폴백까지 같은 이유로 실패한다. 그 부수 실패가 첫 시도의 진짜 원인
+     *   (상품 API 204)을 덮어 "no-navigation" 만 기록됐다.
+     */
+    const code = (u) => (String(u).split('?')[0].split('/').filter(Boolean).pop() || '');
+    if (/\/products\//.test(at) && code(at) && code(at) === code(url)) {
+      this._loaded = false;
+      await this.send('Page.reload', {}).catch(() => {});
+      for (let i = 0; i < 60 && !this._loaded; i++) await sleep(250);
+      if (!skipReady) await this.waitSpaReady(false);
+      await this.keepRendering().catch(() => {});
+      return { ok: true, status: 200, url: String(await this.url().catch(() => url)), reloaded: true };
+    }
     if (!/naver\.com/.test(at)) {
       await this.goto(HOME_URL, { settleMs: 2000 });
       await this.dismissPopups().catch(() => {});

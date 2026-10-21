@@ -130,7 +130,9 @@ async function openProductLoop(sw, url, opts) {
   // 바깥 타임아웃이 터져도 "마지막 실패 이유"가 남도록 호출자와 공유한다.
   //   없으면 전부 "시간 초과(240초)" 한 줄로만 기록돼 419 인지 로그인 만료인지 구분이 안 된다.
   const progress = opts.progress || {};
-  const note = (v) => { lastError = v; progress.lastError = v; };
+  // 시도마다 이유를 로그로 남긴다 — 마지막 이유만 남기면 첫 시도의 진짜 원인이 재시도의
+  //   부수 실패(같은 주소 재클릭 → no-navigation)에 덮여 사라진다.
+  const note = (v) => { lastError = v; progress.lastError = v; onLog(`시도 ${progress.attempt} 실패: ${v}`); };
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     progress.attempt = attempt;
@@ -187,6 +189,10 @@ async function openProductLoop(sw, url, opts) {
     // ── 사람처럼 굴기 → 추출 ────────────────────────────────
     await sw.humanize();
     signal.throwIfAborted();
+    // 페이지가 받아 둔 상품 API 응답을 먼저 넘긴다 — 직접 부르면 204(보안 헤더 없음)가 온다.
+    //   넘긴 응답을 읽는 추출기(상세)에만 한다 — 품절 감시처럼 페이지 상태만 보는 추출기가
+    //   상세본문 응답을 기다릴 이유가 없다. 일렉트론 창에는 이 함수가 없다(직접 호출로 간다).
+    if (String(extract).includes('__MGL_API__')) await sw.primeApi?.().catch(() => 0);
     let data = null;
     try {
       data = await sw.evaluate(extract);
