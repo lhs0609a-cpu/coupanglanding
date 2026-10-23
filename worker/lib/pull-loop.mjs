@@ -26,6 +26,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * @param {boolean} [o.once=false]       pending 비면 종료
  * @param {AbortSignal} [o.signal]
  * @param {(e: object) => void} [o.onEvent]
+ * @param {(jobs: object[]) => Promise<void>} [o.ensureEngine]
+ *        집은 잡들을 받아 필요한 엔진만 띄운다(누끼 전용 배치면 ComfyUI 는 띄우지 않는다).
  * @param {(buf: Buffer, job: object) => Promise<Buffer>} [o.processImage]
  *        원본 버퍼 → 결과 버퍼 변환기. 지정하면 ComfyUI 대신 이걸 사용한다(데스크탑: 누끼+흰배경 합성).
  *        미지정이면 기존 ComfyUI 생성 경로 사용(클라우드 워커는 무의존성 유지).
@@ -78,7 +80,10 @@ export async function runPullLoop({
      * 켜기 전에 잡부터 집는 이유: 큐가 비어 있는 동안(대부분의 시간) 엔진을 건드리지 않기 위해서다.
      */
     if (ensureEngine) {
-      try { await ensureEngine(); }
+      // 집은 잡을 넘긴다 — 무슨 엔진이 필요한지는 잡의 mode 가 정한다.
+      //   누끼(cutout)는 CPU(BiRefNet)로 끝나므로 ComfyUI 를 띄울 이유가 없다.
+      //   GPU 없는 노트북에서 누끼까지 막혀 큐가 영원히 안 비던 원인(2026-10-23).
+      try { await ensureEngine(jobs); }
       catch (e) {
         // 엔진을 못 켜면 이 잡은 **되돌린다** — error 로 종결하면 사람이 다시 눌러야 한다.
         onEvent({ type: 'warn', message: `엔진 기동 실패(잡 반환 후 대기): ${e.message || e}` });

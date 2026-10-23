@@ -130,12 +130,32 @@ async function shutdownIdleEngines() {
 
 /**
  * 잡을 집은 루프가 부른다 — 필요한 엔진을 띄우고, 끝날 때까지 유휴 해제를 막는다.
+ *
+ * ★ 썸네일 잡에 ComfyUI(GPU)가 늘 필요한 것은 아니다.
+ *   · 누끼(cutout)      — BiRefNet, **CPU로 끝난다**. ComfyUI 와 무관.
+ *   · 재생성(regenerate) — SDXL img2img, ComfyUI 필요. 못 띄우면 누끼 결과로 폴백한다.
+ *   예전에는 잡 종류를 안 보고 무조건 comfy.start() 를 불렀다. 그래서 GPU 없는 노트북
+ *   (엔진 자동설치가 GPU 미탐지로 건너뛴 PC)에서는 누끼 잡이 엔진 기동 실패로 큐에
+ *   되돌려지기만 하고 **영영 처리되지 않았다** (셀러 문의 2026-10-23).
+ *
  * @param {'thumb'|'llm'} tag
+ * @param {object[]} [jobs] 집은 잡들. 없으면(=옛 호출부) 종전처럼 엔진을 띄운다.
  */
-async function ensureEngineFor(tag) {
+async function ensureEngineFor(tag, jobs) {
   holdEngines(tag);
-  if (tag === 'thumb') await comfy.start();
-  else await ollama.start();
+  if (tag !== 'thumb') { await ollama.start(); return; }
+
+  const needsComfy = !Array.isArray(jobs) || jobs.some((j) => j?.mode === 'regenerate');
+  if (!needsComfy) return;                       // 누끼뿐이면 CPU 로 처리한다
+
+  if (!(await bootstrap.isInstalled(installDir))) {
+    // 엔진이 없는 PC — 재생성 잡을 되돌려 큐에 쌓아 두지 않고, 누끼(흰배경)로 내보낸다.
+    // (processCutoutThumbnail 이 img2img 실패 시 누끼로 폴백한다)
+    send('thumbnail-gpu:comfy-log',
+      '[재생성] 이미지 엔진이 설치돼 있지 않아 누끼(흰배경)로 처리합니다 — GPU 장착 후 "엔진 설치/확인"을 누르면 스튜디오컷 재생성이 켜집니다.');
+    return;
+  }
+  await comfy.start();
 }
 
 // ── 썸네일 워커 헬퍼 (모듈이 ctx.services 로 호출) ──
@@ -154,7 +174,9 @@ function onWorkerEvent(e) {
   updateTray();
 }
 async function startWorker() {
-  if (!(await bootstrap.isInstalled(installDir))) throw new Error('엔진이 아직 설치되지 않았습니다.');
+  // ★ 엔진(ComfyUI) 미설치여도 켠다 — 누끼는 CPU 로 처리되므로, 설치를 전제로 막으면
+  //   GPU 없는 노트북은 '검수 화면에서 AI 누끼를 눌러도 아무 일도 안 나는' 상태가 된다.
+  //   재생성 잡만 ensureEngineFor 에서 엔진을 요구하고, 없으면 누끼로 폴백한다.
   // ★ 여기서 ComfyUI 를 미리 띄우지 않는다. 워커를 켠다고 잡이 있는 것은 아니라서,
   //   예전에는 앱을 켜 두기만 해도 SDXL 이 램에 상주했다. 이제 잡을 집은 순간
   //   루프가 ensureEngineFor('thumb') 로 띄운다(첫 잡만 기동 시간을 한 번 낸다).
@@ -281,8 +303,10 @@ async function autoStartIfReady() {
 
   try {
     if (runner.running || !runner.loggedIn) return;
-    // 아직 엔진 미설치면 조용히 넘어가지 말고 백그라운드 자동설치를 킥(1회). 설치 끝나면 여기 다시 들어와 시작.
-    if (!(await bootstrap.isInstalled(installDir))) { void autoInstallIfNeeded(); return; }
+    // 엔진 미설치면 백그라운드 자동설치를 킥(1회) — 하지만 **기다리지 않고 워커는 켠다**.
+    //   GPU 미탐지 PC 는 자동설치가 ComfyUI 를 건너뛰므로(의도된 동작), 여기서 return 하면
+    //   누끼 잡을 집을 사람이 아무도 없어 큐가 영원히 안 빈다.
+    if (!(await bootstrap.isInstalled(installDir))) void autoInstallIfNeeded();
     await startWorker();
     send('thumbnail-gpu:auto-started', true);
   } catch (e) {

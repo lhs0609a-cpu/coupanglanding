@@ -174,7 +174,10 @@ export class WorkerRunner {
   async start({ comfyUrl, workflowPath, positivePrompt, negativePrompt, timeoutSec = 300, pollSec = 5 }) {
     if (this.running) return;
     if (!this.session) throw new Error('로그인이 필요합니다.');
-    const workflow = await loadWorkflow(fsp, workflowPath);
+    // 워크플로는 재생성(SDXL)에만 쓰인다 — 없거나 깨져도 누끼(CPU)는 돌아야 하므로 막지 않는다.
+    let workflow;
+    try { workflow = await loadWorkflow(fsp, workflowPath); }
+    catch (e) { this.onEvent({ type: 'warn', message: `워크플로 로드 실패 — 누끼 전용으로 시작합니다: ${e.message}` }); }
     this.abort = new AbortController();
     const host = hostname();
     const workerId = `${host}-${randomUUID().slice(0, 8)}`;
@@ -243,7 +246,8 @@ export class WorkerRunner {
       getLocalEndpoint: this.getLocalEndpoint,
       signal: this.abort.signal,
       onEvent: this.onEvent,
-      ensureEngine: this.ensureEngine ? () => this.ensureEngine('thumb') : undefined,
+      // 집은 잡을 그대로 넘긴다 — 누끼뿐인 배치면 ComfyUI 를 띄우지 않는다(CPU 처리).
+      ensureEngine: this.ensureEngine ? (jobs) => this.ensureEngine('thumb', jobs) : undefined,
       // 기본: 누끼+흰배경 1:1. job.mode==='regenerate' 면 prefill+SDXL img2img+재누끼.
       // 모델(BiRefNet_lite)은 userData/hf-cache 에 최초 1회 다운로드 후 영구 캐시.
       processImage: (buf, job) => processCutoutThumbnail(buf, {
