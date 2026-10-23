@@ -91,16 +91,18 @@ export async function POST(
     return NextResponse.json({ error: '현재 등록 가능한 상품이 아닙니다.' }, { status: 400 });
   }
 
-  // 2) 중복 등록 방지
+  // 2) 중복 등록 방지 — 단, **지운 상품은 다시 올릴 수 있어야 한다.**
+  //    deleted_at 이 찍혀 있으면 "등록에 성공했었다(status=succeeded)"는 과거 사실만 남은 것이고
+  //    쿠팡에는 없다. 그걸 중복으로 막으면 셀러는 그 상품을 영영 다시 못 올린다.
   const { data: existingReg } = await serviceClient
     .from('catalog_registrations')
-    .select('id, sh_product_id, status')
+    .select('id, sh_product_id, status, deleted_at')
     .eq('catalog_product_id', catalogProductId)
     .eq('megaload_user_id', shUserId)
     .eq('channel', 'coupang')
     .maybeSingle();
 
-  if (existingReg && existingReg.status !== 'failed') {
+  if (existingReg && existingReg.status !== 'failed' && !existingReg.deleted_at) {
     return NextResponse.json(
       {
         error: '이미 등록 중이거나 완료된 상품입니다.',
@@ -121,7 +123,8 @@ export async function POST(
   if (existingReg) {
     await serviceClient
       .from('catalog_registrations')
-      .update({ status: 'registering', error_message: null })
+      // deleted_at 은 지운다 — 이번 등록이 성공하면 그게 현재 사실이 된다.
+      .update({ status: 'registering', error_message: null, deleted_at: null })
       .eq('id', existingReg.id);
     regId = existingReg.id;
   } else {

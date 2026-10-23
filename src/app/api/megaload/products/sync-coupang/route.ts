@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedAdapter } from '@/lib/megaload/adapters/factory';
+import type { CoupangAdapter } from '@/lib/megaload/adapters/coupang.adapter';
 import { ensureMegaloadUser } from '@/lib/megaload/ensure-user';
+import { markGoneProducts } from '@/lib/megaload/services/coupang-liveness';
 
-export const maxDuration = 30;
+// 전체 상품을 끝까지 훑어야 "쿠팡에서 사라진 상품"을 판별할 수 있다 — 30s 로는 100개도 못 넘겼다.
+export const maxDuration = 300;
 
 
 /** 제조사/법인명 패턴 — brand 필드에 제조사가 들어온 경우 감지 */
@@ -54,26 +57,41 @@ export async function POST() {
     const jobId = (job as Record<string, unknown>)?.id as string;
 
     try {
-      const adapter = await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang');
+      // 목록 커서(nextToken)는 쿠팡 어댑터에만 있는 인자라 구체 타입으로 받는다.
+      const adapter = (await getAuthenticatedAdapter(serviceClient, shUserId, 'coupang')) as CoupangAdapter;
 
       let page = 1;
       let totalSynced = 0;
       let monitorCreated = 0;
       let hasMore = true;
+      /**
+       * ⚠️ 예전엔 `page` 를 넘겼는데 어댑터는 그 값을 쓰지 않는다(쿠팡 목록 API 는 nextToken 커서식).
+       *    그래서 **같은 1페이지를 계속 다시 받아** 100개 이상인 계정은 함수 한도까지 헛돌았다.
+       *    커서를 넘겨 받아야 끝까지 간다.
+       */
+      let nextToken: string | undefined;
+      /** 이번 훑기에서 쿠팡에 실재함을 확인한 상품들. 끝까지 봤을 때만 삭제 판정에 쓴다. */
+      const seenIds = new Set<string>();
+      /** 목록을 끝까지 받았는가 — 중간에 끊겼으면 아무것도 지웠다고 하지 않는다. */
+      let sweepComplete = false;
+      const MAX_PAGES = 120;
 
       while (hasMore) {
         // status 필터 없이 전체 상품 조회 (중지/검수중 포함)
-        const result = await adapter.getProducts({ page, size: 100 });
+        const result = await adapter.getProducts({ size: 100, nextToken });
         const items = result.items;
-        console.log(`[sync-coupang] page=${page}, fetched=${items.length} items`);
+        console.log(`[sync-coupang] page=${page}, fetched=${items.length} items, nextToken=${result.nextToken ?? '(끝)'}`);
 
         if (items.length === 0) {
           hasMore = false;
+          sweepComplete = true;
           break;
         }
 
         for (const item of items) {
           const coupangProductId = String(item.sellerProductId || item.productId || '');
+          // 아래 upsert 가 실패해도 "쿠팡에 있다"는 사실은 변하지 않는다 — 먼저 적는다.
+          if (coupangProductId) seenIds.add(coupangProductId);
           const productName = String(item.sellerProductName || item.productName || '');
 
           // 브랜드 vs 제조사 분리
@@ -202,18 +220,45 @@ export async function POST() {
         }
 
         page++;
-        if (items.length < 100) hasMore = false;
+        nextToken = result.nextToken ?? undefined;
+        if (!nextToken) { hasMore = false; sweepComplete = true; }
+        else if (page > MAX_PAGES) { hasMore = false; console.warn(`[sync-coupang] 페이지 상한(${MAX_PAGES}) 도달 — 삭제 판별 생략`); }
+      }
+
+      /**
+       * 쿠팡에서 사라진 상품을 DB 에도 반영한다.
+       * -----------------------------------------------------------------------
+       * 이게 없으면 셀러가 윙에서 지운 상품이 우리 DB 에선 영원히 active 로 남아,
+       * 검수 화면에 "이미 올림" 으로 뜨고 재등록이 막힌다(셀러 문의 2026-10-23).
+       * 목록을 끝까지 받았을 때만 판단한다 — 중간에 끊긴 목록으로 지웠다고 적으면 거짓 장부가 된다.
+       */
+      let markedDeleted = 0;
+      if (sweepComplete) {
+        const ledger: { id: string; coupangProductId: string | null }[] = [];
+        for (let from = 0; ; from += 1000) {
+          const { data: rows } = await serviceClient
+            .from('sh_products')
+            .select('id, coupang_product_id')
+            .eq('megaload_user_id', shUserId)
+            .neq('status', 'deleted')
+            .not('coupang_product_id', 'is', null)
+            .range(from, from + 999);
+          const batch = (rows || []) as { id: string; coupang_product_id: string | null }[];
+          ledger.push(...batch.map((r) => ({ id: r.id, coupangProductId: r.coupang_product_id })));
+          if (batch.length < 1000) break;
+        }
+        markedDeleted = (await markGoneProducts(serviceClient, shUserId, seenIds, ledger)).length;
       }
 
       // job 완료
       if (jobId) {
         await serviceClient
           .from('sh_sync_jobs')
-          .update({ status: 'completed', result: { synced: totalSynced, monitorCreated }, completed_at: new Date().toISOString() })
+          .update({ status: 'completed', result: { synced: totalSynced, monitorCreated, markedDeleted, sweepComplete }, completed_at: new Date().toISOString() })
           .eq('id', jobId);
       }
 
-      return NextResponse.json({ success: true, synced: totalSynced, monitorCreated });
+      return NextResponse.json({ success: true, synced: totalSynced, monitorCreated, markedDeleted, sweepComplete });
     } catch (err) {
       if (jobId) {
         await serviceClient

@@ -20,7 +20,15 @@ import { logExtractionCorpus } from '@/lib/megaload/services/option-corpus-logge
 import type { DetailedError } from '@/components/megaload/bulk/types';
 import type { PreventionConfig } from '@/lib/megaload/services/item-winner-prevention';
 import { detectImageFormat, getImageDimensions } from '@/lib/megaload/services/image-processor';
+import { sweepLiveProductIds, markGoneProducts } from '@/lib/megaload/services/coupang-liveness';
 import { randomUUID } from 'crypto';
+
+/** 중복 검사용 장부 한 줄 — productCode(=네이버 상품번호)와 쿠팡 채널상품번호를 함께 본다. */
+interface LedgerProductRow {
+  id: string;
+  coupang_product_id: string | null;
+  raw_data: Record<string, unknown> | null;
+}
 
 // Vercel 함수 한도 — 비용/안정 균형:
 //   - 300s 였을 때 5/5 coupanglanding 3,340 GB-Hrs spike 발생 (메모리 점유 시간 5x).
@@ -332,33 +340,79 @@ export async function POST(req: NextRequest) {
             ),
       // 3) 중복 등록 방지: 이미 등록된 productCode
       //    실패 시 dedup 불가 → 명시적으로 이 사실을 추적하기 위해 sentinel(undefined) 사용
+      //    ★ 'deleted' 는 제외한다 — 지운 상품은 다시 올릴 수 있어야 한다. 아래에서
+      //      쿠팡에 실제로 남아 있는지까지 확인해 'deleted' 를 그 자리에서 채운다.
       serviceClient
         .from('sh_products')
-        .select('raw_data')
+        .select('id, coupang_product_id, raw_data')
         .eq('megaload_user_id', shUserId)
+        .neq('status', 'deleted')
         .in('raw_data->>productCode', productCodes)
         .then(
           (r) => r,
           (err) => {
             console.error('[batch] 중복 검사 쿼리 실패 — dedup 비활성화 위험:', err instanceof Error ? err.message : err);
-            return { data: undefined } as { data: { raw_data: Record<string, unknown> | null }[] | undefined };
+            return { data: undefined } as { data: LedgerProductRow[] | undefined };
           },
         ),
     ]);
 
     const wingUserId = (wingUserResult.data as Record<string, unknown> | null)?.coupang_seller_id as string || '';
     const sellerBrand = (sellerBrandResult.data as Record<string, unknown> | null)?.seller_brand as string || '';
-    const existingProducts = existingProductsResult.data as { raw_data: Record<string, unknown> | null }[] | null | undefined;
+    const existingProducts = existingProductsResult.data as LedgerProductRow[] | null | undefined;
     if (existingProductsResult.data === undefined) {
       console.warn('[batch] 중복 검사 결과 unavailable — 이번 배치는 dedup skip 됨');
     }
 
-    const registeredCodes = new Set(
-      (existingProducts || []).map((p) => {
-        const raw = p.raw_data as Record<string, unknown> | null;
-        return raw?.productCode as string;
-      }).filter(Boolean),
-    );
+    const codeOf = (p: LedgerProductRow) => (p.raw_data?.productCode as string | undefined) || '';
+    const registeredCodes = new Set((existingProducts || []).map(codeOf).filter(Boolean));
+
+    /**
+     * ★ 지운 상품은 다시 올릴 수 있어야 한다.
+     * -------------------------------------------------------------------------
+     * 위 장부 조회는 "전에 올린 적이 있다"만 말해 준다. 셀러가 윙에서 지운 상품도 그대로
+     * 남아 있어서, 예전에는 같은 상품을 다시 올리려 하면 영원히 '이미 등록된 상품'으로
+     * 건너뛰었다(셀러 문의 2026-10-23: "삭제했던 상품 재업로드가 안 된다").
+     *
+     * 그래서 **충돌이 난 것만** 쿠팡에 실제로 남아 있는지 확인한다. 사라진 것은 그 자리에서
+     * 'deleted' 로 적고 중복 목록에서 뺀다 — 셀러가 동기화를 따로 누를 필요는 없다.
+     * 목록을 끝까지 받지 못했으면(키 문제·레이트리밋) 아무것도 지웠다고 하지 않는다.
+     */
+    if (registeredCodes.size > 0) {
+      const colliding = (existingProducts || []).filter(
+        (p) => registeredCodes.has(codeOf(p)) && p.coupang_product_id,
+      );
+      if (colliding.length > 0) {
+        // 함수 한도(90s)를 지켜야 한다 — 예산 안에 목록을 못 보면 종전처럼 막는다.
+        const sweep = await sweepLiveProductIds(coupangAdapter, { maxPages: 30, timeBudgetMs: 20_000 });
+        if (sweep.complete) {
+          const goneIds = new Set(
+            await markGoneProducts(
+              serviceClient,
+              shUserId,
+              sweep.ids,
+              colliding.map((p) => ({ id: p.id, coupangProductId: p.coupang_product_id })),
+            ),
+          );
+          if (goneIds.size > 0) {
+            // 같은 productCode 로 살아있는 기록이 하나라도 남아 있으면 여전히 중복이다.
+            const aliveCodes = new Set(
+              (existingProducts || [])
+                .filter((p) => !p.coupang_product_id || !goneIds.has(String(p.coupang_product_id)))
+                .map(codeOf)
+                .filter(Boolean),
+            );
+            let unblocked = 0;
+            for (const code of [...registeredCodes]) {
+              if (!aliveCodes.has(code)) { registeredCodes.delete(code); unblocked++; }
+            }
+            console.log(`[batch] 쿠팡에서 사라진 기록 ${goneIds.size}건 → 재등록 허용 ${unblocked}건`);
+          }
+        } else {
+          console.warn(`[batch] 쿠팡 상품목록을 끝까지 보지 못해 삭제 확인 생략 — 중복은 그대로 막는다: ${sweep.error || ''}`);
+        }
+      }
+    }
 
     // ---- 브랜드 자동해석 준비 ("상품별 실제 브랜드 자동매칭") ----
     //  enrolled("내 브랜드 목록") 1회 조회 → 상품별 감지 브랜드를 enrolled+UID검증으로 매칭.
