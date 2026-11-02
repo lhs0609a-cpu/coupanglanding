@@ -43,6 +43,7 @@ import path from 'node:path';
 import { isUp, unload, ensureModel, explainLlmError } from './lib/local-llm.mjs';
 import { scanFolder } from './lib/folder-scanner.mjs';
 import { generateBatch } from './lib/ai-batch.mjs';
+import { generationCheckpoint } from './lib/generation-checkpoint.mjs';
 import { resolveMarginLevel, presetBrackets } from './lib/margin-mini.mjs';
 import { makeThumbnailProcessor } from './lib/thumbnail-batch.mjs';
 import { visionStats } from './lib/vision-selector.mjs';
@@ -498,6 +499,7 @@ async function main() {
   console.log(`[${ts()}] [1/3] 텍스트 생성 시작 (모델 ${model}${genConcurrency > 1 ? ` · 동시 ${genConcurrency}개` : ''})`);
   if (marginBrackets) console.log(`[${ts()}] 마진 프리셋 적용: ${marginLevel}`);
   const { records: genRecords, summary } = await generateBatch(products, {
+    checkpoint: generationCheckpoint(outPrefix + '.text-checkpoint.jsonl', { model, seller, maxDetailTokens, marginBrackets, version: 1 }),
     model, sellerId: seller, maxDetailTokens, marginBrackets, concurrency: genConcurrency,
     onItem: (i, total, rec, doneCount) => {
       const flag = rec.needsReview ? '⚠️검수' : '✅';

@@ -32,7 +32,9 @@ const engineReturnWaitMs = () => Number(process.env.MEGALOAD_ENGINE_RETURN_WAIT_
  */
 const engineGoneCooldownMs = () => Math.min(30_000, engineReturnWaitMs());
 /** 한 호출이 엔진 복귀를 기다려 주는 횟수(돌아왔다가 또 죽는 경우의 안전핀). */
-const MAX_ENGINE_RESUMES = 2;
+// A resumed server may need a few attempts while the driver releases memory.
+// The manager itself has a bounded restart budget, so callers can wait safely.
+const MAX_ENGINE_RESUMES = 6;
 const ENGINE_GONE_MSG = 'AI 엔진(ollama)이 작업 도중에 내려갔고 돌아오지 않았습니다.';
 
 const engineLog = (m) => console.log(`[엔진] ${m}`);
@@ -203,7 +205,7 @@ export async function listModels() {
  * @param {string} [o.format]   'json' 이면 JSON 강제
  * @returns {Promise<{text:string, ms:number, evalCount:number, tokPerSec:number}>}
  */
-export async function generate({ model, prompt, system, options = {}, format, keep_alive, timeoutMs = GENERATE_TIMEOUT_MS, signal } = {}) {
+export async function generate({ model, prompt, system, options = {}, format, keep_alive, timeoutMs = Number(process.env.MEGALOAD_GENERATE_TIMEOUT_MS) || GENERATE_TIMEOUT_MS, signal } = {}) {
   if (!model) throw new Error('[local-llm] model 필요');
   const body = {
     model,

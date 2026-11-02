@@ -156,6 +156,13 @@ export class OllamaManager {
 
   /** 바이너리 보장 → serve 기동 → 모델 보장. 이미 떠 있으면 모델만 보장. */
   async start({ timeoutMs = 120_000 } = {}) {
+    if (this._starting) return this._starting;
+    this._starting = this._start({ timeoutMs });
+    try { return await this._starting; }
+    finally { this._starting = null; }
+  }
+
+  async _start({ timeoutMs }) {
     this._stopping = false;   // 다시 쓰겠다는 뜻이다 — 이제부터의 종료는 사고다
     if (!(await this.isUp())) {
       const exe = await ensureOllama({
@@ -173,7 +180,9 @@ export class OllamaManager {
       const userSet = Number(process.env.OLLAMA_NUM_PARALLEL);
       // ⭐ 어떤 모델을 올릴지 알고 나서 슬롯을 정한다 — 호출부(allinone-runner)가 start() 전에
       //   this.model 을 확정해 둔다. 작은 모델이면 같은 VRAM 으로 슬롯을 더 열 수 있다.
-      const np = Number.isFinite(userSet) && userSet >= 2 ? userSet : await pickNumParallel({ model: this.model });
+      const safeParallel = await pickNumParallel({ model: this.model });
+      const np = this._restarts > 0 ? 1 : Math.min(3, safeParallel,
+        Number.isFinite(userSet) && userSet >= 1 ? userSet : safeParallel);
       if (Number.isFinite(userSet) && userSet === 1 && np > 1) {
         this.onLog(`[속도] OLLAMA_NUM_PARALLEL=1 이 설정돼 있어 생성이 순차로 묶여 있었습니다 — `
           + `VRAM 여유를 보고 ${np}개 동시로 올려 띄웁니다.`);
@@ -267,7 +276,7 @@ export class OllamaManager {
       // 우리가 띄운 서버가 아니다(사용자가 직접 설치·실행 중인 ollama 등) → 기동 옵션을 못 준다.
       //   이 경우 동시 처리는 물려받은 환경변수로만 알 수 있고, 없으면 ollama 기본값 1 이다.
       //   1 인데 VRAM 여유가 크면 "그냥 두면 2배 느린" 상태이므로 해결법을 함께 알린다.
-      this.numParallel = serverParallelHint(null);
+      if (!this.proc) this.numParallel = serverParallelHint(null);
       this.onLog('[ollama] 이미 실행 중');
       // ★ 예전엔 여기서 "환경변수를 직접 설정하세요"라고 안내만 했다. 그 안내를 읽고 실제로
       //   설정하는 사람은 거의 없고(로그는 아무도 안 본다), 그동안 모든 생성이 2배 느리게
@@ -295,8 +304,10 @@ export class OllamaManager {
    * 5GB 모델을 적재하다 또 죽는 걸 반복하며 PC 만 더 힘들게 한다. 몇 번 해 보고 안 되면
    * 그만두고, 사람이 할 수 있는 일(프로그램 닫기)을 말한다. 창은 다음 작업 때 다시 열린다.
    */
-  static RESTART_LIMIT = 3;
-  static RESTART_WINDOW_MS = 10 * 60_000;
+  // Long batches can outlive several transient GPU-driver/Ollama resets. Keep
+  // retries bounded, but allow recovery across a longer generation window.
+  static RESTART_LIMIT = 6;
+  static RESTART_WINDOW_MS = 30 * 60_000;
 
   async _autoRestart(code) {
     const now = Date.now();
@@ -305,8 +316,8 @@ export class OllamaManager {
       this._restarts = 0;
     }
     if (this._restarts >= OllamaManager.RESTART_LIMIT) {
-      this.onLog('❌ AI 엔진이 자꾸 꺼져 자동 재기동을 그만둡니다 — 메모리(RAM·VRAM) 부족이 가장 흔한 원인입니다.'
-        + ' 크롬 탭이나 다른 AI·영상 프로그램을 닫고 작업을 다시 시작해 주세요.');
+      this.onLog('❌ AI 엔진 재기동을 30분 동안 6회 시도했지만 계속 종료되어 자동 재기동을 멈췄습니다.'
+        + ' 최근 종료 로그에서 메모리 부족 여부를 확인하고, 실행 중인 작업은 재개할 수 있도록 보존합니다.');
       return;
     }
     this._restarts++;
@@ -375,7 +386,7 @@ export class OllamaManager {
       return false;
     }
     try {
-      await this.start({ timeoutMs });     // 이제 우리가 띄운다 → 슬롯이 확정된다
+      await this._start({ timeoutMs });    // already inside the public start lock
       return true;
     } catch (e) {
       this.onLog(`❌ ollama 재기동 실패 — ${e.message}. ollama 를 수동으로 다시 실행해 주세요.`);
@@ -453,8 +464,9 @@ export class OllamaManager {
       const r = await fetch(`${BASE}/api/tags`);
       const d = await r.json();
       const names = (d.models || []).map((m) => m.name);
-      const family = model.split(':')[0];
-      return names.some((n) => n === model || n.startsWith(family + ':'));
+      // A 7.8b installation must not satisfy a request for the 2.4b model.
+      const exact = model.includes(':') ? model : model + ':latest';
+      return names.some((n) => n === exact);
     } catch { return false; }
   }
 

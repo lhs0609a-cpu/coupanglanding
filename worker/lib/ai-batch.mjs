@@ -10,6 +10,10 @@ import { generateAllFields } from './ai-generator.mjs';
 import { topCandidates } from './category-candidates-mini.mjs';
 import { topCandidatesEmbed, topCandidatesFromVec, embedQueries, isBuilt as embedBuilt } from './category-embed-matcher.mjs';
 import { calculateSellingPrice } from './margin-mini.mjs';
+import { freemem } from 'node:os';
+import { isRecoverableGenerationError } from './generation-resources.mjs';
+import { setTimeout as delay } from 'node:timers/promises';
+import { ensureModel, unload } from './local-llm.mjs';
 
 /**
  * 카테고리 매칭 쿼리 — 상품명만이 아니라 "상품 전체"를 읽는다.
@@ -166,7 +170,7 @@ function decisiveToken(cands) {
  * @returns {Promise<{records:Object[], summary:Object}>}
  *   records 에는 **구멍(undefined)이 있을 수 있다** — 쓰는 쪽에서 반드시 걸러라.
  */
-export async function generateBatch(products, { model, sellerId = '', maxDetailTokens = 800, onItem, onItemError, marginBrackets, concurrency = 1 } = {}) {
+export async function generateBatch(products, { model, sellerId = '', maxDetailTokens = 800, onItem, onItemError, marginBrackets, concurrency = 1, checkpoint } = {}) {
   if (!model) throw new Error('[ai-batch] model 필요');
   const records = new Array(products.length);
   let ok = 0, review = 0, totalMs = 0, done = 0;
@@ -188,6 +192,14 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
 
   const genOne = async (i) => {
     const p = products[i];
+    const cached = checkpoint?.get(p);
+    if (cached) {
+      records[i] = cached;
+      totalMs += cached.ms || 0;
+      if (cached.needsReview) review++; else ok++;
+      await onItem?.(i, products.length, cached, ++done);
+      return;
+    }
     const seed = `${sellerId}:${p.id || p.originalName}`;
     // 후보 15개 — LLM 이 의미로 고르는 단계라 리콜을 넉넉히 준다(프롬프트 비용은 미미).
     //   토큰 매칭 1위가 늘 정답은 아니지만(흔한 단어에 끌린 후보가 위로 올 수 있다),
@@ -231,6 +243,7 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
       compliance: r.compliance,
       ms: r.timings.totalMs,
     };
+    checkpoint?.put(p, rec);
     records[i] = rec;
     totalMs += rec.ms;
     if (rec.needsReview) review++; else ok++;
@@ -250,20 +263,34 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
   //      실측 사고: 모델이 메모리 부족으로 못 떠서 100개 중 결과 0개.
   //   이제 실패한 상품만 비우고(records[i] = undefined) 나머지는 살린다.
   const failures = [];
+  const retry = [];
+  let serialOnly = false;
+  let needsSmallerModel = false;
   let consecutiveFails = 0;
   let abortReason = null;
   //   연속 실패는 "이 PC 에서 모델이 안 뜬다"는 신호다. 100번 반복해봐야 100번 실패하고
   //   시간만 버리므로 일찍 접고, 그때까지 성공한 결과는 그대로 반환한다(throw 하지 않는다).
   const ABORT_AFTER_CONSECUTIVE = 3;
-  const lane = async () => {
+  const lane = async (laneIndex) => {
     while (cursor < products.length) {
       if (abortReason) return;
+      // Re-read memory before each product. Other lanes finish their current
+      // product, then retire; lane zero continues without overlapping retries.
+      if (process.platform !== 'darwin' && freemem() < 4 * 1024 ** 3) serialOnly = true;
+      if (serialOnly && laneIndex > 0) return;
       const i = cursor++;
       try {
         await genOne(i);
         consecutiveFails = 0;
       } catch (e) {
         const msg = String(e?.message || e);
+        if (isRecoverableGenerationError(e)) {
+          serialOnly = true;
+          if (/out of memory|CPU_REPACK|alloc_tensor|cpu_buffer|메모리/i.test(msg)) needsSmallerModel = true;
+          retry.push(i);
+          console.log(`[자원조절] 생성 응답이 중단되어 순차 처리로 전환합니다. 상품 ${i + 1}은 재처리합니다.`);
+          continue;
+        }
         failures.push({ index: i, id: products[i]?.id ?? null, error: msg.slice(0, 300) });
         consecutiveFails++;
         // 진행 표시는 계속 흘러야 한다(웹 진행바가 멈춘 것처럼 보이지 않게).
@@ -274,7 +301,41 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
       }
     }
   };
-  await Promise.all(Array.from({ length: lanes }, lane));
+  await Promise.all(Array.from({ length: lanes }, (_, i) => lane(i)));
+  // Release the larger model only after all requests have finished. Switching
+  // during another lane's request would itself cause the connection failures.
+  if (needsSmallerModel && /(?:7b|7\.8b)/i.test(model)) {
+    const fallback = 'qwen2.5:3b-instruct';
+    if (await ensureModel(fallback, { onLog: (line) => console.log(line) })) {
+      await unload(model);
+      model = fallback;
+      console.log('[자원조절] 메모리 오류가 발생해 작은 모델로 실패 상품을 순차 재처리합니다.');
+    }
+  }
+  // All concurrent requests have settled. Retry only the failed products,
+  // preserving successful results and reporting a failure only after recovery.
+  let failedRecoveries = 0;
+  for (const i of retry) {
+    if (failedRecoveries >= 3) {
+      abortReason = '엔진 복구 후에도 순차 생성이 계속 실패해 미완료 상품을 보존하고 중단합니다.';
+      break;
+    }
+    let last;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await delay(attempt ? 10000 : 2000);
+        await genOne(i);
+        last = null;
+        break;
+      } catch (e) { last = e; }
+    }
+    if (last) {
+      failedRecoveries++;
+      const msg = String(last?.message || last);
+      failures.push({ index: i, id: products[i]?.id ?? null, error: msg.slice(0, 300) });
+      try { await onItemError?.(i, products.length, msg, ++done); } catch {}
+    } else failedRecoveries = 0;
+  }
 
   return {
     records,
@@ -292,6 +353,8 @@ export async function generateBatch(products, { model, sellerId = '', maxDetailT
       })(),
       candidateSourceCounts: sourceCounts,
       concurrency: lanes,
+      serialFallback: serialOnly,
+      retried: retry.length,
     },
   };
 }

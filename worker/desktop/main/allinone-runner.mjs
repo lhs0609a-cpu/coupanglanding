@@ -5,7 +5,9 @@
 // ⚠️ ollama(텍스트)·ComfyUI(누끼)가 떠 있어야 함(services 로 자동 기동).
 import { spawn } from 'node:child_process';
 import { lineStream } from './line-stream.mjs';
-import { readdirSync } from 'node:fs';
+import { readdirSync, writeFileSync } from 'node:fs';
+import { cpus } from 'node:os';
+import { generationResources } from '../runtime/generation-resources.mjs';
 import { join } from 'node:path';
 import { checkGpu, checkSystemRam } from './bootstrap.mjs';
 
@@ -20,6 +22,7 @@ import { maskInternalNames } from './mask-internal.mjs';
 import { resolveSourceTitles } from './source-title.mjs';
 
 let child = null;
+let preparing = false;
 
 /**
  * 하드웨어에 맞춰 "어떤 PC 에서도 빠르게" 생성 설정을 고른다.
@@ -46,6 +49,7 @@ export async function pickGenProfile() {
   //   llama-server 가 통째로 죽어 **생성이 0건**이 된다(실측 사고: CPU_REPACK 3.1GiB 실패).
   //   7.8B(q4 ≈ 4.4GB)를 쓰려면 스필을 감당할 RAM 여유가 있어야 한다.
   const ram = checkSystemRam();
+  const resources = generationResources({ gpu, ram, cores: cpus().length });
   //   ⚠️ **RAM 으로 모델을 낮추지는 않는다.** freemem() 은 값이 심하게 출렁인다 —
   //      같은 32GB PC 에서 작업 중 1.1GB, 유휴 5.0GB 로 실측됐다(윈도우 Available MBytes 와는 일치).
   //      이걸 모델 선택 기준으로 쓰면 멀쩡한 PC 가 순간 수치 때문에 저사양으로 강등된다
@@ -53,7 +57,8 @@ export async function pickGenProfile() {
   //   ⭐ 대신 **CPU 로 내려갈 수밖에 없는 상황에서만** RAM 을 본다:
   //      VRAM 에 통째로 올라가면(strong) 스필이 없어 RAM 은 사실상 무관하다.
   //      VRAM 이 모자라 오프로드가 일어날 때만 RAM 부족이 곧 사망이다(CPU_REPACK 실패).
-  const strong = gpu.ok && freeMb >= 5000;
+  // Leave room for context buffers and the display driver as well as weights.
+  const strong = resources.strong;
   const willUseCpu = !gpu.ok || freeMb < 5000;
   const ramTight = ram.reliable && willUseCpu && ram.freeMb < RAM_FOR_SMALL_MB;
   // 남은 VRAM 이 극히 적으면(다른 프로그램이 GPU 점유) 작은 모델조차 스필한다 → 사용자에게 알린다.
@@ -84,25 +89,25 @@ export async function pickGenProfile() {
   //    시간의 대부분을 차지하는 **상세글이 상품당 1콜**이라, 동시 상품 수가 곧 동시 요청 수다.
   //    슬롯만 6 으로 올리고 여기를 3 에 두면 남는 3 슬롯이 놀아서 이득이 사라진다.
   //    기존 구간은 낮추지 않으므로 어떤 PC 도 예전보다 느려지지 않는다.
-  const concurrency = freeMb >= 11000 ? 6 : freeMb >= 9000 ? 4 : freeMb >= 8000 ? 2 : 1;
+  const concurrency = resources.concurrency;
   // 인식(비전)은 이미지 컨텍스트(num_ctx 8192)라 슬롯당 KV 가 텍스트보다 훨씬 크다 →
   //   여유가 확실할 때만 2개. 1이면 예전과 동일한 순차 인식이다.
-  const recogConcurrency = freeMb >= 11000 ? 2 : 1;
+  const recogConcurrency = 1;
   /**
    * 비전 판정을 텍스트 생성과 **동시에** 돌려도 되는가 = 두 모델이 함께 상주할 수 있는가.
    *   텍스트 7.8B(≈4.8GB) + 비전 7B(≈5.7GB) + KV·여유 ≈ 13GB.
    *   들어가면 인식 시간이 텍스트 뒤로 숨는다(실측 A/B: 함께 상주해도 장당 8.6초 → 5.0초로 오히려 빨랐다).
    *   못 들어가면 서로 밀어내며 호출마다 재적재(15~34초)가 걸려 훨씬 느려지므로, 확실할 때만 켠다.
    */
-  const visionOverlap = gpu.ok && strong && freeMb >= 13000;
+  const visionOverlap = resources.visionOverlap;
 
   return {
-    gpu, strong, scarce, model, ram, ramTight,
+    gpu, strong, scarce, model, ram, ramTight, resources,
     concurrency, recogConcurrency, visionOverlap, installedCount: installed.length,
   };
 }
 
-export function isGenerating() { return !!child; }
+export function isGenerating() { return preparing || !!child; }
 
 // ── 예상 소요시간 ────────────────────────────────────────────────────────────
 //   ⚠️ 예전엔 "GPU 면 상품당 60초" 한 값이었다. 그 60초는 **동시 1개 · 인식 순차 · 격자 300px**
@@ -165,7 +170,15 @@ export function estimateGeneration(folder, profile) {
  * 웹 /allinone/* 직독이 이 폴더의 결과를 읽게 한다.
  * @returns {Promise<boolean>} 시작됐으면 true(완료는 onDone 으로 통지)
  */
-export async function startGeneration({
+export async function startGeneration(options) {
+  if (isGenerating()) throw new Error('이미 생성이 진행 중입니다.');
+  preparing = true;
+  try { return await startGenerationImpl(options); }
+  catch (error) { freeEngines(); throw error; }
+  finally { preparing = false; }
+}
+
+async function startGenerationImpl({
   services, paths, store, send, folder, noThumb = false, onDone, onProgress,
   // VRAM 부족으로 매우 느려질 때 사용자에게 물어보는 훅(앱 UI 전용).
   //   미지정(웹 경로)이면 묻지 않고 경고만 남기고 진행한다.
@@ -186,7 +199,14 @@ export async function startGeneration({
 
   // ── 하드웨어 자동 적응 — "어떤 PC 에서도 빠르게" ──────────────────────────
   //   GPU 감지해 모델/상세토큰을 자동 선택하고, ollama 가 그 모델을 갖도록(없으면 pull) 맞춘다.
+  // Release our image engine before measuring memory, not after choosing a model.
+  if (services?.comfy && !noThumb) await services.comfy.stop().catch(() => {});
   const profile = await pickGenProfile();
+  try {
+    writeFileSync(join(folder, '_generation-resources.json'), JSON.stringify({
+      at: new Date().toISOString(), ...profile.resources, model: profile.model,
+    }, null, 2));
+  } catch { /* diagnostics must not block generation */ }
   const gb = (mb) => (Math.round(((mb || 0) / 1024) * 10) / 10);
   send('allinone:log',
     `[속도] 하드웨어: ${profile.gpu.ok
@@ -207,13 +227,13 @@ export async function startGeneration({
   //     실패했습니다" 한 줄만 남았다. 게다가 모자란 RAM 의 상당 부분은 **아무도 안 쓰는
   //     상주 모델**이었다 — 사용자에게 프로그램을 닫으라고 하기 전에 우리 것부터 치운다.
   let ramNow = profile.ram;
-  if (services?.ollama && !profile.gpu.ok) {
+  if (services?.ollama && (!profile.gpu.ok || profile.ramTight)) {
     const freed = await services.ollama.unloadOthers(profile.model).catch(() => []);
     if (freed.length) {
       const mb = freed.reduce((s, f) => s + (f.mb || 0), 0);
       send('allinone:log',
         `[메모리] 쓰지 않는 AI 모델 ${freed.length}개(약 ${gb(mb)}GB)를 메모리에서 내립니다 — `
-        + `이 PC 는 GPU 가 없어 모델이 시스템 메모리를 씁니다.`);
+        + `현재 모델이 시스템 메모리를 사용할 수 있어 생성 전에 여유를 확보합니다.`);
       // 내리기는 예약이고 프로세스가 실제로 내려가는 데도 시간이 걸린다(4GB짜리는 몇 초).
       // 충분히 회수될 때까지만 기다린다 — 회수되면 곧바로 나간다.
       for (let i = 0; i < 4; i++) {
@@ -226,11 +246,11 @@ export async function startGeneration({
   //   되찾은 뒤에도 모자라면 **시작하지 않는다**. 여기서 밀어붙여 봐야 몇 분 태우고 같은
   //   자리에서 죽는다 — 그 몇 분과 "왜 실패했는지 모름"을 사용자에게 남기지 않는다.
   ramNow = checkSystemRam();
-  const stillTight = ramNow.reliable && !profile.gpu.ok && ramNow.freeMb < RAM_FOR_SMALL_MB;
+  const stillTight = generationResources({ gpu: profile.gpu, ram: ramNow, cores: cpus().length }).memoryBlocked;
   if (stillTight) {
     const reason = `시스템 메모리가 부족해 시작하지 않았습니다 — 지금 쓸 수 있는 메모리가 `
       + `${gb(ramNow.freeMb)}GB 뿐이고 AI 모델을 올리려면 최소 ${gb(RAM_FOR_SMALL_MB)}GB 가 필요합니다. `
-      + `이 PC 는 GPU 가 없어 모델이 시스템 메모리에서 돕니다 — 크롬(탭이 많으면 수 GB)이나 `
+      + `현재 그래픽 메모리가 충분하지 않아 시스템 메모리가 필요합니다 — 크롬(탭이 많으면 수 GB)이나 `
       + `다른 AI·영상 프로그램을 닫고 다시 눌러주세요. `
       + `가상 메모리(페이지파일)가 꺼져 있어도 같은 증상이 납니다.`;
     send('allinone:log', '⛔ ' + reason);
@@ -448,6 +468,8 @@ export async function startGeneration({
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',
       MEGALOAD_HF_CACHE: join(paths.userData, 'hf-cache'),
+      MEGALOAD_GENERATE_TIMEOUT_MS: String(profile.resources.requestTimeoutMs),
+      MEGALOAD_ENGINE_RETURN_WAIT_MS: String(profile.resources.engineWaitMs),
     },
     // 콘솔 창을 만들지 않는다 — 자식이 늘어날수록 화면에 검은 창이 스치는 사고가 난다.
     windowsHide: true,
