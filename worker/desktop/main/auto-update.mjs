@@ -7,14 +7,14 @@
 //   죽어 업데이트가 영원히 안 됨. 반면 워커 하트비트가 쓰는 Node 글로벌 fetch(undici)는 정상.
 //   그래서 체크/다운로드를 Node fetch 로 직접 수행해 그 문제를 우회한다.
 //
-// 동작: 부팅 12초 후 + 1시간마다 latest.yml fetch → 버전 비교 → 새 버전이면 **묻지 않고**
+// 동작: 부팅 12초 후 + 5분마다 latest.yml fetch → 버전 비교 → 새 버전이면 **묻지 않고**
 //       Setup.exe 다운로드 → sha512 검증 → 하는 작업이 없을 때(2분 연속 유휴) 설치기 실행
 //       (NSIS customInit 이 실행중 앱 종료 후 설치 + runAfterFinish 로 재실행) → 앱 종료.
 //       작업 중이면 끝날 때까지 기다리고, 그 전에 앱이 꺼지면 종료 시점에 설치한다.
 // 비용: GitHub Releases 무료. Windows(NSIS)만. 진행/오류는 tmp 로그에 기록.
 // ============================================================
 import { app, dialog, Notification, shell } from 'electron';
-import { writeFileSync, appendFileSync } from 'node:fs';
+import { writeFileSync, appendFileSync, renameSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
@@ -27,6 +27,7 @@ const ulog = (m) => { try { appendFileSync(AU_LOG, `[${new Date().toISOString()}
 let initialized = false;
 let declinedVersion = null;
 let busy = false;
+let checking = null;
 // 다운로드 완료됐지만 아직 설치 차례(유휴)를 못 만난 설치본 — 유휴가 오거나 앱이 꺼질 때 설치.
 //   트레이 상주 앱이라 재시작을 잘 안 해 업데이트가 영영 안 깔리던 문제 해소(0.2.31에 묶이던 케이스).
 let pendingInstall = null;
@@ -102,13 +103,19 @@ let idleTimer = null;
 let idleSince = 0;
 
 async function checkAndPrompt(getWindow, manual = false) {
+  if (checking) return checking;
+  checking = performCheck(getWindow, manual);
+  try { return await checking; } finally { checking = null; }
+}
+
+async function performCheck(getWindow, manual = false) {
   if (busy) {
     if (manual) await say(getWindow, { type: 'info', title: '업데이트 확인', message: '새 버전을 받는 중입니다. 받는 대로 자동으로 설치됩니다.' });
     return;
   }
   let yml;
   try {
-    const res = await fetch(`${FEED}/latest.yml`, { redirect: 'follow', cache: 'no-store' });
+    const res = await fetch(`${FEED}/latest.yml`, { redirect: 'follow', cache: 'no-store', signal: AbortSignal.timeout(30000) });
     if (!res.ok) { ulog(`feed HTTP ${res.status}`); if (manual) await say(getWindow, { type: 'warning', title: '업데이트 확인', message: `업데이트 정보를 가져오지 못했습니다 (HTTP ${res.status}).`, detail: '잠시 후 다시 시도해주세요.' }); return; }
     yml = await res.text();
   } catch (e) { ulog(`feed fetch 실패: ${e.message}`); if (manual) await say(getWindow, { type: 'warning', title: '업데이트 확인', message: '업데이트 정보를 가져오지 못했습니다.', detail: `네트워크 상태를 확인 후 다시 시도해주세요.\n(${e.message})` }); return; }
@@ -116,6 +123,11 @@ async function checkAndPrompt(getWindow, manual = false) {
   const ver = (yml.match(/^version:\s*(.+)$/m) || [])[1]?.trim();
   const file = (yml.match(/^path:\s*(.+)$/m) || [])[1]?.trim() || 'MegaloadDesktop-Setup.exe';
   const sha = (yml.match(/^sha512:\s*(.+)$/m) || [])[1]?.trim();
+  if (!/^\d+\.\d+\.\d+$/.test(ver || '') || !/^MegaloadDesktop-Setup-[\d.]+\.exe$/.test(file)
+      || !/^[A-Za-z0-9+/]{86}==$/.test(sha || '')) {
+    ulog('업데이트 메타데이터가 유효하지 않아 설치하지 않습니다');
+    return;
+  }
   const cur = app.getVersion();
   ulog(`${manual ? '[수동] ' : ''}현재 v${cur}, 최신 v${ver}`);
   if (!ver || cmpVer(ver, cur) <= 0) {           // 이미 최신
@@ -144,7 +156,7 @@ async function downloadAndQueue(ver, file, sha) {
   busy = true;
   const dest = join(tmpdir(), file);
   try {
-    const res = await fetch(`${FEED}/${file}`, { redirect: 'follow', cache: 'no-store' });
+    const res = await fetch(`${FEED}/${file}`, { redirect: 'follow', cache: 'no-store', signal: AbortSignal.timeout(15 * 60000) });
     if (!res.ok) throw new Error(`다운로드 HTTP ${res.status}`);
     const buf = Buffer.from(await res.arrayBuffer());
     // sha512 검증(있으면) — 손상/중간파일 설치 방지
@@ -152,12 +164,14 @@ async function downloadAndQueue(ver, file, sha) {
       const got = createHash('sha512').update(buf).digest('base64');
       if (got !== sha) { throw new Error('sha512 불일치 — 다운로드 손상'); }
     }
-    writeFileSync(dest, buf);
+    writeFileSync(dest + '.partial', buf);
+    renameSync(dest + '.partial', dest);
     ulog(`다운로드 완료 ${dest} (${buf.length}B)`);
     // 받아 둔 것은 앱이 어떻게 꺼지든(트레이 종료·PC 종료 전 수동 종료) 그때 설치된다 — before-quit 참조.
     pendingInstall = { dest, ver };
     installWhenIdle();
   } catch (e) {
+    try { unlinkSync(dest + '.partial'); } catch {}
     ulog(`다운로드 실패: ${e.message}`);   // 다음 주기 체크에서 다시 시도한다 — 사용자에게 띄울 일은 아니다
   } finally {
     busy = false;
@@ -255,8 +269,8 @@ export function setupAutoUpdate(opts) {
   });
   const check = () => checkAndPrompt(opts.getWindow).catch((e) => ulog(`체크 예외: ${e.message}`));
   setTimeout(check, 12_000);                  // 부팅 12초 후
-  // 1시간마다 — 고친 버전이 하루 안에 모두에게 닿게. latest.yml 은 수백 바이트라 부담이 없다.
-  setInterval(check, 60 * 60 * 1000);
+  // Five-minute retries also recover interrupted downloads and transient feed errors.
+  setInterval(check, 5 * 60 * 1000);
 }
 
 /** 수동 "업데이트 확인" — 최신이면 안내, 새 버전이면 받아서 유휴 때 설치. (앱의 버튼에서 호출) */

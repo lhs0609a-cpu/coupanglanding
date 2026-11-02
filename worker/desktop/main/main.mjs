@@ -519,7 +519,7 @@ app.whenReady().then(async () => {
   setupAutoUpdate({
     getWindow: () => win,
     isBusy: () => installing || isGenerating() || engineHold.size > 0
-      || !!runner?.llmRunning || !!ads?.busy || naverIngest.isBusy(),
+      || !!ads?.busy || naverIngest.isBusy(),
   });
 
   // 로그인(세션) 상태면 30초마다 하트비트 → 웹 연결 표시등이 "연결됨"으로 표시(썸네일 워커 미가동이어도).
