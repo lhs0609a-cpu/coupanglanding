@@ -39,8 +39,18 @@ export class ChromeTab {
    */
   get url() { return this._url; }
 
-  /** 탭이 살아 있는가 — 풀이 반납 시 확인한다(죽었으면 반납 대신 정리). */
-  get alive() { return !!this.page; }
+  /**
+   * 탭이 살아 있는가 — 풀이 반납 시 확인한다(죽었으면 반납 대신 정리).
+   *
+   * ★ **크롬이 죽었는지도 같이 본다**(실측 2026-11-03). 탭 핸들(this.page)은 크롬이 죽어도
+   *   그대로 남는다. 그래서 `!!this.page` 만 보던 예전 코드는 시체 탭을 "살아 있다"고 판정해
+   *   풀에 그대로 반납했고, 크롬이 새로 떠도(chrome-session 은 죽은 핸들을 스스로 버린다)
+   *   풀은 **옛 크롬에 붙은 탭 3장을 영원히 재사용**했다 — 모든 작업이 "크롬이 떠 있지
+   *   않습니다."로 실패하고, 10초마다 도는 _reconcile 은 탭 수가 모자라지 않으니 아무것도
+   *   하지 않는다. 실제로 수산물 상세 3건이 5시간 동안 이 상태로 돌았다.
+   *   페이지가 쥔 브라우저의 생존을 같이 보면, 풀이 그 자리에서 버리고 새 탭을 띄운다.
+   */
+  get alive() { return !!this.page && this.page.browser?.alive !== false; }
 
   async ensure() {
     if (this.page) return this.page;

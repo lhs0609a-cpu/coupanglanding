@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createSbClient } from '@supabase/supabase-js';
 import { createServiceClient } from '@/lib/supabase/server';
+import { pgSafe } from '@/lib/megaload/pg-safe-text';
 
 export const maxDuration = 30;
 export const dynamic = 'force-dynamic';
@@ -65,7 +66,9 @@ export async function POST(request: NextRequest) {
     images?: { main?: string[]; detail?: string[]; review?: string[] };
     folderPath?: string;
   } = {};
-  try { body = await request.json(); } catch { /* 아래에서 걸린다 */ }
+  try { body = pgSafe(await request.json()); } catch { /* 아래에서 걸린다 */ }
+  // ★ 여기서 한 번 거른다. 네이버 리뷰에 섞인 NUL·깨진 서로게이트는 Postgres 가 거부해서
+  //   저장이 500 으로 나가고, 큐가 그 상품을 30분마다 영원히 되살린다(pg-safe-text.ts).
 
   const productNo = String(body.productNo || '').trim();
   if (!/^\d+$/.test(productNo)) return NextResponse.json({ error: '유효한 productNo 가 없습니다.' }, { status: 400 });

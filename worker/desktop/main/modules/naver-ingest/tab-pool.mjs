@@ -105,6 +105,20 @@ export class TabPool {
     const generation = this._generation;
     const target = this.effectiveCount;
 
+    /**
+     * ★ 죽은 탭을 **먼저** 버린다(실측 2026-11-03).
+     * 크롬이 우리 손 밖에서 죽으면 탭 3장이 한꺼번에 시체가 된다. 예전에는 그 탭을 꺼내 쓴
+     * 작업이 실패한 뒤에야(withWindow 의 finally) 한 장씩 정리됐고, ChromeTab.alive 가
+     * 크롬 생존을 안 봐서 그 정리조차 일어나지 않았다. 10초마다 도는 이 함수가 수를 셀 때
+     * 시체도 한 장으로 세니 "모자라지 않다"가 되어 새 탭을 띄우지 않았다 — 영구 고장.
+     * 쉬는 탭 중 죽은 것은 여기서 치운다. 작업 중인 탭은 끝낸 뒤 finally 가 치운다.
+     */
+    const corpses = this.slots.filter((s) => !s.busy && !s.sw.alive);
+    if (corpses.length) {
+      this.slots = this.slots.filter((s) => !corpses.includes(s));
+      this.onLog(`창 ${corpses.length}개가 닫혀 있어 정리했습니다 — 새로 띄웁니다.`);
+    }
+
     // 줄이기 — 놀고 있는 탭부터 닫는다. 작업 중인 탭은 끝난 뒤 다음 주기에 정리된다.
     while (this.running && this.slots.length > target) {
       const idx = [...this.slots].reverse().find((s) => !s.busy && s.index !== 0)?.index;

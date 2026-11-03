@@ -5,6 +5,7 @@ import { fruitKindFromCategoryPath } from '@/lib/megaload/services/fruit-season'
 import { assignToQueue } from '@/lib/megaload/detail-queue-assign';
 import { isDetailExtractable } from '@/lib/megaload/naver-store-type';
 import { UNCLASSIFIED, PATH_SEP, flattenTree, pathMatches } from '@/lib/megaload/naver-category-tree';
+import { pgSafe } from '@/lib/megaload/pg-safe-text';
 
 export const maxDuration = 30;
 export const dynamic = 'force-dynamic';
@@ -243,7 +244,8 @@ export async function POST(request: NextRequest) {
   }
 
   let body: { items?: IncomingCard[]; categoryPath?: string } = {};
-  try { body = await request.json(); } catch { /* 아래에서 빈 배열로 걸린다 */ }
+  // 목록 제목에도 NUL·깨진 서로게이트가 섞여 온다 — 저장 전에 거른다(pg-safe-text.ts).
+  try { body = pgSafe(await request.json()); } catch { /* 아래에서 빈 배열로 걸린다 */ }
 
   const incoming = (body.items ?? []).filter((c) => c && c.productNo && c.url);
 
