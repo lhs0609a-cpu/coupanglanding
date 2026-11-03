@@ -16,10 +16,40 @@ import { isRetryable, failureLabel, isBillingKeyInvalid } from '@/lib/payments/f
 import { logSettlementError } from '@/lib/payments/settlement-errors';
 import { logSystemError } from '@/lib/utils/system-log';
 
-export const maxDuration = 30;
+// 전 PT생 순회 + 외부 결제(Toss) 호출을 한 요청에서 처리하므로 넉넉히 잡는다.
+//   ⚠ 과거 30s 였고, 2026-11-03 청구일에 실제로 초과해 함수가 강제 종료됐다.
+//   그때 finally(cron_release_lock) 가 실행되지 않아 락이 잔존했고, 미납 리포트 5건 중
+//   2건만 시도된 채 나머지는 다음 청구일(=다음 달 3일)까지 방치됐다.
+//   (payment-retry 는 tx 가 있는 건만 재시도하므로 미시도 건을 주워가지 못한다.)
+//   관리자 즉시청구(execute-billing-now)와 동일한 300s 로 맞춘다.
+export const maxDuration = 300;
 
 
 type ServiceClient = Awaited<ReturnType<typeof createServiceClient>>;
+
+/**
+ * 미납 리포트 — auto-billing 이 직접 쓰는 필드 + completeSettlement 가 요구하는 필드.
+ * (complete-settlement.ts 의 SettlementReport 는 export 되지 않아 여기서 구조만 맞춘다.)
+ * 호출부가 select('*') 로 일괄 조회해 processPtUser 로 넘긴다.
+ */
+interface UnpaidReport {
+  id: string;
+  pt_user_id: string;
+  year_month: string;
+  reported_revenue: number;
+  calculated_deposit: number;
+  admin_deposit_amount: number | null;
+  supply_amount: number;
+  vat_amount: number;
+  total_with_vat: number;
+  cost_product: number;
+  cost_commission: number;
+  cost_advertising: number;
+  cost_returns: number;
+  cost_shipping: number;
+  cost_tax: number;
+  fee_payment_deadline: string | null;
+}
 
 const CRON_LOCK_KEY = 'cron:auto-billing';
 // auto-billing 배치 최대 실행 예상 시간(초). 전체 PT 유저 순회 + 외부 결제 호출 포함.
@@ -85,6 +115,7 @@ export async function GET(request: NextRequest) {
         created_at,
         is_test_account,
         payment_overdue_since,
+        program_access_active,
         billing_excluded_until,
         contracts!inner(status)
       `)
@@ -93,6 +124,25 @@ export async function GET(request: NextRequest) {
 
     if (!ptUsers || ptUsers.length === 0) {
       return NextResponse.json({ success: true, message: '대상 PT 유저 없음', processed: 0 });
+    }
+
+    // 미납 리포트를 유저별로 N번 조회하지 않고 한 번에 가져온다.
+    //   ⚠ 과거엔 processPtUser 안에서 유저당 select 1회 + RPC 1회를 돌려(=2N 왕복)
+    //     결제를 한 건도 시도하기 전에 maxDuration 을 다 써버렸다. 청구 대상이 없는
+    //     유저가 대다수인데 그 유저들 왕복 비용이 전체 예산을 잡아먹는 구조였다.
+    //   select('*') 유지 — completeSettlement 가 리포트 전체 row 를 받는다.
+    const { data: allUnpaid } = await serviceClient
+      .from('monthly_reports')
+      .select('*')
+      .in('pt_user_id', ptUsers.map((u) => u.id))
+      .in('fee_payment_status', ['awaiting_payment', 'overdue', 'suspended'])
+      .order('year_month', { ascending: true });
+
+    const unpaidByUser = new Map<string, UnpaidReport[]>();
+    for (const r of (allUnpaid || []) as UnpaidReport[]) {
+      const list = unpaidByUser.get(r.pt_user_id) || [];
+      list.push(r);
+      unpaidByUser.set(r.pt_user_id, list);
     }
 
     let processed = 0;
@@ -122,7 +172,12 @@ export async function GET(request: NextRequest) {
       }
 
       try {
-        const result = await processPtUser(serviceClient, ptUser, todayDateStr);
+        const result = await processPtUser(
+          serviceClient,
+          ptUser,
+          todayDateStr,
+          unpaidByUser.get(ptUser.id) || [],
+        );
         processed += result.processed;
         succeeded += result.succeeded;
         failed += result.failed;
@@ -172,8 +227,15 @@ function defaultGraceUntil(createdAt: string | null): string | null {
 
 async function processPtUser(
   serviceClient: ServiceClient,
-  ptUser: { id: string; profile_id: string; payment_overdue_since?: string | null },
+  ptUser: {
+    id: string;
+    profile_id: string;
+    payment_overdue_since?: string | null;
+    program_access_active?: boolean | null;
+  },
   todayDateStr: string,
+  /** 호출부에서 일괄 조회해 넘긴 이 유저의 미납 리포트 (suspended 포함) */
+  unpaidReports: UnpaidReport[],
 ): Promise<{ processed: number; succeeded: number; failed: number; markedOverdue: boolean }> {
   let processed = 0;
   let succeeded = 0;
@@ -182,13 +244,7 @@ async function processPtUser(
   // 처리 시작 시점에 락 상태였는지 — 성공 알림 문구를 "정상 이용 복구" 로 분기.
   const wasOverdueAtStart = !!ptUser.payment_overdue_since;
 
-  // 미납 리포트 조회 — suspended 도 포함 (자동결제로 복구 가능하게)
-  const { data: unpaidReports } = await serviceClient
-    .from('monthly_reports')
-    .select('*')
-    .eq('pt_user_id', ptUser.id)
-    .in('fee_payment_status', ['awaiting_payment', 'overdue', 'suspended'])
-    .order('year_month', { ascending: true });
+  // 미납 리포트는 호출부가 일괄 조회해 넘긴다 (suspended 포함 — 자동결제로 복구 가능하게).
 
   // 실제로 낼 돈이 있는 리포트만 "청구 대상"으로 본다 (total_with_vat > 0).
   // 매출 0 / 등록월 유예 등으로 청구액이 없으면, 카드 유무·보고 유무와 무관하게
@@ -199,6 +255,16 @@ async function processPtUser(
 
   if (billableReports.length === 0) {
     // 낼 돈 없음 → 락 금지. 과거에 잘못 걸린 연체만 조건부 해제.
+    //   해제할 게 아무것도 없는 유저는 RPC 를 생략한다 — 대다수가 여기 해당하고, 이 왕복이
+    //   전체 PT생 수만큼 쌓여 결제를 한 건도 시도하기 전에 실행시간을 소진하던 원인이었다.
+    //   ⚠ 연체 플래그만 보고 건너뛰면 안 된다. payment_clear_overdue_if_settled 는
+    //     program_access_active 복구까지 담당할 수 있어(함수 본문이 리포지토리에 없고 프로덕션
+    //     DB 에만 존재), 플래그 없이 접근만 잠긴 유저의 복구 기회를 없앨 수 있다.
+    //     → 둘 다 깨끗할 때만 생략한다.
+    const nothingToClear = !ptUser.payment_overdue_since && ptUser.program_access_active !== false;
+    if (nothingToClear) {
+      return { processed, succeeded, failed, markedOverdue };
+    }
     const { error: clearErr } = await serviceClient.rpc('payment_clear_overdue_if_settled', {
       p_pt_user_id: ptUser.id,
     });
