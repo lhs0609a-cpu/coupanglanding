@@ -55,6 +55,7 @@ const navItems = [
   { href: '/admin/contracts', label: '계약 관리', icon: FileText },
   { href: '/admin/pt-users', label: 'PT 사용자 관리', icon: Users },
   { href: '/admin/education', label: '교육 관리', icon: GraduationCap },
+  { href: '/admin/training-sessions', label: '교육 일정·신청', icon: GraduationCap },
   { href: '/admin/training-videos', label: '교육 영상', icon: PlaySquare },
   { href: '/admin/trainers', label: '트레이너 관리', icon: GraduationCap },
   { href: '/admin/trends', label: '트렌드 관리', icon: Flame },
