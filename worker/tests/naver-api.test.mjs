@@ -36,6 +36,8 @@ async function loadRoute(name, { admin = false, owner = 'seller-1', status = 'ru
     '@supabase/supabase-js': { createClient: () => auth },
     '@/lib/supabase/server': { createClient: async () => auth, createServiceClient: async () => service },
     '@/lib/megaload/naver-store-type': { isDetailExtractable: () => true },
+    // 저장 전 NUL·깨진 서로게이트 정리(pg-safe-text.ts). 이 테스트는 인증·큐 상태 전이만 보므로 항등으로 둔다.
+    '@/lib/megaload/pg-safe-text': { pgSafe: (v) => v },
     // 로그인한 셀러 도우미가 자기 몫이 없을 때 스스로 일감을 가져가는 경로.
     '@/lib/megaload/detail-queue-assign': {
       adoptUnownedWork: async (_svc, uid, want) => { adopted.push({ uid, want }); return adoptGives; },
@@ -230,6 +232,8 @@ async function loadSaveRoute({ categoryPath = '과일>딸기', statuses = { a: '
     '@/lib/megaload/services/fruit-season': { fruitKindFromCategoryPath: () => 'strawberry' },
     '@/lib/megaload/detail-queue-assign': { assignToQueue: async (_s, ids, opts) => { assigned.push({ ids, opts }); return ids.length; } },
     '@/lib/megaload/naver-store-type': { isDetailExtractable: () => true },
+    // 저장 전 NUL·깨진 서로게이트 정리(pg-safe-text.ts). 이 테스트는 인증·큐 상태 전이만 보므로 항등으로 둔다.
+    '@/lib/megaload/pg-safe-text': { pgSafe: (v) => v },
     '@/lib/megaload/naver-category-tree': { UNCLASSIFIED: '__', PATH_SEP: '>', flattenTree: () => [], pathMatches: () => false },
   };
   const source = await readFile(new URL('../../src/app/api/megaload/naver-sourcing/products/route.ts', import.meta.url), 'utf8');
