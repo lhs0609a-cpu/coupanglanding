@@ -245,7 +245,11 @@ async function openProductLoop(sw, url, opts) {
     }
 
     // 상품명이 비었으면 SPA 가 덜 그려진 것이다 — 이 게이트가 껍데기 저장을 막는다.
-    if (!data?.name || data.name === 'NAVER' || data.name === 'Unknown') {
+    //   ⚠️ 로그인 벽에 막히면 P.name 이 비고 document.title("NAVER 로그인")이 상품명으로 들어온다.
+    //      그대로 저장하면 카테고리(수저·젓가락)·옵션·태그가 전부 그 제목으로 만들어진다(실측 2026-11-26).
+    if (!data?.name || data.name === 'NAVER' || data.name === 'Unknown'
+        || /^(NAVER|네이버)\s*[:：]?\s*(로그인|Sign ?in|Log ?in)/i.test(data.name)
+        || /^\[에러\]|에러페이지|시스템오류/.test(data.name)) {
       note(`유효하지 않은 상품명(${data?.name || '없음'}) — 페이지가 덜 로드됨`);
       naverGate.recordFailure();
       await sleep(2000, undefined, { signal });
