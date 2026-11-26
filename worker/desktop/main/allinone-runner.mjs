@@ -15,7 +15,7 @@ import { checkGpu, checkSystemRam } from './bootstrap.mjs';
 //   낮추는 데는 쓰지 않는다**(freemem 은 출렁여서 좋은 PC 를 강등시킬 수 있다. pickGenProfile 주석).
 //   3B q4 ≈ 1.9GB + 컨텍스트. 이보다 여유가 없으면 모델 적재 자체가 실패할 수 있다
 //   (실측 사고: CPU_REPACK 3.1GiB 할당 실패 → llama-server 사망 → 생성 0건).
-const RAM_FOR_SMALL_MB = 3000;
+import { classifyTier, pickModel, requiredRamMb, RAM_FOR_SMALL_MB } from './model-tier.mjs';
 import { serverParallelHint } from './ollama-manager.mjs';
 import { listModels, explainLlmError } from '../runtime/local-llm.mjs';
 import { maskInternalNames } from './mask-internal.mjs';
@@ -68,14 +68,13 @@ export async function pickGenProfile() {
   //   티어별 선호순으로, 이미 깔린 첫 모델을 쓴다. 하나도 없으면 대표값(그때만 pull).
   let installed = [];
   try { installed = await listModels(); } catch { /* ollama 아직 미기동 → 기본값 */ }
-  const STRONG_PREFS = ['exaone3.5:7.8b', 'qwen2.5:7b-instruct', 'qwen2.5:7b'];
+  // 티어 결정은 model-tier.mjs(순수 함수, 단위 테스트됨). 모델 선택은 총 RAM·GPU 기준이고 남은 RAM 은 쓰지 않는다.
   // ⚠️ 예전엔 SMALL_PREFS 끝에 'exaone3.5:7.8b' 가 있었다 — **저사양 티어가 7.8B 를 고르는 버그**.
   //    OllamaManager 기본 모델이 exaone3.5:7.8b 라 어느 PC든 그건 이미 깔려 있고, 작은 모델은
   //    안 깔려 있다. 그래서 "약한 PC" 판정을 받고도 installed 검색이 7.8B 에 걸려 큰 모델이
   //    선택됐다(→ VRAM 초과 → RAM 스필 → CPU_REPACK 실패로 전멸). 작은 티어는 끝까지 작게 간다.
-  const SMALL_PREFS = ['qwen2.5:3b-instruct', 'exaone3.5:2.4b', 'qwen2.5:3b'];
-  const prefs = strong ? STRONG_PREFS : SMALL_PREFS;
-  const model = prefs.find((n) => installed.some((m) => m === n)) || prefs[0];
+  const { tier, gpuUsable } = classifyTier({ strong, gpuOk: gpu.ok, vramFreeMb: freeMb, ramTotalMb: ram.totalMb });
+  const model = pickModel(tier, installed);
 
   // ⚡ 동시 생성 개수 — 단일 GPU 라도 ollama 는 여러 요청을 한 배치로 디코딩한다.
   //    상품 1개씩 순차로 돌리면 GPU 가 놀아서(디코딩은 메모리 대역폭 병목) 처리량이 크게 손해다.
@@ -102,7 +101,7 @@ export async function pickGenProfile() {
   const visionOverlap = resources.visionOverlap;
 
   return {
-    gpu, strong, scarce, model, ram, ramTight, resources,
+    gpu, strong, scarce, model, tier, gpuUsable, ram, ramTight, resources,
     concurrency, recogConcurrency, visionOverlap, installedCount: installed.length,
   };
 }
@@ -246,10 +245,12 @@ async function startGenerationImpl({
   //   되찾은 뒤에도 모자라면 **시작하지 않는다**. 여기서 밀어붙여 봐야 몇 분 태우고 같은
   //   자리에서 죽는다 — 그 몇 분과 "왜 실패했는지 모름"을 사용자에게 남기지 않는다.
   ramNow = checkSystemRam();
-  const stillTight = generationResources({ gpu: profile.gpu, ram: ramNow, cores: cpus().length }).memoryBlocked;
+  // 시작 거부 기준은 티어별(tiny 는 1.8GB, 그 밖은 3GB). GPU 를 쓰는 PC 는 RAM 으로 막지 않는다.
+  const needMb = requiredRamMb(profile.tier);
+  const stillTight = !profile.gpuUsable && ramNow.reliable && ramNow.freeMb < needMb;
   if (stillTight) {
     const reason = `시스템 메모리가 부족해 시작하지 않았습니다 — 지금 쓸 수 있는 메모리가 `
-      + `${gb(ramNow.freeMb)}GB 뿐이고 AI 모델을 올리려면 최소 ${gb(RAM_FOR_SMALL_MB)}GB 가 필요합니다. `
+      + `${gb(ramNow.freeMb)}GB 뿐이고 AI 모델을 올리려면 최소 ${gb(needMb)}GB 가 필요합니다. `
       + `현재 그래픽 메모리가 충분하지 않아 시스템 메모리가 필요합니다 — 크롬(탭이 많으면 수 GB)이나 `
       + `다른 AI·영상 프로그램을 닫고 다시 눌러주세요. `
       + `가상 메모리(페이지파일)가 꺼져 있어도 같은 증상이 납니다.`;
@@ -433,7 +434,11 @@ async function startGenerationImpl({
   ];
   // 비전 판정 1회 상한 — GPU 있으면 상품당 수 초라 3분은 사실상 안 걸리는 안전망이고,
   // 없으면 90초에서 끊어 그 상품만 휴리스틱으로 넘긴다(생성이 통째로 멈추는 것 방지).
-  args.push('--vision-timeout', String(profile.gpu.ok ? 180_000 : 90_000));
+  // GPU 를 쓸 수 없는 PC(노트북 내장그래픽·VRAM 부족 포함)는 비전 VLM 을 끈다. CPU 에서 7B VLM 은
+  //   상품당 수 분이라 거의 전부 상한에서 끊기고 휴리스틱으로 떨어질 뿐, 그 대기만 쌓인다.
+  //   이 경우 CLIP·L1 휴리스틱만 쓴다(run-folder --no-vision). GPU 가 쓸 만하면 예전 그대로.
+  if (!profile.gpuUsable) args.push('--no-vision');
+  else args.push('--vision-timeout', '180000');
   // GPU 가 아예 없으면 비전 모델(5.6GB)을 새로 받지 않는다 — 받아도 상한 초과로 못 쓰는 일이 잦다.
   //   실측(num_gpu=0 재현): 최소 조건 1콜 88.0초(같은 PC GPU 15.0초)인데 상품당 2콜을 동시에 던진다.
   //   이미 설치된 PC 는 그대로 쓰고, 상한 초과가 반복되면 run-folder 가 알아서 접는다(회로차단).

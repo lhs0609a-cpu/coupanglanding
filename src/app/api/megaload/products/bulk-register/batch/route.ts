@@ -62,6 +62,8 @@ function isNonProductImage(url: string): boolean {
  * 쿠팡: 최소 500×500, 최대 5000×5000, 최대 10MB
  * 규격 밖이면 jimp로 리사이징 + 재업로드, 규격 내면 원본 URL 반환
  */
+import { parseCoupangDetectedBrand, stripBrandFromPayload } from '@/lib/megaload/services/coupang-brand-rename';
+
 async function ensureImageSpec(
   url: string,
   megaloadUserId: string,
@@ -868,6 +870,7 @@ export async function POST(req: NextRequest) {
         result = await idempotentCreate();
       } catch (apiErr) {
         const errMsg = apiErr instanceof Error ? apiErr.message : '쿠팡 API 등록 실패';
+        const detectedBrandName = parseCoupangDetectedBrand(errMsg);
         const isNoticeError = /고시정보|notices|subschemas?\s*matched/i.test(errMsg);
 
         if (isNoticeError) {
@@ -914,6 +917,20 @@ export async function POST(req: NextRequest) {
             return {
               uid: product.uid, productCode: product.productCode, name: product.name,
               success: false, error: `${diagInfo} | retry: ${retryMsg}`, duration: Date.now() - productStart, brandWarning,
+              detailedError: classifyError(retryMsg, 'API 등록', retryMsg),
+            };
+          }
+        } else if (detectedBrandName && stripBrandFromPayload(payload as Record<string, unknown>, detectedBrandName)) {
+          // 쿠팡이 '브랜드 X 감지'로 거절 — 셀러 WING 에 없는 브랜드명이 노출상품명에 들어간 경우.
+          // 쿠팡 안내대로 노출상품명에서 그 이름만 빼고 1회 재시도(brandId 는 권한이 없어 붙이지 않는다).
+          console.warn(`[batch] 브랜드 감지 거절 → 노출상품명에서 '${detectedBrandName}' 제거 후 1회 재시도`);
+          try {
+            result = await idempotentCreate();
+          } catch (retryErr) {
+            const retryMsg = retryErr instanceof Error ? retryErr.message : '쿠팡 API 등록 실패 (브랜드 제거 재시도)';
+            return {
+              uid: product.uid, productCode: product.productCode, name: product.name,
+              success: false, error: `[v5] ${retryMsg} (노출상품명에서 '${detectedBrandName}' 제거 후 재시도함)`, duration: Date.now() - productStart, brandWarning,
               detailedError: classifyError(retryMsg, 'API 등록', retryMsg),
             };
           }
