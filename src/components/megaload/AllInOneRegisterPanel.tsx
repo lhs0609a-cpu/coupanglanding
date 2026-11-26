@@ -231,6 +231,20 @@ interface ReturnCenter { returnCenterCode: number; shippingPlaceName: string; re
 
 const won = (n: number | null | undefined) => (n == null ? '-' : Number(n).toLocaleString() + '원');
 
+/**
+ * 원본명이 상품명이 아니라 **네이버 로그인/에러 페이지 제목**인가.
+ * 수집기가 로그인 벽에 막힌 채 document.title 을 상품명으로 저장한 적이 있다(실측 2026-11-26:
+ * "NAVER 로그인" → 카테고리가 수저·젓가락으로 잡히고, 옵션 추출도 이 제목에서 해 색상·구성품이 빈칸).
+ * 이런 원본명은 옵션 추출·표시에 쓰지 않는다.
+ */
+function isJunkSourceName(name?: string | null): boolean {
+  const s = (name || '').trim();
+  if (!s) return false;
+  return /^(NAVER|네이버)\s*[:：]?\s*(로그인|Sign ?in|Log ?in)/i.test(s)
+    || /^\[에러\]|에러페이지|시스템오류/.test(s)
+    || s === 'NAVER' || s === 'Unknown';
+}
+
 /** 옵션 표시문자열(값+단위) — 오버라이드 전송/비교용. */
 function optDisplay(o: { value: string; unit?: string }): string {
   return `${o.value ?? ''}${o.unit || ''}`.trim();
@@ -330,9 +344,10 @@ function isEligible(e: RowEdit): boolean {
  *   Enter 는 커밋 후 같은 카드의 다음 입력칸으로 포커스를 옮긴다(Tab 과 동일 효과).
  */
 function DraftField({
-  value, onCommit, disabled, placeholder, className, inputMode, sanitize,
+  value, onCommit, disabled, placeholder, className, inputMode, sanitize, title,
 }: {
   value: string;
+  title?: string;
   onCommit: (v: string) => void;
   disabled?: boolean;
   placeholder?: string;
@@ -349,6 +364,7 @@ function DraftField({
       value={draft}
       inputMode={inputMode}
       disabled={disabled}
+      title={title}
       placeholder={placeholder}
       className={className}
       onChange={(e) => setDraft(sanitize ? sanitize(e.target.value) : e.target.value)}
@@ -972,7 +988,8 @@ export default function AllInOneRegisterPanel() {
     .map((r) => ({
       uid: r.uid,
       categoryCode: r.edit.categoryCode,
-      productName: r.gen?.originalName || r.edit.displayName,
+      // 원본명이 로그인/에러 페이지 제목이면 노출명으로 추출한다(그 제목엔 스펙이 하나도 없다).
+      productName: (r.gen?.originalName && !isJunkSourceName(r.gen.originalName)) ? r.gen.originalName : r.edit.displayName,
       displayName: r.edit.displayName,
       tags: r.gen?.keywords,
       categoryPath: r.edit.categoryPath,
@@ -3515,6 +3532,12 @@ export default function AllInOneRegisterPanel() {
                       <span className="text-gray-400">원본명:</span> {g.originalName}
                     </p>
                   )}
+                  {isJunkSourceName(g?.originalName) && (
+                    <p className="px-1 text-[11px] text-red-600 leading-snug">
+                      ⚠️ 원본 수집이 네이버 로그인 페이지에 막혀 상품명이 「{g!.originalName}」으로 저장됐습니다.
+                      카테고리·검색어 태그가 틀렸을 수 있습니다 — <b>카테고리 코드</b>를 직접 바꾸면 옵션칸이 새 카테고리 기준으로 다시 채워집니다.
+                    </p>
+                  )}
                   {/* 카테고리 경로 + 코드 — 직접 수정 or 트리 선택 */}
                   <div className="flex items-center gap-1">
                     <DraftField value={e.categoryPath} disabled={!editable}
@@ -3708,7 +3731,9 @@ export default function AllInOneRegisterPanel() {
                     const vCls = miss ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-blue-300 disabled:bg-gray-50';
                     return (
                     <div key={i} className="flex items-center gap-1">
-                      <DraftField value={o.name} disabled={!editable} onCommit={(v) => patchOption(r.uid, i, { name: v })} placeholder="항목" className="w-20 text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
+                      <DraftField value={o.name} disabled={!editable || miss}
+                        title={miss ? '카테고리가 정한 옵션명이라 바꿀 수 없습니다. 항목이 틀렸다면(예: 쌀인데 색상) 카테고리 코드를 고치세요 — 옵션칸이 새 카테고리 기준으로 다시 채워집니다.' : undefined}
+                        onCommit={(v) => patchOption(r.uid, i, { name: v })} placeholder="항목" className="w-20 text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
                       <DraftField value={o.value} disabled={!editable} onCommit={(v) => patchOption(r.uid, i, { value: v })} placeholder={miss ? '직접 입력' : '값'} className={`flex-1 min-w-0 text-[11px] border rounded px-1 py-0.5 focus:outline-none ${vCls}`} />
                       <DraftField value={o.unit || ''} disabled={!editable} onCommit={(v) => patchOption(r.uid, i, { unit: v })} placeholder="단위" className="w-12 text-[11px] border border-gray-200 focus:border-blue-300 rounded px-1 py-0.5 focus:outline-none disabled:bg-gray-50" />
                       {/* 직접 입력 대상 행은 지우면 입력칸이 사라져 등록차단을 풀 방법이 없어진다 → 삭제 금지 */}
