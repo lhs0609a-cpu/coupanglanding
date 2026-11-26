@@ -68,12 +68,56 @@ export function explainLlmError(raw) {
   //   주소는 이 PC 의 ollama 한 곳뿐이라 뜻이 하나로 정해진다 — **엔진이 없다**.
   //   그런데 그대로 노출하면 사용자에게는 네트워크·서버 문제로 읽힌다(실측 2026-09-10:
   //   화면에 딱 'fetch failed' 네 글자만 떴고, 그걸로는 아무도 원인을 알 수 없었다).
+  // GPU 연산 오류(CUDA illegal instruction 등) — OOM 분기 뒤에 둔다(메시지에 "CUDA error" 가 겹친다).
+  if (isGpuFaultError(s)) {
+    return 'GPU 연산 오류로 AI 모델 실행이 중단됐습니다(그래픽 드라이버 또는 AI 엔진 문제일 수 있습니다). '
+      + '자동으로 CPU 모드로 바꿔 다시 시도합니다. 계속 실패하면 그래픽 드라이버와 ollama 를 최신으로 올리고 PC 를 재부팅하세요. 원문: ' + s.slice(0, 200);
+  }
   if (/fetch failed|ECONNREFUSED|ECONNRESET|socket hang up/i.test(s)) {
     return 'AI 엔진(ollama)에 연결하지 못했습니다 — 엔진이 꺼져 있거나 다시 올라오는 중입니다.'
       + ' 메모리(RAM·VRAM)가 모자라 엔진이 꺼지는 경우가 가장 흔하니, 크롬 탭이나 다른 AI·영상 프로그램을 닫고 다시 시도하세요.'
       + ' 원문: ' + s.slice(0, 200);
   }
   return s;
+}
+
+/**
+ * GPU 커널 실행 오류 판별 (VRAM 부족과 **다른** 오류).
+ * ---------------------------------------------------------------------------
+ * 실측(2026-11-19, 다른 PC): "an error was encountered while running the model: CUDA error:
+ * an illegal instruction was encountered" — HTTP 500. 엔진은 살아 있지만 GPU 연산이 깨진 것.
+ * 같은 PC에서도 간헐적으로 나므로 PC 사양으로 미리 거를 수 없다 → 실패했을 때 복구한다.
+ * (OOM 메시지는 여기 걸리지 않게 explainLlmError 에서 먼저 본다.)
+ */
+const GPU_FAULT_RE = /CUDA error|illegal (?:memory access|instruction)|cudaErrorIllegal|ggml_cuda|GGML_ASSERT.*cuda/i;
+export function isGpuFaultError(raw) {
+  return GPU_FAULT_RE.test(String(raw || ''));
+}
+
+/**
+ * GPU 오류가 한 번 나면 이 프로세스는 일정 시간 CPU(num_gpu=0)로 돈다.
+ * 깨진 CUDA 컨텍스트에 계속 던지면 남은 상품이 전부 같은 오류로 죽는다.
+ * 시간이 지나면 다시 GPU 를 시도한다(드라이버가 회복됐을 수 있다).
+ */
+const GPU_COOLDOWN_MS = Number(process.env.MEGALOAD_GPU_FAULT_COOLDOWN_MS) || 10 * 60_000;
+let gpuFaultUntil = 0;
+/** 호출자가 num_gpu 를 명시하지 않았을 때 쓸 값. */
+const gpuLayersDefault = () => (Date.now() < gpuFaultUntil ? 0 : 99);
+
+/**
+ * postGenerate 를 감싼다. GPU 연산 오류면: 모델을 언로드해 깨진 컨텍스트를 비우고,
+ * CPU(num_gpu=0)로 **한 번** 다시 보낸다. CPU 에서도 실패하면 그 오류를 그대로 올린다.
+ */
+async function postWithGpuFallback(body, opts) {
+  try {
+    return await postGenerate(body, opts);
+  } catch (e) {
+    if (!isGpuFaultError(e?.message) || opts?.signal?.aborted) throw e;
+    gpuFaultUntil = Date.now() + GPU_COOLDOWN_MS;
+    engineLog(`GPU 연산 오류 — ${Math.round(GPU_COOLDOWN_MS / 60000)}분간 CPU 로 전환하고 같은 요청을 다시 보냅니다`);
+    await unload(body.model);
+    return await postGenerate({ ...body, options: { ...body.options, num_gpu: 0 } }, opts);
+  }
 }
 
 /** ollama 데몬이 떠 있는지 */
@@ -214,13 +258,13 @@ export async function generate({ model, prompt, system, options = {}, format, ke
     stream: false,
     // 모델을 VRAM에 30분 유지 → 매 생성마다 콜드 로드(5.5초) 반복 방지(웜 0.2초).
     keep_alive: keep_alive ?? '30m',
-    options: { temperature: 0.7, top_p: 0.9, num_ctx: 4096, num_gpu: 99, ...options },
+    options: { temperature: 0.7, top_p: 0.9, num_ctx: 4096, num_gpu: gpuLayersDefault(), ...options },
   };
   if (format) body.format = format;
   const t0 = Date.now();
   // 연결 실패(fetch failed/ECONNREFUSED 등)의 처리는 postGenerate 한 곳에 있다 —
   // 엔진이 잠깐 못 받는 것이면 짧게 재시도하고, 아예 사라진 것이면 돌아올 때까지 기다린다.
-  const j = await postGenerate(body, { timeoutMs, signal });
+  const j = await postWithGpuFallback(body, { timeoutMs, signal });
   const ms = Date.now() - t0;
   const evalCount = j.eval_count || 0;
   const evalNs = j.eval_duration || 0; // nanoseconds
@@ -257,11 +301,11 @@ export async function generateVision({ model, prompt, images = [], system, optio
     stream: false,
     keep_alive: keep_alive ?? '30m',
     // 비전은 결정적 판정이 중요 → temperature 낮게. num_ctx 는 이미지 토큰 여유.
-    options: { temperature: 0.1, top_p: 0.9, num_ctx: 8192, num_gpu: 99, ...options },
+    options: { temperature: 0.1, top_p: 0.9, num_ctx: 8192, num_gpu: gpuLayersDefault(), ...options },
   };
   if (format) body.format = format;
   const t0 = Date.now();
-  const j = await postGenerate(body, { timeoutMs, signal, label: 'vision ' });
+  const j = await postWithGpuFallback(body, { timeoutMs, signal, label: 'vision ' });
   return { text: (j.response || '').trim(), ms: Date.now() - t0 };
 }
 
